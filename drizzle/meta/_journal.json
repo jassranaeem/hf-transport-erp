@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788772067567,
+      "tag": "0000_rainy_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788780382082,
+      "tag": "0001_sparkling_nighthawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788879893240,
+      "tag": "0002_wooden_malcolm_colcord",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788886061306,
+      "tag": "0003_skinny_tattoo",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788945260765,
+      "tag": "0004_massive_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788958089991,
+      "tag": "0005_alerts_sms",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789044489991,
+      "tag": "0006_personal_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789130889991,
+      "tag": "0007_company_logo",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789217289991,
+      "tag": "0008_invoice_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789303689991,
+      "tag": "0009_quotations",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789390089991,
+      "tag": "0010_quotation_validity_10",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789476489991,
+      "tag": "0011_real_backups",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789562889991,
+      "tag": "0012_truck_ledger_driver",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789649289991,
+      "tag": "0013_ledger_expense_maintenance_link",
+      "breakpoints": true
+    }
+  ]
+}

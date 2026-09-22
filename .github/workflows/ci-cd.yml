@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_pass
+          POSTGRES_DB: hf_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:ci_pass@localhost:5432/hf_ci?sslmode=disable
+      DATABASE_SSL: "false"
+      JWT_SECRET: ci-only-not-a-real-secret-0123456789abcdef0123456789abcdef
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Integration tests
+        run: npm run test:itest
+
+      - name: Build Docker image
+        run: docker build -t hf-transport-erp:${{ github.sha }} .

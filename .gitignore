@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Firebase service-account keys - never commit
+service-account.json
+*-service-account.json
+serviceAccountKey.json
+
+# Real DB backups / uploaded documents - never commit (contains real client data)
+backups/*
+!backups/.gitkeep
+uploads/**
+!uploads/.gitkeep
+!uploads/*/.gitkeep

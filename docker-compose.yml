@@ -1,0 +1,35 @@
+# LOCAL DEVELOPMENT infrastructure only (Postgres + Redis).
+# Run the app itself with `npm run dev`.
+#   docker compose up -d
+# For a full containerised production stack see docker-compose.prod.yml.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hf_transport_erp_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: hf_secure_pass_2026
+      POSTGRES_DB: hf_transport_erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    container_name: hf_transport_erp_cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - cache_data:/data
+
+volumes:
+  pgdata:
+  cache_data:

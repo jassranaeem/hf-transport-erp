@@ -1,0 +1,40 @@
+# Render.com Blueprint - free web service.
+# Database: use a free Neon Postgres (https://neon.tech) and paste its pooled
+# connection string into DATABASE_URL in the Render dashboard.
+#
+# Deploy: push this repo to GitHub, then Render -> New -> Blueprint -> pick the repo.
+services:
+  - type: web
+    name: hf-transport-erp
+    runtime: node
+    plan: free
+    region: oregon            # or: frankfurt, singapore, ohio
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: MIGRATE_ON_BOOT
+        value: "true"
+      # --- secrets: set these in the Render dashboard (sync:false = not in git) ---
+      - key: DATABASE_URL           # Neon pooled connection string (?sslmode=require)
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET             # openssl rand -hex 48
+        generateValue: true
+      - key: SUPER_ADMIN_EMAIL
+        value: jassranaeem@gmail.com
+      - key: SUPER_ADMIN_PASSWORD   # first-login password; rotate after logging in
+        sync: false
+      - key: APP_URL               # e.g. https://hf-transport-erp.onrender.com
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID      # optional - enables "Sign in with Google"
+        sync: false

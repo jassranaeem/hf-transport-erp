@@ -1,0 +1,15 @@
+{
+  "name": "HFK Enterprises ERP",
+  "short_name": "HFK ERP",
+  "description": "HFK Enterprises Pvt Ltd — fleet, dispatch, live GPS tracking, finance and HR.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#24539B",
+  "theme_color": "#24539B",
+  "icons": [
+    { "src": "/hfk-logo.png", "type": "image/png", "sizes": "any", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+  ]
+}

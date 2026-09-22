@@ -1,0 +1,743 @@
+{
+  "generatedAt": "2026-09-08T17:19:54.339Z",
+  "fuelIntegrityAudit": {
+    "params": {
+      "from": null,
+      "to": null,
+      "expectedKmPerLitre": 3.5,
+      "tankCapacityLitres": 500,
+      "tolerancePercent": 12,
+      "avgFuelRate": 287.62,
+      "alertsRaised": 8
+    },
+    "summary": {
+      "transactionsAudited": 26,
+      "flaggedTransactions": 11,
+      "driversReviewed": 3,
+      "driversHighRisk": 1,
+      "estimatedFuelLossLitres": 1453.1,
+      "estimatedFuelLossValue": 417934
+    },
+    "drivers": [
+      {
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "fills": 10,
+        "litresDrawn": 3345,
+        "litresInTank": 300,
+        "fuelSpend": 1107034,
+        "distanceKm": 7304,
+        "expectedLitres": 2087,
+        "overdrawLitres": 1258.1,
+        "overdrawPercent": 60,
+        "impliedKmPerLitre": 2.18,
+        "estimatedLossValue": 361849,
+        "flaggedFills": 9,
+        "criticalFills": 3,
+        "riskLevel": "High"
+      },
+      {
+        "driverId": 6,
+        "driverName": "Naveed Akhtar",
+        "fills": 8,
+        "litresDrawn": 2085,
+        "litresInTank": 300,
+        "fuelSpend": 688825,
+        "distanceKm": 6615,
+        "expectedLitres": 1890,
+        "overdrawLitres": 195,
+        "overdrawPercent": 10,
+        "impliedKmPerLitre": 3.17,
+        "estimatedLossValue": 56085,
+        "flaggedFills": 2,
+        "criticalFills": 0,
+        "riskLevel": "Medium"
+      },
+      {
+        "driverId": 7,
+        "driverName": "Shahid Mehmood",
+        "fills": 8,
+        "litresDrawn": 2225,
+        "litresInTank": 320,
+        "fuelSpend": 735078,
+        "distanceKm": 8064,
+        "expectedLitres": 2304,
+        "overdrawLitres": -79,
+        "overdrawPercent": -3,
+        "impliedKmPerLitre": 3.62,
+        "estimatedLossValue": 0,
+        "flaggedFills": 0,
+        "criticalFills": 0,
+        "riskLevel": "Low"
+      }
+    ],
+    "vehicles": [
+      {
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "fills": 10,
+        "litresDrawn": 3345,
+        "fuelSpend": 1107034,
+        "distanceKm": 7304,
+        "expectedLitres": 2087,
+        "overdrawLitres": 1258.1,
+        "impliedKmPerLitre": 2.18,
+        "flaggedFills": 9
+      },
+      {
+        "vehicleId": 6,
+        "vehicleNumber": "HFD-1719-005",
+        "fills": 8,
+        "litresDrawn": 2085,
+        "fuelSpend": 688825,
+        "distanceKm": 6615,
+        "expectedLitres": 1890,
+        "overdrawLitres": 195,
+        "impliedKmPerLitre": 3.17,
+        "flaggedFills": 2
+      },
+      {
+        "vehicleId": 7,
+        "vehicleNumber": "HFD-1719-006",
+        "fills": 8,
+        "litresDrawn": 2225,
+        "fuelSpend": 735078,
+        "distanceKm": 8064,
+        "expectedLitres": 2304,
+        "overdrawLitres": -79,
+        "impliedKmPerLitre": 3.62,
+        "flaggedFills": 0
+      }
+    ],
+    "flaggedTransactions": [
+      {
+        "transactionId": 36,
+        "transactionNumber": "TXN-FUEL-1788887993280",
+        "date": "2026-09-07T01:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 300,
+        "legKm": null,
+        "legKmpl": null,
+        "expectedLitresForLeg": null,
+        "overdrawLitresForLeg": null,
+        "flags": [
+          {
+            "code": "FUEL_WITHOUT_TRIP",
+            "severity": "Medium",
+            "detail": "Fuel drawn with no linked trip and no active trip for HFD-1719-004 around this date."
+          }
+        ]
+      },
+      {
+        "transactionId": 35,
+        "transactionNumber": "TXN-FUEL-1788887993247",
+        "date": "2026-09-06T01:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 640,
+        "legKm": 660,
+        "legKmpl": 1.03,
+        "expectedLitresForLeg": 188.6,
+        "overdrawLitresForLeg": 451.4,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "Critical",
+            "detail": "Drew 640 L but the 660 km driven before the next fill only justifies ~188.6 L (+239% / 451.4 L over)."
+          },
+          {
+            "code": "IMPLAUSIBLE_LOW_KMPL",
+            "severity": "High",
+            "detail": "Only 1.03 km per litre on this leg — well below what a loaded truck can burn; likely siphoning."
+          },
+          {
+            "code": "TANK_OVER_CAPACITY",
+            "severity": "High",
+            "detail": "Single fill of 640 L exceeds the 500 L tank capacity."
+          }
+        ]
+      },
+      {
+        "transactionId": 33,
+        "transactionNumber": "TXN-FUEL-1788887993197",
+        "date": "2026-09-02T13:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 325,
+        "legKm": 748,
+        "legKmpl": 2.3,
+        "expectedLitresForLeg": 213.7,
+        "overdrawLitresForLeg": 111.3,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "High",
+            "detail": "Drew 325 L but the 748 km driven before the next fill only justifies ~213.7 L (+52% / 111.3 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 24,
+        "transactionNumber": "TXN-FUEL-1788887992957",
+        "date": "2026-08-31T12:19:53.371Z",
+        "vehicleId": 6,
+        "vehicleNumber": "HFD-1719-005",
+        "driverId": 6,
+        "driverName": "Naveed Akhtar",
+        "litres": 315,
+        "legKm": 898,
+        "legKmpl": 2.85,
+        "expectedLitresForLeg": 256.6,
+        "overdrawLitresForLeg": 58.4,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "Medium",
+            "detail": "Drew 315 L but the 898 km driven before the next fill only justifies ~256.6 L (+23% / 58.4 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 32,
+        "transactionNumber": "TXN-FUEL-1788887993180",
+        "date": "2026-08-31T12:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 355,
+        "legKm": 715,
+        "legKmpl": 2.01,
+        "expectedLitresForLeg": 204.3,
+        "overdrawLitresForLeg": 150.7,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "Critical",
+            "detail": "Drew 355 L but the 715 km driven before the next fill only justifies ~204.3 L (+74% / 150.7 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 31,
+        "transactionNumber": "TXN-FUEL-1788887993147",
+        "date": "2026-08-28T11:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 340,
+        "legKm": 781,
+        "legKmpl": 2.3,
+        "expectedLitresForLeg": 223.1,
+        "overdrawLitresForLeg": 116.9,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "High",
+            "detail": "Drew 340 L but the 781 km driven before the next fill only justifies ~223.1 L (+52% / 116.9 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 30,
+        "transactionNumber": "TXN-FUEL-1788887993131",
+        "date": "2026-08-26T10:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 325,
+        "legKm": 748,
+        "legKmpl": 2.3,
+        "expectedLitresForLeg": 213.7,
+        "overdrawLitresForLeg": 111.3,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "High",
+            "detail": "Drew 325 L but the 748 km driven before the next fill only justifies ~213.7 L (+52% / 111.3 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 21,
+        "transactionNumber": "TXN-FUEL-1788887992870",
+        "date": "2026-08-23T09:19:53.371Z",
+        "vehicleId": 6,
+        "vehicleNumber": "HFD-1719-005",
+        "driverId": 6,
+        "driverName": "Naveed Akhtar",
+        "litres": 315,
+        "legKm": 898,
+        "legKmpl": 2.85,
+        "expectedLitresForLeg": 256.6,
+        "overdrawLitresForLeg": 58.4,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "Medium",
+            "detail": "Drew 315 L but the 898 km driven before the next fill only justifies ~256.6 L (+23% / 58.4 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 29,
+        "transactionNumber": "TXN-FUEL-1788887993096",
+        "date": "2026-08-23T09:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 355,
+        "legKm": 715,
+        "legKmpl": 2.01,
+        "expectedLitresForLeg": 204.3,
+        "overdrawLitresForLeg": 150.7,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "Critical",
+            "detail": "Drew 355 L but the 715 km driven before the next fill only justifies ~204.3 L (+74% / 150.7 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 28,
+        "transactionNumber": "TXN-FUEL-1788887993080",
+        "date": "2026-08-21T08:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 340,
+        "legKm": 781,
+        "legKmpl": 2.3,
+        "expectedLitresForLeg": 223.1,
+        "overdrawLitresForLeg": 116.9,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "High",
+            "detail": "Drew 340 L but the 781 km driven before the next fill only justifies ~223.1 L (+52% / 116.9 L over)."
+          }
+        ]
+      },
+      {
+        "transactionId": 27,
+        "transactionNumber": "TXN-FUEL-1788887993052",
+        "date": "2026-08-18T07:19:53.371Z",
+        "vehicleId": 5,
+        "vehicleNumber": "HFD-1719-004",
+        "driverId": 5,
+        "driverName": "Ghulam Murtaza",
+        "litres": 325,
+        "legKm": 748,
+        "legKmpl": 2.3,
+        "expectedLitresForLeg": 213.7,
+        "overdrawLitresForLeg": 111.3,
+        "flags": [
+          {
+            "code": "FUEL_OVER_BENCHMARK",
+            "severity": "High",
+            "detail": "Drew 325 L but the 748 km driven before the next fill only justifies ~213.7 L (+52% / 111.3 L over)."
+          }
+        ]
+      }
+    ]
+  },
+  "partnership": {
+    "agreement": {
+      "id": 1,
+      "agreementNumber": "PA-2026-0001",
+      "partnerId": 5,
+      "vehicleId": 3,
+      "agreedPrice": 5000000,
+      "advancePaid": 2000000,
+      "openingBalance": 3000000,
+      "currentBalance": 3000000,
+      "companySharePercent": 100,
+      "expenseRatioBenchmark": 55,
+      "startDate": "2026-09-08T17:19:54.238Z",
+      "closeDate": null,
+      "status": "Active",
+      "notes": "Lease-to-own: 20 lakh advance, 30 lakh recovered from trip earnings.",
+      "createdAt": "2026-09-08T22:19:54.240Z",
+      "updatedAt": "2026-09-08T22:19:54.240Z",
+      "deletedAt": null,
+      "createdBy": 1,
+      "updatedBy": null,
+      "deletedBy": null,
+      "isDeleted": false
+    },
+    "settlementHonest": {
+      "settlement": {
+        "id": 1,
+        "settlementNumber": "PS-2026-0001",
+        "agreementId": 1,
+        "tripId": null,
+        "periodFrom": "2026-08-09T17:19:54.271Z",
+        "periodTo": "2026-08-23T17:19:54.271Z",
+        "grossRevenue": 1750000,
+        "declaredExpenses": [
+          {
+            "note": "3 trips diesel",
+            "type": "Fuel",
+            "amount": 640000
+          },
+          {
+            "note": "motorway + provincial",
+            "type": "Toll",
+            "amount": 145000
+          },
+          {
+            "note": "allowance + meals",
+            "type": "Driver/Food",
+            "amount": 95000
+          },
+          {
+            "note": "weighbridge, parking",
+            "type": "Misc",
+            "amount": 40000
+          }
+        ],
+        "totalExpenses": 920000,
+        "netEarnings": 830000,
+        "amountToCompany": 830000,
+        "partnerRetained": 0,
+        "balanceBefore": 3000000,
+        "balanceAfter": 2170000,
+        "gpsExpectedRevenue": 1798380,
+        "fuelImpliedRevenue": 2041030,
+        "revenueVariancePercent": 14,
+        "expenseRatioPercent": 53,
+        "flags": [],
+        "status": "Confirmed",
+        "notes": "Window 1 settlement — partner declaration looks consistent.",
+        "createdAt": "2026-09-08T22:19:54.285Z",
+        "updatedAt": "2026-09-08T22:19:54.285Z",
+        "deletedAt": null,
+        "createdBy": 1,
+        "updatedBy": null,
+        "deletedBy": null,
+        "isDeleted": false
+      },
+      "agreement": {
+        "id": 1,
+        "balanceBefore": 3000000,
+        "balanceAfter": 2170000,
+        "status": "Active"
+      },
+      "analysis": {
+        "window": {
+          "from": "2026-08-09T17:19:54.271Z",
+          "to": "2026-08-23T17:19:54.271Z"
+        },
+        "declaredRevenue": 1750000,
+        "totalExpenses": 920000,
+        "tripCount": 3,
+        "gps": {
+          "expectedRevenue": 1798380,
+          "tripCount": 3,
+          "revenuePerKm": 494.2
+        },
+        "fuel": {
+          "litresDrawn": 1180,
+          "fuelImpliedKm": 4130,
+          "odometerDistanceKm": 3150,
+          "impliedRevenue": 2041030
+        },
+        "expectedRevenue": 2041030,
+        "revenueVariancePercent": 14,
+        "expenseRatioPercent": 53,
+        "expenseRatioBenchmark": 55,
+        "healthyExpenses": 962500,
+        "estimatedPartnerSkim": 291030,
+        "flags": [],
+        "verdict": "Consistent with expectations"
+      }
+    },
+    "settlementSkimming": {
+      "settlement": {
+        "id": 2,
+        "settlementNumber": "PS-2026-0002",
+        "agreementId": 1,
+        "tripId": null,
+        "periodFrom": "2026-08-24T17:19:54.288Z",
+        "periodTo": "2026-09-07T17:19:54.289Z",
+        "grossRevenue": 900000,
+        "declaredExpenses": [
+          {
+            "note": "claimed diesel (inflated)",
+            "type": "Fuel",
+            "amount": 760000
+          },
+          {
+            "note": "'engine work' — no job card",
+            "type": "Repairs",
+            "amount": 220000
+          },
+          {
+            "note": "toll",
+            "type": "Toll",
+            "amount": 130000
+          },
+          {
+            "note": "sundry",
+            "type": "Misc",
+            "amount": 90000
+          }
+        ],
+        "totalExpenses": 1200000,
+        "netEarnings": -300000,
+        "amountToCompany": 0,
+        "partnerRetained": -300000,
+        "balanceBefore": 2170000,
+        "balanceAfter": 2170000,
+        "gpsExpectedRevenue": 1798380,
+        "fuelImpliedRevenue": 2041030,
+        "revenueVariancePercent": 56,
+        "expenseRatioPercent": 133,
+        "flags": [
+          "SEVERE_UNDER_REPORTING",
+          "EXPENSE_INFLATION",
+          "NEGATIVE_NET"
+        ],
+        "status": "Confirmed",
+        "notes": "Window 2 settlement — same route + fuel as window 1 but half the declared revenue.",
+        "createdAt": "2026-09-08T22:19:54.299Z",
+        "updatedAt": "2026-09-08T22:19:54.299Z",
+        "deletedAt": null,
+        "createdBy": 1,
+        "updatedBy": null,
+        "deletedBy": null,
+        "isDeleted": false
+      },
+      "agreement": {
+        "id": 1,
+        "balanceBefore": 2170000,
+        "balanceAfter": 2170000,
+        "status": "Active"
+      },
+      "analysis": {
+        "window": {
+          "from": "2026-08-24T17:19:54.288Z",
+          "to": "2026-09-07T17:19:54.289Z"
+        },
+        "declaredRevenue": 900000,
+        "totalExpenses": 1200000,
+        "tripCount": 3,
+        "gps": {
+          "expectedRevenue": 1798380,
+          "tripCount": 3,
+          "revenuePerKm": 494.2
+        },
+        "fuel": {
+          "litresDrawn": 1180,
+          "fuelImpliedKm": 4130,
+          "odometerDistanceKm": 3150,
+          "impliedRevenue": 2041030
+        },
+        "expectedRevenue": 2041030,
+        "revenueVariancePercent": 56,
+        "expenseRatioPercent": 133,
+        "expenseRatioBenchmark": 55,
+        "healthyExpenses": 495000,
+        "estimatedPartnerSkim": 1846030,
+        "flags": [
+          "SEVERE_UNDER_REPORTING",
+          "EXPENSE_INFLATION",
+          "NEGATIVE_NET"
+        ],
+        "verdict": "Strong signs of under-reported revenue"
+      }
+    },
+    "ledger": {
+      "agreement": {
+        "id": 1,
+        "agreementNumber": "PA-2026-0001",
+        "partnerId": 5,
+        "vehicleId": 3,
+        "agreedPrice": 5000000,
+        "advancePaid": 2000000,
+        "openingBalance": 3000000,
+        "currentBalance": 2170000,
+        "companySharePercent": 100,
+        "expenseRatioBenchmark": 55,
+        "startDate": "2026-09-08T17:19:54.238Z",
+        "closeDate": null,
+        "status": "Active",
+        "notes": "Lease-to-own: 20 lakh advance, 30 lakh recovered from trip earnings.",
+        "createdAt": "2026-09-08T22:19:54.240Z",
+        "updatedAt": "2026-09-08T17:19:54.299Z",
+        "deletedAt": null,
+        "createdBy": 1,
+        "updatedBy": 1,
+        "deletedBy": null,
+        "isDeleted": false,
+        "partnerName": "Rehman Cargo Services",
+        "vehicleNumber": "HFD-1719-002"
+      },
+      "settlements": [
+        {
+          "id": 1,
+          "settlementNumber": "PS-2026-0001",
+          "agreementId": 1,
+          "tripId": null,
+          "periodFrom": "2026-08-09T17:19:54.271Z",
+          "periodTo": "2026-08-23T17:19:54.271Z",
+          "grossRevenue": 1750000,
+          "declaredExpenses": [
+            {
+              "note": "3 trips diesel",
+              "type": "Fuel",
+              "amount": 640000
+            },
+            {
+              "note": "motorway + provincial",
+              "type": "Toll",
+              "amount": 145000
+            },
+            {
+              "note": "allowance + meals",
+              "type": "Driver/Food",
+              "amount": 95000
+            },
+            {
+              "note": "weighbridge, parking",
+              "type": "Misc",
+              "amount": 40000
+            }
+          ],
+          "totalExpenses": 920000,
+          "netEarnings": 830000,
+          "amountToCompany": 830000,
+          "partnerRetained": 0,
+          "balanceBefore": 3000000,
+          "balanceAfter": 2170000,
+          "gpsExpectedRevenue": 1798380,
+          "fuelImpliedRevenue": 2041030,
+          "revenueVariancePercent": 14,
+          "expenseRatioPercent": 53,
+          "flags": [],
+          "status": "Confirmed",
+          "notes": "Window 1 settlement — partner declaration looks consistent.",
+          "createdAt": "2026-09-08T22:19:54.285Z",
+          "updatedAt": "2026-09-08T22:19:54.285Z",
+          "deletedAt": null,
+          "createdBy": 1,
+          "updatedBy": null,
+          "deletedBy": null,
+          "isDeleted": false
+        },
+        {
+          "id": 2,
+          "settlementNumber": "PS-2026-0002",
+          "agreementId": 1,
+          "tripId": null,
+          "periodFrom": "2026-08-24T17:19:54.288Z",
+          "periodTo": "2026-09-07T17:19:54.289Z",
+          "grossRevenue": 900000,
+          "declaredExpenses": [
+            {
+              "note": "claimed diesel (inflated)",
+              "type": "Fuel",
+              "amount": 760000
+            },
+            {
+              "note": "'engine work' — no job card",
+              "type": "Repairs",
+              "amount": 220000
+            },
+            {
+              "note": "toll",
+              "type": "Toll",
+              "amount": 130000
+            },
+            {
+              "note": "sundry",
+              "type": "Misc",
+              "amount": 90000
+            }
+          ],
+          "totalExpenses": 1200000,
+          "netEarnings": -300000,
+          "amountToCompany": 0,
+          "partnerRetained": -300000,
+          "balanceBefore": 2170000,
+          "balanceAfter": 2170000,
+          "gpsExpectedRevenue": 1798380,
+          "fuelImpliedRevenue": 2041030,
+          "revenueVariancePercent": 56,
+          "expenseRatioPercent": 133,
+          "flags": [
+            "SEVERE_UNDER_REPORTING",
+            "EXPENSE_INFLATION",
+            "NEGATIVE_NET"
+          ],
+          "status": "Confirmed",
+          "notes": "Window 2 settlement — same route + fuel as window 1 but half the declared revenue.",
+          "createdAt": "2026-09-08T22:19:54.299Z",
+          "updatedAt": "2026-09-08T22:19:54.299Z",
+          "deletedAt": null,
+          "createdBy": 1,
+          "updatedBy": null,
+          "deletedBy": null,
+          "isDeleted": false
+        }
+      ],
+      "totals": {
+        "settlements": 2,
+        "totalDeclaredRevenue": 2650000,
+        "totalExpenses": 2120000,
+        "totalNet": 530000,
+        "totalRecovered": 830000,
+        "totalPartnerRetained": -300000,
+        "outstanding": 2170000,
+        "recoveryPercent": 28,
+        "totalExpectedRevenue": 4082060,
+        "estimatedPartnerSkimToDate": 1432060,
+        "revenueUnderReportPercent": 35
+      }
+    },
+    "portfolioSummary": {
+      "portfolio": {
+        "agreements": 1,
+        "active": 1,
+        "settled": 0,
+        "totalFinanced": 3000000,
+        "totalRecovered": 830000,
+        "totalOutstanding": 2170000,
+        "totalEstimatedSkim": 1432060,
+        "agreementsWithFlags": 1
+      },
+      "agreements": [
+        {
+          "agreementId": 1,
+          "agreementNumber": "PA-2026-0001",
+          "partnerName": "Rehman Cargo Services",
+          "vehicleNumber": "HFD-1719-002",
+          "agreedPrice": 5000000,
+          "advancePaid": 2000000,
+          "openingBalance": 3000000,
+          "currentBalance": 2170000,
+          "recoveredAmount": 830000,
+          "recoveryPercent": 28,
+          "status": "Active",
+          "settlements": 2,
+          "declaredRevenue": 2650000,
+          "expectedRevenue": 4082060,
+          "estimatedPartnerSkim": 1432060,
+          "flaggedSettlements": 1
+        }
+      ]
+    }
+  }
+}

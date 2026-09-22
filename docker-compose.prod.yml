@@ -1,0 +1,63 @@
+# Production stack: app + Postgres + Redis on one host.
+#   1. cp .env.production.example .env.production   (fill in JWT_SECRET etc.)
+#   2. docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put Nginx/Caddy in front for TLS (see nginx.conf), or use a platform that
+# terminates TLS for you.
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"     # bind to localhost; the reverse proxy exposes it publicly
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://erp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hf_transport_erp
+      DATABASE_SSL: "false"
+      REDIS_URL: redis://cache:6379
+      TRUST_PROXY: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: hf_transport_erp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d hf_transport_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - cache_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  cache_data:

@@ -1,0 +1,498 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Noto+Nastaliq+Urdu:wght@400;700&display=swap');
+@import "tailwindcss";
+
+/* English + Urdu + Pashto: Latin first, then Arabic-script faces so mixed text
+   in the same field renders correctly. Naskh reads well in tables/forms;
+   Nastaliq is the traditional Urdu style. */
+@theme {
+  --font-sans: "Inter", "Noto Naskh Arabic", "Noto Nastaliq Urdu", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Naskh Arabic", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* bidi: browser picks direction per element from its own text */
+input, textarea, [contenteditable] { unicode-bidi: plaintext; }
+:is(td, th, p, span, div, li, h1, h2, h3, h4)[dir="auto"] { unicode-bidi: plaintext; }
+
+/* ==========================================================================
+   PRINT / SAVE-AS-PDF — used by every module's "Print / Save as PDF" button
+   (ModuleDataIO). Strips the app chrome (top bar, workbook rail, sheet tabs,
+   toolbars, menus) so only the active sheet's own content prints; the sheet
+   itself resets to a normal flowing page instead of a scroll-clipped panel.
+   Note: a virtualized grid (SheetGrid, large entity sheets) only prints the
+   rows currently rendered on screen — scroll through first, or use Export
+   .xlsx for the complete dataset.
+   ========================================================================== */
+@media print {
+  body { background: #fff !important; }
+  .print\:hidden { display: none !important; }
+  ::-webkit-scrollbar { display: none !important; }
+}
+
+/* ==========================================================================
+   GLOBAL THEME RULES (WHITE & NAVY THEME (HFK brand: navy #24539B, red #D70006) - ONLY BLACK TEXT)
+   ========================================================================== */
+
+/* 1. Global Page Background & Text Base */
+html, body {
+  background-color: #F7F9FC !important; /* Very light navy-tinted surface background */
+  color: #000000 !important; /* Strict Black text color */
+  font-family: "Inter", "Noto Naskh Arabic", "Noto Nastaliq Urdu", ui-sans-serif, system-ui, sans-serif !important;
+}
+
+/* 2. Global Text Specificity Overrides (All Headings, Labels, Descriptions, etc.) */
+h1, h2, h3, h4, h5, h6, 
+p, span, div, label, th, td, option, li, strong, small, em {
+  color: #000000 !important; /* All text MUST be Black */
+}
+
+/* Sub-text / secondary descriptions: Dark Gray (#4B5563) */
+.text-slate-400,
+.text-slate-500,
+.text-gray-400,
+.text-gray-500,
+.text-zinc-400,
+.text-zinc-500,
+.text-neutral-400,
+.text-neutral-500,
+.text-muted-foreground {
+  color: #4B5563 !important;
+}
+
+/* 3. Link Overrides */
+a, .text-indigo-600, .text-emerald-600, .text-blue-600, .text-green-600 {
+  color: #24539B !important; /* Links: Navy (#24539B) */
+}
+a:hover {
+  color: #1E4480 !important; /* Primary hover navy */
+  text-decoration: underline !important;
+}
+
+/* 4. Background Overrides - All core backgrounds must be White */
+aside, 
+header, 
+nav, 
+table,
+thead,
+tbody,
+tr,
+th,
+td,
+.bg-white,
+.bg-slate-900,
+.bg-slate-950,
+.bg-gray-900,
+.bg-zinc-900,
+.bg-neutral-900,
+.bg-slate-800,
+.bg-gray-800,
+.bg-zinc-800,
+.bg-neutral-800,
+.bg-indigo-900,
+.bg-indigo-950,
+.bg-emerald-900,
+.bg-emerald-950,
+.bg-slate-900\/35,
+.bg-slate-900\/40,
+.bg-slate-900\/60,
+.bg-slate-950\/20,
+.bg-slate-950\/40,
+.bg-slate-950\/60,
+.bg-slate-950\/80,
+.bg-black\/60,
+.bg-black\/40 {
+  background-color: #FFFFFF !important; /* All pages, cards, modals, sidebars, dropdowns: White */
+}
+
+/* Surface / Secondary Backgrounds: Very Light Navy (#F7F9FC) */
+.bg-slate-50,
+.bg-slate-100,
+.bg-gray-50,
+.bg-gray-100,
+.bg-zinc-50,
+.bg-zinc-100,
+.bg-neutral-50,
+.bg-neutral-100,
+.bg-indigo-50,
+.bg-emerald-50,
+.bg-slate-100\/50,
+.bg-slate-200\/50 {
+  background-color: #F7F9FC !important; /* Very light navy-tinted surface bg */
+}
+
+/* Active Item / Selected Row Background: Light Navy (#E9EEF5) */
+.bg-indigo-100,
+.bg-emerald-100,
+.bg-green-100,
+.bg-indigo-600\/10,
+.bg-emerald-600\/10,
+.bg-slate-200,
+.bg-gray-200,
+.bg-zinc-200,
+.bg-neutral-200,
+[class*="active"],
+.active-item {
+  background-color: #E9EEF5 !important; /* Active item background (navy tint) */
+}
+
+/* Selected row and highlighted cards */
+.bg-emerald-500\/20,
+.bg-emerald-500\/10,
+.bg-green-500\/10 {
+  background-color: #E9EEF5 !important;
+}
+
+/* 5. Border Overrides: Light Gray (#E5E7EB) */
+*,
+.border,
+.border-t,
+.border-b,
+.border-l,
+.border-r,
+.border-slate-100,
+.border-slate-200,
+.border-slate-300,
+.border-slate-400,
+.border-slate-500,
+.border-slate-600,
+.border-slate-700,
+.border-slate-800,
+.border-slate-850,
+.border-slate-900,
+.border-gray-100,
+.border-gray-200,
+.border-zinc-200,
+.border-neutral-200,
+.border-indigo-100,
+.border-indigo-200,
+.border-emerald-100,
+.border-emerald-200 {
+  border-color: #E5E7EB !important; /* Borders: Light Gray */
+}
+
+/* 6. Text Color Force Override for Tailwind Utilities */
+.text-white,
+.text-slate-50,
+.text-slate-100,
+.text-slate-200,
+.text-slate-300,
+.text-slate-700,
+.text-slate-800,
+.text-slate-900,
+.text-gray-50,
+.text-gray-100,
+.text-gray-200,
+.text-gray-300,
+.text-gray-700,
+.text-gray-800,
+.text-gray-900,
+.text-indigo-50,
+.text-indigo-100,
+.text-indigo-200,
+.text-indigo-600,
+.text-indigo-700,
+.text-indigo-800,
+.text-emerald-50,
+.text-emerald-100,
+.text-emerald-600,
+.text-emerald-700,
+.text-emerald-800,
+.text-green-600,
+.text-green-700 {
+  color: #000000 !important; /* ALL text MUST be Black */
+}
+
+/* 7. Button Overrides */
+
+/* Primary Buttons */
+button[type="submit"],
+.bg-indigo-600,
+.bg-emerald-600,
+.bg-green-600,
+.bg-blue-600,
+.bg-slate-900:has(span),
+button:has(.text-white),
+.btn-primary {
+  background-color: #24539B !important; /* Background: Navy */
+  color: #000000 !important; /* Text: Black */
+  border: 1px solid #24539B !important;
+  box-shadow: none !important;
+}
+
+button[type="submit"]:hover,
+.bg-indigo-600:hover,
+.bg-emerald-600:hover,
+.bg-green-600:hover,
+.bg-blue-600:hover,
+.btn-primary:hover {
+  background-color: #1E4480 !important; /* Hover: Dark Navy */
+  color: #000000 !important;
+  border-color: #1E4480 !important;
+}
+
+/* Secondary / Outline Buttons */
+button.bg-white,
+button.border-slate-200,
+button.bg-slate-100,
+.bg-slate-100:has(span),
+.btn-secondary {
+  background-color: #FFFFFF !important; /* Background: White */
+  border: 1px solid #24539B !important; /* Border: Navy */
+  color: #000000 !important; /* Text: Black */
+}
+
+button.bg-white:hover,
+button.border-slate-200:hover,
+button.bg-slate-100:hover,
+.btn-secondary:hover {
+  background-color: #F7F9FC !important; /* Hover: Very Light Navy */
+  color: #000000 !important;
+}
+
+/* Danger Buttons */
+.bg-rose-600,
+.bg-red-600,
+.bg-red-500,
+.btn-danger {
+  background-color: #DC2626 !important; /* Background: Red */
+  color: #000000 !important; /* Text: Black */
+  border: 1px solid #DC2626 !important;
+}
+.bg-rose-600:hover,
+.bg-red-600:hover,
+.bg-red-500:hover,
+.btn-danger:hover {
+  background-color: #B91C1C !important;
+  color: #000000 !important;
+}
+
+/* Force black text on ALL buttons */
+button, button * {
+  color: #000000 !important;
+}
+
+/* 8. Forms & Inputs */
+input, select, textarea {
+  background-color: #FFFFFF !important; /* Background: White */
+  border: 1px solid #E5E7EB !important; /* Border: Light Gray */
+  color: #000000 !important; /* Input Text: Black */
+  border-radius: 8px !important;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #24539B !important; /* Focus Border: Navy */
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(36, 83, 155, 0.12) !important;
+}
+
+/* All Placeholder Text: Dark Gray */
+input::placeholder, textarea::placeholder {
+  color: #4B5563 !important;
+  opacity: 1 !important;
+}
+
+/* Dropdowns & Select Options */
+select, option {
+  background-color: #FFFFFF !important; /* Dropdown Background: White */
+  color: #000000 !important; /* Dropdown Text: Black */
+}
+
+/* Labels: Black */
+label {
+  color: #000000 !important;
+}
+
+/* 9. Sidebar Overrides */
+aside {
+  background-color: #FFFFFF !important; /* Background: White */
+  border-right: 1px solid #E5E7EB !important; /* Border Right: Light Gray */
+}
+
+aside a, aside button {
+  color: #000000 !important; /* Text Color: Black */
+}
+
+aside a:hover, aside button:hover {
+  background-color: #F4F6FA !important; /* Hover Background: Very Light Navy */
+}
+
+aside .active, aside [class*="active"] {
+  background-color: #E9EEF5 !important; /* Active Item Background: Light Navy */
+  color: #000000 !important; /* Active Item Text: Black */
+}
+
+/* 10. Table Design Overrides */
+table {
+  background-color: #FFFFFF !important; /* Background: White */
+}
+
+thead tr, thead th {
+  background-color: #EEF1F6 !important; /* Header Background: Very Light Navy */
+  color: #000000 !important; /* Header Text: Black */
+  font-weight: 600 !important;
+}
+
+tbody tr {
+  background-color: #FFFFFF !important;
+}
+
+tbody tr:hover {
+  background-color: #F4F6FA !important; /* Hover Row: Very Light Navy */
+}
+
+tbody tr.selected, tbody tr[class*="selected"] {
+  background-color: #E9EEF5 !important; /* Selected Row: Light Navy */
+}
+
+td, th {
+  border-bottom: 1px solid #E5E7EB !important; /* Borders: Light Gray */
+  color: #000000 !important; /* Row Text: Black */
+}
+
+/* 11. Modals & Drawers Overrides */
+.fixed.inset-0.bg-slate-950\/80,
+.fixed.inset-0.bg-black\/60,
+.fixed.inset-0.bg-slate-900\/40,
+[class*="backdrop-blur"] {
+  background-color: rgba(0, 0, 0, 0.15) !important; /* Soft Overlay */
+  backdrop-filter: blur(4px) !important;
+}
+
+.modal-content,
+div[class*="rounded-2xl"]:has(h3),
+div[class*="rounded-xl"]:has(h3),
+.fixed.inset-0 + div > div {
+  background-color: #FFFFFF !important; /* Background: White */
+  color: #000000 !important; /* Text: Black */
+  border: 1px solid #E5E7EB !important; /* Border: Light Gray */
+  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.08) !important; /* Soft Shadow */
+}
+
+/* 12. Icons Override (Icons: Navy #24539B) */
+svg {
+  color: #24539B !important;
+  stroke: #24539B !important;
+}
+
+/* Icons inside primary buttons, danger buttons, or active tab indicators must match their text color */
+button svg,
+button:hover svg,
+[type="submit"] svg,
+.btn-primary svg,
+.bg-indigo-600 svg,
+.bg-emerald-600 svg,
+.bg-green-600 svg,
+.bg-rose-600 svg,
+.bg-red-600 svg,
+.bg-red-500 svg,
+.btn-danger svg {
+  color: #000000 !important;
+  stroke: #000000 !important;
+}
+
+/* Let's keep specific success, warning, and error icons semantic if they represent state */
+.text-rose-600 svg,
+.text-red-600 svg,
+.text-rose-500 svg,
+.text-red-500 svg {
+  color: #DC2626 !important;
+  stroke: #DC2626 !important;
+}
+
+.text-amber-600 svg,
+.text-yellow-600 svg,
+.text-amber-500 svg,
+.text-yellow-500 svg {
+  color: #D97706 !important;
+  stroke: #D97706 !important;
+}
+
+.text-blue-600 svg,
+.text-blue-500 svg,
+.text-sky-600 svg,
+.text-sky-500 svg {
+  color: #2563EB !important;
+  stroke: #2563EB !important;
+}
+
+/* 13. AI Module Overrides (AI Chat / Assistant) */
+/* User message bubbles: Light Navy */
+div[class*="bg-indigo-600/10"]:has(p),
+div[class*="bg-emerald-600/10"]:has(p),
+div[class*="bg-green-600/10"]:has(p),
+.user-message-bubble {
+  background-color: #E9EEF5 !important; /* User Messages: Light Navy */
+  color: #000000 !important;
+}
+
+/* AI message bubbles: White */
+div[class*="bg-slate-900/35"]:has(p),
+div[class*="bg-slate-800/40"]:has(p),
+.ai-message-bubble {
+  background-color: #FFFFFF !important; /* AI Messages: White */
+  color: #000000 !important;
+  border: 1px solid #E5E7EB !important;
+}
+
+/* 14. Code, Mono, and Terminal Overrides: Very Light Navy */
+.font-mono,
+code,
+pre,
+kbd,
+samp {
+  background-color: #EEF1F6 !important; /* Very Light Navy */
+  color: #000000 !important; /* Code text: Black */
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace !important;
+  border: 1px solid #E5E7EB !important;
+}
+
+/* ==========================================================================
+   SPREADSHEET LAYER  (Excel-style workbook shell + editable grid)
+   ========================================================================== */
+:root {
+  --sheet-bg: #F7F9FC;
+  --sheet-surface: #FFFFFF;
+  --sheet-line: #E5E7EB;
+  --sheet-header: #EEF1F6;
+  --sheet-row-hover: #F4F6FA;
+  --sheet-row-selected: #E9EEF5;
+  --sheet-accent: #24539B;
+  --sheet-accent-weak: #9DB6DE;
+  --sheet-edit: #FEFCE8;
+  --sheet-new: #F0FDF4;
+  --sheet-danger: #DC2626;
+  --sheet-tab-active: #FFFFFF;
+}
+
+/* dense tabular numerics inside the grid */
+.sheet-num,
+[data-sheet-cell="number"] {
+  font-variant-numeric: tabular-nums;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* the grid draws its own gridlines with divs - keep the global table rules from
+   bleeding into it, and stop the global input radius from breaking cell editors */
+.sheet-grid input,
+.sheet-grid select,
+.sheet-grid textarea {
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.sheet-grid ::-webkit-scrollbar { width: 10px; height: 10px; }
+
+/* 15. Scrollbar overrides */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F7F9FC;
+}
+::-webkit-scrollbar-thumb {
+  background: #24539B;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #1E4480;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "HF Transport ERP",
+  "description": "Enterprise Transport Management Platform with Drizzle ORM, PostgreSQL, Express, native JWT auth (email/password + Google Sign-In), live GPS tracking and Excel import/export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
