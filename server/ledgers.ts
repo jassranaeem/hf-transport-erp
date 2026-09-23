@@ -708,4 +708,42 @@ router.delete("/entries/:id", requireRole(WRITE), async (req: AuthRequest, res: 
   }
 });
 
+// ---- delete a whole ledger (the sheet itself, plus every entry in it) ----
+router.delete("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [ledger] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, id)).limit(1);
+    if (!ledger) return res.status(404).json({ error: "Ledger not found" });
+
+    const entries = await db
+      .select({ id: schema.truckLedgerEntries.id })
+      .from(schema.truckLedgerEntries)
+      .where(and(eq(schema.truckLedgerEntries.ledgerId, id), eq(schema.truckLedgerEntries.isDeleted, false)));
+
+    await db
+      .update(schema.truckLedgerEntries)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.truckLedgerEntries.ledgerId, id));
+    await db
+      .update(schema.truckLedgers)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.truckLedgers.id, id));
+
+    await logAudit({
+      action: "DELETE",
+      tableName: "truck_ledgers",
+      recordId: id,
+      oldValues: { ...ledger, entriesDeleted: entries.length },
+      newValues: null,
+      performedBy: req.user?.id,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    }).catch(() => {});
+
+    res.json({ message: `Ledger "${ledger.title}" and ${entries.length} entries deleted` });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default router;

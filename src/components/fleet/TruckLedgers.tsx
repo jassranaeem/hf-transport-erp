@@ -216,6 +216,26 @@ export default function TruckLedgers({
     }
   };
 
+  // Delete the whole sheet/ledger — every entry in it, not just one at a time.
+  const deleteLedger = async () => {
+    if (!selId || !detail) return;
+    const count = detail.entries.length;
+    const warning =
+      `Delete the entire ledger "${detail.ledger.title}"? This removes all ${count} entries permanently — not just one row.\n\n` +
+      `Type DELETE to confirm.`;
+    const typed = window.prompt(warning);
+    if (typed !== "DELETE") return;
+    try {
+      const r = await enterpriseFetch(`/api/ledgers/${selId}`, { method: "DELETE" });
+      showFeedback("success", r.message || "Ledger deleted");
+      setSelId(null);
+      setDetail(null);
+      loadList();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
   const [dupWarn, setDupWarn] = useState<string | null>(null);
   const addEntry = async () => {
     if (!selId) return;
@@ -460,12 +480,21 @@ export default function TruckLedgers({
                     {detail.ledger.sourceSheet ? ` · sheet "${detail.ledger.sourceSheet}"` : ""}
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowAdd((s) => !s)}
-                  className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add entry
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAdd((s) => !s)}
+                    className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add entry
+                  </button>
+                  <button
+                    onClick={deleteLedger}
+                    title="Delete this whole ledger (sheet) and all its entries"
+                    className="text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50 rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete ledger
+                  </button>
+                </div>
               </div>
 
               {/* driver — the source workbook has no clean "driver" column,
