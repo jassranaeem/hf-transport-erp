@@ -92,7 +92,7 @@ interface Props {
 type CellPos = { r: number; c: number };
 
 const ROW_H = 30;
-const GUTTER_W = 96;
+const GUTTER_W = 116;
 
 function fmtValue(col: SheetColumn, v: any): string {
   if (v == null || v === "") return "";
@@ -177,6 +177,7 @@ export default function SheetGrid(props: Props) {
   const [edits, setEdits] = useState<Map<number, Record<string, any>>>(new Map());
   const [newRows, setNewRows] = useState<Record<string, any>[]>([]);
   const [deleted, setDeleted] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [active, setActive] = useState<CellPos>({ r: 0, c: 0 });
   const [selEnd, setSelEnd] = useState<CellPos | null>(null);
   const [editing, setEditing] = useState<{ pos: CellPos; value: string } | null>(null);
@@ -536,6 +537,7 @@ export default function SheetGrid(props: Props) {
         setEdits(new Map());
         setNewRows([]);
         setDeleted(new Set());
+        setSelected(new Set());
       }
       onRefresh?.();
     } finally {
@@ -547,8 +549,30 @@ export default function SheetGrid(props: Props) {
     setEdits(new Map());
     setNewRows([]);
     setDeleted(new Set());
+    setSelected(new Set());
     setRowErrors({});
     setEditing(null);
+  };
+
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  const allVisibleSelected = liveCount > 0 && rows.every((r) => deleted.has(r[idField]) || selected.has(r[idField]));
+  const toggleSelectAll = () =>
+    setSelected((prev) => {
+      if (allVisibleSelected) return new Set();
+      const n = new Set(prev);
+      rows.forEach((r) => !deleted.has(r[idField]) && n.add(r[idField]));
+      return n;
+    });
+  const deleteSelected = () => {
+    if (!selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} selected row${selected.size === 1 ? "" : "s"}? Click "Save changes" after to confirm.`)) return;
+    setDeleted((prev) => new Set([...prev, ...selected]));
+    setSelected(new Set());
   };
 
   const addRow = () => {
@@ -704,6 +728,14 @@ export default function SheetGrid(props: Props) {
           {page ? `${page.total.toLocaleString()} rows` : `${liveCount.toLocaleString()} rows`}
           {loading ? " · loading…" : ""}
         </span>
+        {canDelete && selected.size > 0 && (
+          <button
+            onClick={deleteSelected}
+            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs font-semibold bg-white border border-[#DC2626] text-[#DC2626] hover:bg-[#FEF2F2]"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size} selected
+          </button>
+        )}
         {dirty && (
           <>
             <button
@@ -754,7 +786,18 @@ export default function SheetGrid(props: Props) {
             className="sticky top-0 z-20 grid bg-[var(--sheet-header,#F3F7F4)] border-b border-[var(--sheet-line,#E5E7EB)] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
             style={{ gridTemplateColumns: gridTemplate }}
           >
-            <div className="px-2 py-1.5 text-[10px] font-semibold text-[#4B5563] border-r border-[#E5E7EB]">#</div>
+            <div className="px-2 py-1.5 text-[10px] font-semibold text-[#4B5563] border-r border-[#E5E7EB] flex items-center gap-1">
+              {canDelete && liveCount > 0 && (
+                <input
+                  type="checkbox"
+                  title="Select all rows"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  className="cursor-pointer"
+                />
+              )}
+              #
+            </div>
             {columns.map((col) => (
               <button
                 key={col.field}
@@ -797,6 +840,14 @@ export default function SheetGrid(props: Props) {
                       draftFilled ? "bg-[#ECFDF3]" : hasEdit ? "bg-[#FEFCE8]" : trailingGhost ? "bg-[#FAFAFA]" : "bg-white"
                     }`}
                   >
+                    {canDelete && !ghost && !isDeletedRow && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(id!)}
+                        onChange={() => toggleSelect(id!)}
+                        className="cursor-pointer shrink-0"
+                      />
+                    )}
                     <span className="w-6 tabular-nums truncate">{ghost ? (trailingGhost ? "＋" : "new") : r + 1}</span>
                     {!trailingGhost && (
                       <>
