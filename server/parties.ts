@@ -508,15 +508,31 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
   }
 });
 
+// Deletes the party AND every entry in its ledger — not just the party
+// record (which used to leave orphaned entries behind, invisible but never
+// actually removed).
 router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+    const [party] = await db.select().from(schema.parties).where(eq(schema.parties.id, id)).limit(1);
+    if (!party) return res.status(404).json({ error: "Party not found" });
+
+    const entries = await db
+      .select({ id: schema.partyLedgerEntries.id })
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)));
+
+    await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.partyLedgerEntries.partyId, id));
     await db
       .update(schema.parties)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.parties.id, id));
-    await audit(req, "DELETE", "parties", id, null, null);
-    res.json({ message: "Party deleted" });
+
+    await audit(req, "DELETE", "parties", id, { ...party, entriesDeleted: entries.length }, null);
+    res.json({ message: `Party "${party.name}" and ${entries.length} entries deleted` });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

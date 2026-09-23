@@ -220,6 +220,26 @@ export default function Parties({
     }
   };
 
+  // Delete the whole party — every ledger entry in it, not just one at a time.
+  const deleteParty = async () => {
+    if (!selId || !detail) return;
+    const count = detail.entries.length;
+    const warning =
+      `Delete the entire party "${detail.party.name}"? This removes all ${count} entries permanently — not just one row.\n\n` +
+      `Type DELETE to confirm.`;
+    const typed = window.prompt(warning);
+    if (typed !== "DELETE") return;
+    try {
+      const r = await enterpriseFetch(`/api/parties/${selId}`, { method: "DELETE" });
+      showFeedback("success", r.message || "Party deleted");
+      setSelId(null);
+      setDetail(null);
+      loadList();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
   const doImport = async (file: File) => {
     setImportBusy(true); setImportResult(null);
     try {
@@ -353,10 +373,19 @@ export default function Parties({
                     {balLabel(detail.party.closingBalance)}
                   </p>
                 </div>
-                <button onClick={() => setShowLedger((s) => !s)} className="text-xs font-semibold border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
-                  {showLedger ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  {showLedger ? "Hide full ledger" : `View full ledger (${detail.totals.entries ?? detail.entries.length})`}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowLedger((s) => !s)} className="text-xs font-semibold border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+                    {showLedger ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    {showLedger ? "Hide full ledger" : `View full ledger (${detail.totals.entries ?? detail.entries.length})`}
+                  </button>
+                  <button
+                    onClick={deleteParty}
+                    title="Delete this whole party (khata) and all its entries"
+                    className="text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50 rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete party
+                  </button>
+                </div>
               </div>
 
               {/* party master form */}
