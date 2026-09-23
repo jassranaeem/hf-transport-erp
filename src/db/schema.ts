@@ -2358,6 +2358,32 @@ export const personalExpenses = pgTable("personal_expenses", {
   };
 });
 
+// Daily cash-in-hand log — itemized in/out transactions (who, how much),
+// grouped into calendar days (midnight to midnight). A day's opening balance
+// is just the running total of every transaction before that day started, so
+// nothing needs to be manually carried forward each morning.
+export const cashTransactions = pgTable("cash_transactions", {
+  id: serial("id").primaryKey(),
+  entryDate: timestamp("entry_date").defaultNow().notNull(),
+  direction: text("direction").notNull(), // In | Out
+  amount: integer("amount").notNull().default(0), // PKR, always positive
+  person: text("person"), // who it came from / went to
+  description: text("description"),
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  deletedBy: integer("deleted_by"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+}, (table) => {
+  return {
+    ctDateIdx: index("ct_date_idx").on(table.entryDate),
+  };
+});
+
 // A dedicated, self-standing Zakat register — separate from Personal &
 // Household Expenses on purpose. You enter what you actually paid, when, and
 // to whom; the Yearly Report's 2.5%-of-wealth figure is only an estimate to

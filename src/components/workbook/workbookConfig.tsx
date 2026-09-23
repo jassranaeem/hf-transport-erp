@@ -124,6 +124,7 @@ export const WORKBOOKS: WorkbookDef[] = [
       e("bills", "Bills", "bills", "finance"),
       e("payments", "Payments", "payments", "finance"),
       e("expenses", "Expenses", "expenses", "finance"),
+      c("cash_book", "Daily Cash Book", "CashBook", "finance"),
       e("cash_closings", "Cash Closings", "cash_closings", "finance"),
       e("bank_accounts", "Bank Accounts (Accounting)", "bank_accounts", "finance"),
       e("accounts", "Chart of Accounts", "accounts", "finance"),

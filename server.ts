@@ -27,6 +27,7 @@ import reportsRouter from "./server/reports.ts";
 import partnerPnlRouter from "./server/partner_pnl.ts";
 import personalExpensesRouter from "./server/personal_expenses.ts";
 import zakatRouter from "./server/zakat.ts";
+import { cashBookRouter } from "./server/cash_book.ts";
 import quotationsRouter from "./server/quotations.ts";
 import trackingRouter, { startTrackingSweep } from "./server/tracking.ts";
 import { systemResetRouter } from "./server/system_reset.ts";
@@ -104,6 +105,7 @@ async function startServer() {
   app.use("/api/partner-pnl", partnerPnlRouter);
   app.use("/api/personal-expenses", personalExpensesRouter);
   app.use("/api/zakat", zakatRouter);
+  app.use("/api/cash-book", cashBookRouter);
   app.use("/api/quotations", quotationsRouter);
   app.use("/api/tracking", trackingRouter);
   app.use("/api/system", systemResetRouter);

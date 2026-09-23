@@ -31,6 +31,7 @@ import TripFuelHistory from "../fleet/TripFuelHistory.tsx";
 import PartnerPnL from "../fleet/PartnerPnL.tsx";
 import PersonalExpenses from "../fleet/PersonalExpenses.tsx";
 import Zakat from "../fleet/Zakat.tsx";
+import CashBook from "../fleet/CashBook.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -256,6 +257,8 @@ export default function WorkbookShell({
         return <PersonalExpenses showFeedback={showFeedback} />;
       case "Zakat":
         return <Zakat showFeedback={showFeedback} />;
+      case "CashBook":
+        return <CashBook showFeedback={showFeedback} />;
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":
