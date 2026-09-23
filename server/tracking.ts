@@ -365,10 +365,21 @@ export async function saveGpsProviderConfig(patch: Partial<GpsProviderConfig>, u
   return next;
 }
 
+/** fetch with a hard timeout so a hung GPS-provider request can never stall a sync cycle indefinitely. */
+async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = 15_000): Promise<globalThis.Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function gpswoxLogin(cfg: GpsProviderConfig): Promise<string> {
   if (gpswoxHash && Date.now() - gpswoxHash.at < 40 * 60_000) return gpswoxHash.hash;
   const body = new URLSearchParams({ email: cfg.username, password: cfg.password });
-  const res = await fetch(`${cfg.url}/api/login`, {
+  const res = await fetchWithTimeout(`${cfg.url}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -410,7 +421,7 @@ export async function syncGpsProvider(): Promise<typeof lastGpsSync> {
   }
   try {
     const hash = await gpswoxLogin(cfg);
-    const res = await fetch(`${cfg.url}/api/get_devices?lang=en&user_api_hash=${encodeURIComponent(hash)}`);
+    const res = await fetchWithTimeout(`${cfg.url}/api/get_devices?lang=en&user_api_hash=${encodeURIComponent(hash)}`);
     if (res.status === 401) {
       gpswoxHash = null;
       throw new Error("session expired");
@@ -1078,10 +1089,13 @@ function isLatLng(v: unknown): v is { lat: number; lng: number } {
 // ---------------------------------------------------------------------------
 
 let sweepTimer: NodeJS.Timeout | null = null;
+let sweepInProgress = false;
 
 export function startTrackingSweep() {
   if (sweepTimer) return;
   const run = async () => {
+    if (sweepInProgress) return; // previous cycle still running (e.g. a slow provider) - never stack overlapping syncs
+    sweepInProgress = true;
     try {
       // pull real fixes from the GPS provider (Eagle Tracker / GPSWOX), if configured
       await syncGpsProvider().catch(() => {});
@@ -1116,6 +1130,8 @@ export function startTrackingSweep() {
       }
     } catch (err: any) {
       console.warn("[tracking sweep] failed:", err.message || err);
+    } finally {
+      sweepInProgress = false;
     }
   };
   sweepTimer = setInterval(run, 60_000);
