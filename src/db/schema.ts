@@ -2370,6 +2370,8 @@ export const cashTransactions = pgTable("cash_transactions", {
   person: text("person"), // who it came from / went to
   description: text("description"),
   notes: text("notes"),
+  sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
+  sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -2381,6 +2383,7 @@ export const cashTransactions = pgTable("cash_transactions", {
 }, (table) => {
   return {
     ctDateIdx: index("ct_date_idx").on(table.entryDate),
+    ctSourceIdx: index("ct_source_idx").on(table.sourceSheet, table.sourceRow),
   };
 });
 

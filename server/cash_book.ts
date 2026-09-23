@@ -10,14 +10,19 @@
  *   POST   /api/cash-book                       add an in/out entry
  *   PUT    /api/cash-book/:id                   edit an entry
  *   DELETE /api/cash-book/:id                   soft-delete an entry
+ *   POST   /api/cash-book/import/preview         upload a dual cash-book .xlsx, see counts before committing
+ *   POST   /api/cash-book/import                 commit the same file
  *
  * Mounted at /api/cash-book.
  */
 import { Router, Response } from "express";
+import multer from "multer";
 import { and, asc, eq, lt, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
+import { parseCashbookFlat } from "../src/lib/dataio/cashbook-flat-import.ts";
+import { sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -25,6 +30,8 @@ router.use(requireAuth, requireApproved);
 const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Auditor"];
 const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
 const DIRECTIONS = ["In", "Out"];
+
+const workbookUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const T = schema.cashTransactions;
 
@@ -124,6 +131,63 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     res.json(row);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- import from Excel (dual cash-book shape) --------------------------
+router.post("/import/preview", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
+    const { rows, totalIn, totalOut, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    res.json({
+      rowCount: rows.length,
+      totalIn,
+      totalOut,
+      skippedSheets,
+      sample: rows.slice(0, 10),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Could not read this workbook" });
+  }
+});
+
+router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
+    const { rows, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+
+    const existing = await db
+      .select({ id: T.id, sourceSheet: T.sourceSheet, sourceRow: T.sourceRow, direction: T.direction })
+      .from(T)
+      .where(sql`${T.sourceSheet} is not null`);
+    const byKey = new Map(existing.map((r) => [`${r.sourceSheet}::${r.sourceRow}::${r.direction}`, r.id]));
+
+    let inserted = 0;
+    let updated = 0;
+    for (const r of rows) {
+      const key = `${r.sourceSheet}::${r.sourceRow}::${r.direction}`;
+      const vals = {
+        entryDate: r.entryDate || new Date(),
+        direction: r.direction,
+        amount: r.amount,
+        person: r.person,
+        description: r.description,
+        sourceSheet: r.sourceSheet,
+        sourceRow: r.sourceRow,
+      };
+      const existingId = byKey.get(key);
+      if (existingId) {
+        await db.update(T).set({ ...vals, updatedAt: new Date(), updatedBy: req.user?.id, isDeleted: false, deletedAt: null }).where(eq(T.id, existingId));
+        updated++;
+      } else {
+        await db.insert(T).values({ ...vals, createdBy: req.user?.id } as any);
+        inserted++;
+      }
+    }
+
+    res.json({ message: `Imported ${inserted} new, ${updated} updated entries.`, inserted, updated, skippedSheets });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Import failed" });
   }
 });
 

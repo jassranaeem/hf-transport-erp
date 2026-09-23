@@ -39,6 +39,7 @@ const AUTO_ENTITIES: EntitySpec[] = [
   autoEntity("cash_closings", "Cash Closings", schema.cashClosings, { resource: "finance" }),
   autoEntity("personal_expenses", "Personal / Household Expenses", schema.personalExpenses, { resource: "finance", refs: { bankAccountId: { entity: "bank_accounts" } } }),
   autoEntity("zakat_payments", "Zakat", schema.zakatPayments, { resource: "finance", refs: { bankAccountId: { entity: "bank_accounts" } } }),
+  autoEntity("cash_transactions", "Daily Cash Book", schema.cashTransactions, { resource: "finance" }),
   autoEntity("fiscal_years", "Fiscal Years", schema.fiscalYears, { resource: "finance" }),
   autoEntity("accounting_periods", "Accounting Periods", schema.accountingPeriods, { resource: "finance" }),
   autoEntity("company_profile", "Company Profile", schema.companyProfile, { resource: "settings" }),

@@ -8,9 +8,10 @@
  *   /api/cash-book                       create
  *   /api/cash-book/:id                   edit / delete
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { enterpriseFetch } from "../../../client/api.ts";
-import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronDown, ChevronRight, Upload } from "lucide-react";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
@@ -26,6 +27,11 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
+  const [showImport, setShowImport] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importPreview, setImportPreview] = useState<any>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -81,6 +87,42 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
     }
   };
 
+  const previewImport = async (file: File) => {
+    setImportFile(file);
+    setImportPreview(null);
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await uploadFile("/api/cash-book/import/preview", fd);
+      setImportPreview(r);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+      setImportFile(null);
+    } finally {
+      setImportBusy(false);
+      if (importRef.current) importRef.current.value = "";
+    }
+  };
+  const commitImport = async () => {
+    if (!importFile) return;
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      const r = await uploadFile("/api/cash-book/import", fd);
+      showFeedback("success", r.message);
+      setImportPreview(null);
+      setImportFile(null);
+      setShowImport(false);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
   // running position as each entry happened, for the "yahan gaya itna reh gaya" feel
   let running = data?.openingBalance ?? 0;
   const withRunning = (data?.entries || []).map((e: any) => {
@@ -108,10 +150,43 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
         <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
+        <ModuleDataIO entityKey="cash_transactions" label="Cash Book" onImported={load} />
+        <button onClick={() => setShowImport((s) => !s)} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5">
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Import daily-work Excel
+          {showImport ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
         <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> Add entry · نئی اندراج
         </button>
       </div>
+
+      {showImport && (
+        <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3 space-y-3">
+          <p className="text-[12px] text-[#374151]" dir="auto">
+            Dual cash-book format ke liye (Date/Truck/Jama/Description/Credit ‖ Date/Truck/Banam/Description/Debit,
+            jaise "Daliy work.xlsx") — har row ke dono taraf ek "In" aur ek "Out" entry ban jati hai.
+          </p>
+          <button onClick={() => importRef.current?.click()} disabled={importBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
+            {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Choose .xlsx file
+          </button>
+          <input ref={importRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => e.target.files?.[0] && previewImport(e.target.files[0])} />
+          {importPreview && (
+            <div className="rounded-lg border border-emerald-300 bg-white p-3 text-[12px] space-y-2">
+              <div className="flex flex-wrap gap-4">
+                <span>Rows found: <b>{importPreview.rowCount}</b></span>
+                <span className="text-[#15803D]">Total In: <b>{PKR(importPreview.totalIn)}</b></span>
+                <span className="text-[#B91C1C]">Total Out: <b>{PKR(importPreview.totalOut)}</b></span>
+              </div>
+              {importPreview.skippedSheets?.length > 0 && (
+                <div className="text-[11px] text-amber-700">Skipped sheets (no recognizable data): {importPreview.skippedSheets.join(", ")}</div>
+              )}
+              <button onClick={commitImport} disabled={importBusy} className="bg-emerald-600 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
+                {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Confirm import
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" />
