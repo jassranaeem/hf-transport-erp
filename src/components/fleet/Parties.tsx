@@ -66,6 +66,7 @@ export default function Parties({
   const [newParty, setNewParty] = useState<any>(null);
 
   const [showImport, setShowImport] = useState(false);
+  const [importIsLender, setImportIsLender] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -224,6 +225,7 @@ export default function Parties({
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (importIsLender) fd.append("partyType", "lender");
       const r = await uploadFile("/api/parties/import-workbook", fd);
       setImportResult(r);
       showFeedback("success", r.message);
@@ -252,6 +254,14 @@ export default function Parties({
               reads every sheet, builds the running naam/jama balance and flags anything to review. Re-uploading is
               non-destructive — it updates, it never wipes.
             </p>
+            <label className="flex items-start gap-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+              <input type="checkbox" checked={importIsLender} onChange={(e) => setImportIsLender(e.target.checked)} className="mt-0.5" />
+              <span>
+                <b>This is a Lender</b> — they gave HFK a loan/deposit, not a customer/vendor sheet. Yeh sheet ek
+                <b> qarza dene wale</b> (lender) ki hai — jo paisa unhone diya wo humara qarza (payable) hai, unse lena nahi.
+                Flips the balance so it lands on payable instead of receivable.
+              </span>
+            </label>
             <button onClick={() => importRef.current?.click()} disabled={importBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
               {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}{importBusy ? "Importing…" : "Choose .xlsx file"}
             </button>

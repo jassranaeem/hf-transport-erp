@@ -91,6 +91,13 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
     if (!name.endsWith(".xlsx") && !name.endsWith(".xlsm")) {
       return res.status(400).json({ error: "File must be an Excel .xlsx workbook." });
     }
+    // A "Lender" sheet (someone who loaned HFK money, e.g. deposits + HFK's own
+    // running expenses paid from that fund) has the opposite sense from a normal
+    // customer/vendor sheet: the sheet's CREDIT column is money THEY gave US
+    // (increases what we owe them), not money we received from doing business
+    // with them. Swap received/paid into debit/credit so the balance still
+    // lands on the correct side (+ve = receivable, -ve = payable).
+    const isLender = String(req.body?.partyType || "").toLowerCase() === "lender";
     // reuse the truck-workbook parser — same "SR#|DATE|…|RECEIVED|PAID|BALANCE" per-sheet shape
     const { ledgers, report } = await parseTruckWorkbook(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
     if (ledgers.length === 0) {
@@ -115,7 +122,7 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
             .values({
               partyCode: await nextPartyCode(),
               name: partyName,
-              type: "Other",
+              type: isLender ? "Lender" : "Other",
               openingBalance: L.openingBalance || 0,
               closingBalance: L.closingBalance || 0,
               sourceSheet: L.sourceSheet,
@@ -127,7 +134,15 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
         } else {
           await db
             .update(schema.parties)
-            .set({ name: partyName, sourceSheet: L.sourceSheet, isDeleted: false, deletedAt: null, updatedAt: new Date(), updatedBy: req.user?.id })
+            .set({
+              name: partyName,
+              sourceSheet: L.sourceSheet,
+              ...(isLender ? { type: "Lender" } : {}),
+              isDeleted: false,
+              deletedAt: null,
+              updatedAt: new Date(),
+              updatedBy: req.user?.id,
+            })
             .where(eq(schema.parties.id, party.id));
           partiesUpdated++;
         }
@@ -149,8 +164,13 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
             description: e.description || null,
             refNo: null as string | null,
             method: e.method,
-            debit: e.paid, // party ko diya
-            credit: e.received, // party se mila
+            // Normal party: debit = given to them, credit = received from them.
+            // Lender: their "CREDIT" (money they gave us) increases what we owe
+            // them, so it swaps onto the debit side here (+ve running balance =
+            // receivable, -ve = payable, per recompute() below) - see the
+            // isLender note above POST /import-workbook.
+            debit: isLender ? e.received : e.paid,
+            credit: isLender ? e.paid : e.received,
             runningBalance: e.runningBalance,
             sheetBalance: e.sheetBalance,
             category: e.category,
