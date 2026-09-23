@@ -2383,7 +2383,11 @@ export const cashTransactions = pgTable("cash_transactions", {
 }, (table) => {
   return {
     ctDateIdx: index("ct_date_idx").on(table.entryDate),
-    ctSourceIdx: index("ct_source_idx").on(table.sourceSheet, table.sourceRow),
+    // unique (not just indexed) so a bulk import can upsert in one statement
+    // instead of one row at a time - NULLs (hand-entered rows) never conflict
+    // with each other in Postgres, only two imported rows from the exact same
+    // sheet+row+direction would.
+    ctSourceIdx: uniqueIndex("ct_source_idx").on(table.sourceSheet, table.sourceRow, table.direction),
   };
 });
 

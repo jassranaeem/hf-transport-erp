@@ -151,22 +151,18 @@ router.post("/import/preview", requireRole(WRITE), workbookUpload.single("file")
   }
 });
 
+// Batched bulk upsert instead of one row at a time - a few hundred round
+// trips instead of thousands, which is what made large imports (e.g. 3500+
+// rows) take several minutes.
+const IMPORT_BATCH_SIZE = 500;
+
 router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
     const { rows, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
 
-    const existing = await db
-      .select({ id: T.id, sourceSheet: T.sourceSheet, sourceRow: T.sourceRow, direction: T.direction })
-      .from(T)
-      .where(sql`${T.sourceSheet} is not null`);
-    const byKey = new Map(existing.map((r) => [`${r.sourceSheet}::${r.sourceRow}::${r.direction}`, r.id]));
-
-    let inserted = 0;
-    let updated = 0;
-    for (const r of rows) {
-      const key = `${r.sourceSheet}::${r.sourceRow}::${r.direction}`;
-      const vals = {
+    for (let i = 0; i < rows.length; i += IMPORT_BATCH_SIZE) {
+      const chunk = rows.slice(i, i + IMPORT_BATCH_SIZE).map((r) => ({
         entryDate: r.entryDate || new Date(),
         direction: r.direction,
         amount: r.amount,
@@ -174,18 +170,29 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
         description: r.description,
         sourceSheet: r.sourceSheet,
         sourceRow: r.sourceRow,
-      };
-      const existingId = byKey.get(key);
-      if (existingId) {
-        await db.update(T).set({ ...vals, updatedAt: new Date(), updatedBy: req.user?.id, isDeleted: false, deletedAt: null }).where(eq(T.id, existingId));
-        updated++;
-      } else {
-        await db.insert(T).values({ ...vals, createdBy: req.user?.id } as any);
-        inserted++;
-      }
+        createdBy: req.user?.id,
+        isDeleted: false,
+        deletedAt: null,
+      }));
+      await db
+        .insert(T)
+        .values(chunk as any)
+        .onConflictDoUpdate({
+          target: [T.sourceSheet, T.sourceRow, T.direction],
+          set: {
+            entryDate: sql`excluded.entry_date`,
+            amount: sql`excluded.amount`,
+            person: sql`excluded.person`,
+            description: sql`excluded.description`,
+            isDeleted: false,
+            deletedAt: null,
+            updatedAt: new Date(),
+            updatedBy: req.user?.id,
+          },
+        });
     }
 
-    res.json({ message: `Imported ${inserted} new, ${updated} updated entries.`, inserted, updated, skippedSheets });
+    res.json({ message: `Imported ${rows.length} entries.`, count: rows.length, skippedSheets });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Import failed" });
   }

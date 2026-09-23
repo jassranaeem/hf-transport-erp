@@ -127,6 +127,13 @@
       "when": 1789994889991,
       "tag": "0017_cash_transactions_source",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790081289991,
+      "tag": "0018_cash_transactions_unique_source",
+      "breakpoints": true
     }
   ]
 }
