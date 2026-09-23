@@ -38,6 +38,7 @@ import CompanyProfile from "../fleet/CompanyProfile.tsx";
 
 import SmartDispatch from "../fleet/SmartDispatch.tsx";
 import LiveTrackingMap from "../fleet/LiveTrackingMap.tsx";
+import GpsTracking from "../fleet/GpsTracking.tsx";
 import DataPortal from "../fleet/DataPortal.tsx";
 import TruckLedgers from "../fleet/TruckLedgers.tsx";
 import Parties from "../fleet/Parties.tsx";
@@ -190,6 +191,8 @@ export default function WorkbookShell({
         return <SmartDispatch showFeedback={showFeedback} />;
       case "LiveTrackingMap":
         return <LiveTrackingMap showFeedback={showFeedback} role={role} />;
+      case "GpsTracking":
+        return <GpsTracking showFeedback={showFeedback} role={role} />;
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
       case "TruckLedgers":

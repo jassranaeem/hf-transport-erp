@@ -74,20 +74,20 @@ export const WORKBOOKS: WorkbookDef[] = [
     id: "fleet",
     label: "Fleet",
     icon: Truck,
-    // Setup first (import or add master data), then day-to-day operations
-    // (dispatch a trip, track it live), then advanced/lookup tools last.
+    // Truck Search (full profile + Setup Import) first — the one place people
+    // land to look something up or bring in Excel data. Then asset value,
+    // then the individual master-data sheets, then GPS (trackers + map
+    // combined), then Dispatch last.
     sheets: [
-      c("setup_import", "Setup Import (Excel)", "FleetSetupImport", "vehicles"),
-      e("vehicles", "Vehicles", "vehicles", "vehicles"),
+      c("compliance", "Truck Search (Full Profile)", "FleetSearch", "vehicles"),
       c("asset_value", "Fleet Asset Value", "FleetAssetValue", "vehicles"),
+      e("vehicles", "Vehicles", "vehicles", "vehicles"),
       e("drivers", "Drivers", "drivers", "drivers"),
       e("routes", "Routes", "routes", "routes"),
       e("contractors", "Carriers / Customers", "contractors", "contractors"),
-      e("trackers", "GPS Trackers", "tracker_devices", "vehicles"),
-      c("gps", "GPS Map", "LiveTrackingMap", "dispatch"),
-      c("dispatch", "Dispatch Board", "SmartDispatch", "dispatch"),
       e("trips", "Trips", "trips", "dispatch"),
-      c("compliance", "Truck Search (Full Profile)", "FleetSearch", "vehicles"),
+      c("gps", "GPS Tracking", "GpsTracking", "dispatch"),
+      c("dispatch", "Dispatch Board", "SmartDispatch", "dispatch"),
     ],
   },
   {

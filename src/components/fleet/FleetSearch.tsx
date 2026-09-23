@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Calendar, ShieldAlert, FileText, CheckCircle, AlertTriangle, UserCheck, Truck,
   ChevronDown, ChevronRight, Wallet, Fuel, Wrench, Route, Phone, ExternalLink, Loader2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
+import FleetSetupImport from "./FleetSetupImport.tsx";
 
 interface ExpiryAlert {
   entityType: "Vehicle" | "Driver";
@@ -305,6 +307,7 @@ export default function FleetSearch({
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showImport, setShowImport] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Document Expiries (fleet-wide board — kept, separate from the per-truck profile above)
@@ -340,6 +343,24 @@ export default function FleetSearch({
 
   return (
     <div className="space-y-6">
+      {/* Setup Import (Excel) — collapsible, lives inside Truck Search now */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowImport((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+        >
+          <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Setup Import (Excel)
+          </span>
+          {showImport ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+        </button>
+        {showImport && (
+          <div className="border-t border-slate-100 p-4">
+            <FleetSetupImport showFeedback={showFeedback} />
+          </div>
+        )}
+      </div>
+
       {/* Search Bar Input */}
       <div className="bg-white p-4 border border-slate-200 rounded-xl space-y-3">
         <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">

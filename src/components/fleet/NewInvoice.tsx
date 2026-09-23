@@ -187,9 +187,7 @@ export default function NewInvoice({
   }, [f.routeFrom, f.routeTo]);
 
   const addClient = async () => {
-    for (const k of ["company", "contactPerson", "phone", "email", "ntn"] as const) {
-      if (!newClient[k]?.trim()) { showFeedback("error", "Client ka company, contact, phone, email aur NTN zaroori hai."); return; }
-    }
+    if (!newClient.company?.trim()) { showFeedback("error", "Client ka company name zaroori hai."); return; }
     setSavingClient(true);
     try {
       const r = await enterpriseFetch(`/api/entities/contractors`, { method: "POST", body: JSON.stringify({ ...newClient, status: "Active", paymentTerms: f.paymentTerms || "Net 30" }) });
@@ -332,8 +330,8 @@ export default function NewInvoice({
         {addingClient && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
             {([
-              ["company", "Company name *"], ["contactPerson", "Contact person *"], ["phone", "Phone *"],
-              ["email", "Email *"], ["ntn", "NTN *"], ["strn", "STRN"],
+              ["company", "Company name *"], ["contactPerson", "Contact person"], ["phone", "Phone"],
+              ["email", "Email"], ["ntn", "NTN"], ["strn", "STRN"],
             ] as [string, string][]).map(([k, lbl]) => (
               <label key={k} className="flex flex-col text-[10px] text-slate-500">
                 {lbl}

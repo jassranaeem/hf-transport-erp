@@ -511,10 +511,10 @@ export const drivers = pgTable("drivers", {
 export const contractors = pgTable("contractors", {
   id: serial("id").primaryKey(),
   company: text("company").notNull().unique(),
-  contactPerson: text("contact_person").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email").notNull().unique(),
-  ntn: text("ntn").notNull().unique(), // National Tax Number
+  contactPerson: text("contact_person"),
+  phone: text("phone"),
+  email: text("email").unique(),
+  ntn: text("ntn").unique(), // National Tax Number
   strn: text("strn").unique(), // Sales Tax Registration Number
   address: text("address"),
   creditLimit: integer("credit_limit").notNull().default(0),
