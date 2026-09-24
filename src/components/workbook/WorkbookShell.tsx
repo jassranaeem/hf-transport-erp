@@ -48,6 +48,7 @@ import DuesAlerts from "../fleet/DuesAlerts.tsx";
 import ReceiptSearch from "../fleet/ReceiptSearch.tsx";
 import KhataOverview from "../fleet/KhataOverview.tsx";
 import FinanceOverview from "../fleet/FinanceOverview.tsx";
+import BillsPaymentsExpenses from "../fleet/BillsPaymentsExpenses.tsx";
 import FleetSearch from "../fleet/FleetSearch.tsx";
 import FleetAssetValue from "../fleet/FleetAssetValue.tsx";
 import SystemReset from "../fleet/SystemReset.tsx";
@@ -219,6 +220,8 @@ export default function WorkbookShell({
         return <FinanceDashboard dbUser={dbUser} showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "FinanceOverview":
         return <FinanceOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
+      case "BillsPaymentsExpenses":
+        return <BillsPaymentsExpenses showFeedback={showFeedback} />;
       case "KhataOverview":
         return <KhataOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "Partners":

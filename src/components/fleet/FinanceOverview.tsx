@@ -14,18 +14,16 @@ import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import {
   Briefcase, RefreshCw, Loader2, TrendingUp, TrendingDown, Landmark, FileText,
-  Receipt, CreditCard, Wallet, BookOpen, ListChecks, Handshake, ArrowRight, ClipboardList,
+  Receipt, BookOpen, ListChecks, Handshake, ArrowRight, ClipboardList,
 } from "lucide-react";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 
 const LINKS = [
+  { sheet: "cash_book", label: "Daily Cash Book", icon: Landmark },
   { sheet: "invoices", label: "Invoices", icon: FileText },
   { sheet: "quotations", label: "Quotations", icon: ClipboardList },
-  { sheet: "bills", label: "Bills", icon: Receipt },
-  { sheet: "payments", label: "Payments", icon: CreditCard },
-  { sheet: "expenses", label: "Expenses", icon: Wallet },
-  { sheet: "cash_closings", label: "Cash Closings", icon: Landmark },
+  { sheet: "bills_payments_expenses", label: "Bills / Payments / Expenses", icon: Receipt },
   { sheet: "bank_accounts", label: "Bank Accounts", icon: Landmark },
   { sheet: "accounts", label: "Chart of Accounts", icon: BookOpen },
   { sheet: "journal_entries", label: "Journal Entries", icon: ListChecks },

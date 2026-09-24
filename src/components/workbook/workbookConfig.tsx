@@ -111,30 +111,28 @@ export const WORKBOOKS: WorkbookDef[] = [
     id: "finance",
     label: "Finance",
     icon: Briefcase,
-    // Overview + company setup first, then sales docs (invoice/quotation),
-    // then purchases/cash, then accounting internals (GL), then the partner
-    // module, then reports last.
+    // Order requested directly by the client: overview/setup, daily cash,
+    // partners, personal, zakat, reports, then the sales docs (invoice/
+    // quotation) and purchases, GL internals last. Invoices and Quotations
+    // already build "new" + line-item detail inline (no separate tabs
+    // needed); Bills/Payments/Expenses share one sheet; Cash Closings folds
+    // into Daily Cash Book.
     sheets: [
       c("overview", "Overview", "FinanceOverview", "finance"),
       c("company_profile", "Company Profile (Letterhead)", "CompanyProfile", "settings"),
-      c("invoices", "Invoices", "InvoicesList", "finance"),
-      c("new_invoice", "New Invoice", "NewInvoice", "finance"),
-      e("invoice_lines", "Invoice Lines (raw)", "invoice_lines", "finance"),
-      c("quotations", "Quotations", "QuotationsList", "finance"),
-      e("bills", "Bills", "bills", "finance"),
-      e("payments", "Payments", "payments", "finance"),
-      e("expenses", "Expenses", "expenses", "finance"),
       c("cash_book", "Daily Cash Book", "CashBook", "finance"),
-      e("cash_closings", "Cash Closings", "cash_closings", "finance"),
-      e("bank_accounts", "Bank Accounts (Accounting)", "bank_accounts", "finance"),
-      e("accounts", "Chart of Accounts", "accounts", "finance"),
-      e("journal_entries", "Journal Entries", "journal_entries", "finance"),
-      e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
       c("partners", "Partners", "Partners", "finance"),
       c("partner_pnl", "Partner P&L", "PartnerPnL", "finance"),
       c("personal", "Personal & Household", "PersonalExpenses", "finance"),
       c("zakat", "Zakat", "Zakat", "finance"),
       c("monthly", "Monthly Report", "MonthlyReport", "finance"),
+      c("invoices", "Invoices", "InvoicesList", "finance"),
+      c("quotations", "Quotations", "QuotationsList", "finance"),
+      c("bills_payments_expenses", "Bills / Payments / Expenses", "BillsPaymentsExpenses", "finance"),
+      e("bank_accounts", "Bank Accounts (Accounting)", "bank_accounts", "finance"),
+      e("accounts", "Chart of Accounts", "accounts", "finance"),
+      e("journal_entries", "Journal Entries", "journal_entries", "finance"),
+      e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
     ],
   },
   {
