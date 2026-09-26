@@ -16,7 +16,7 @@
  * Mounted at /api/trip-desk.
  */
 import { Router, Response } from "express";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
@@ -332,6 +332,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
       .where(
         and(
           eq(schema.truckLedgers.isDeleted, false),
+          isNull(schema.truckLedgers.sourceSheet), // never write into an Excel-imported sheet ledger
           sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
         ),
       )
@@ -407,7 +408,7 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     let [led] = await db
       .select()
       .from(schema.truckLedgers)
-      .where(and(eq(schema.truckLedgers.isDeleted, false), eq(schema.truckLedgers.vehicleId, trip.vehicleId)))
+      .where(and(eq(schema.truckLedgers.isDeleted, false), isNull(schema.truckLedgers.sourceSheet), eq(schema.truckLedgers.vehicleId, trip.vehicleId)))
       .limit(1);
     if (!led) {
       [led] = await db
