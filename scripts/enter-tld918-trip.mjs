@@ -69,6 +69,15 @@ try {
   await c.query(`update vehicles set current_status='Active' where id=$1`, [veh.id]);
   await c.query(`update drivers set status='On Trip', assigned_vehicle_id=$2 where id=$1`, [drv.id, veh.id]);
 
+  // GPS: make sure TLD 918's tracker is tied to this truck so the live map shows the trip
+  const linked = await one(`select * from tracker_devices where vehicle_id=$1 limit 1`, [veh.id]);
+  if (linked) console.log(`GPS tracker already linked to TLD 918 (${linked.label || linked.imei}) - the trip will show on the live map.`);
+  else {
+    const cand = await one(`select * from tracker_devices where vehicle_id is null and regexp_replace(upper(coalesce(label,'')),'[^A-Z0-9]','','g') like $1 limit 1`, [`%${PLATE}%`]);
+    if (cand) { await c.query(`update tracker_devices set vehicle_id=$2 where id=$1`, [cand.id, veh.id]); console.log(`Linked GPS tracker ${cand.label || cand.imei} to TLD 918.`); }
+    else console.log("! No GPS tracker is linked to TLD 918 - link it under Fleet > GPS Tracking > Tracker Devices.");
+  }
+
   let led = await one(`select * from truck_ledgers where is_deleted=false and source_sheet is null and regexp_replace(upper(registration),'[^A-Z0-9]','','g')=$1 order by id limit 1`, [PLATE]);
   if (!led) led = await one(`insert into truck_ledgers (vehicle_id, registration, title, driver_name, driver_phone) values ($1,'TLD 918','TLD 918',$2,$3) returning *`, [veh.id, DRIVER.name, DRIVER.phone]);
   else if (!led.vehicle_id) await c.query(`update truck_ledgers set vehicle_id=$2 where id=$1`, [led.id, veh.id]);
