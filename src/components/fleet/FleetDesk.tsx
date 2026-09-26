@@ -7,10 +7,14 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { Plus, Trash2, Search, Pencil, RefreshCw, Loader2, X } from "lucide-react";
 import TripDesk from "./TripDesk.tsx";
+import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import WorkbookIO from "../common/WorkbookIO.tsx";
 
 interface Field { key: string; label: string; type?: "text" | "number" | "date"; placeholder?: string }
 interface MasterCfg {
   kind: string;
+  entity: string;
+  label: string;
   noun: string;
   required: Field[];
   optional: Field[];
@@ -20,6 +24,8 @@ interface MasterCfg {
 const MASTERS: Record<string, MasterCfg> = {
   vehicles: {
     kind: "vehicles",
+    entity: "vehicles",
+    label: "Trucks",
     noun: "truck",
     required: [{ key: "vehicleNumber", label: "Truck number · ٹرک نمبر", placeholder: "TLD 918" }],
     optional: [
@@ -45,6 +51,8 @@ const MASTERS: Record<string, MasterCfg> = {
   },
   drivers: {
     kind: "drivers",
+    entity: "drivers",
+    label: "Drivers",
     noun: "driver",
     required: [{ key: "driverName", label: "Driver name · ڈرائیور کا نام" }],
     optional: [
@@ -64,6 +72,8 @@ const MASTERS: Record<string, MasterCfg> = {
   },
   routes: {
     kind: "routes",
+    entity: "routes",
+    label: "Routes",
     noun: "route",
     required: [
       { key: "origin", label: "From · کہاں سے" },
@@ -86,6 +96,8 @@ const MASTERS: Record<string, MasterCfg> = {
   },
   customers: {
     kind: "customers",
+    entity: "contractors",
+    label: "Customers",
     noun: "customer",
     required: [{ key: "company", label: "Customer / carrier name · کسٹمر / کیریئر کا نام" }],
     optional: [
@@ -252,6 +264,7 @@ function MasterTab({
               <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size} selected
             </button>
           )}
+          <ModuleDataIO entityKey={cfg.entity} label={cfg.label} onImported={load} />
           <button onClick={load} className="inline-flex items-center gap-1.5 text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 hover:bg-slate-50">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
@@ -299,8 +312,13 @@ export default function FleetDesk({
   showFeedback: (type: "success" | "error", message: string) => void;
 }) {
   const [tab, setTab] = useState("trips");
+  const [reload, setReload] = useState(0);
   return (
     <div className="h-full flex flex-col">
+      <div className="px-3 pt-3 flex items-start justify-between gap-3 flex-wrap">
+        <div className="text-xs text-slate-500" dir="auto">One click for every list · ایک کلک میں سب لسٹیں</div>
+        <WorkbookIO entities={["trips", "vehicles", "drivers", "routes", "contractors"]} fileName="fleet-desk" onImported={() => setReload((n) => n + 1)} />
+      </div>
       <div className="flex gap-1 px-3 pt-3 flex-wrap">
         {TABS.map((t) => (
           <button
@@ -313,7 +331,7 @@ export default function FleetDesk({
         ))}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {tab === "trips" ? <TripDesk showFeedback={showFeedback} /> : <React.Fragment key={tab}><MasterTab cfg={MASTERS[tab]} showFeedback={showFeedback} /></React.Fragment>}
+        <React.Fragment key={tab + reload}>{tab === "trips" ? <TripDesk showFeedback={showFeedback} /> : <MasterTab cfg={MASTERS[tab]} showFeedback={showFeedback} />}</React.Fragment>
       </div>
     </div>
   );
