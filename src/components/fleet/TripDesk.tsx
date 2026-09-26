@@ -17,7 +17,7 @@ const nowLocal = () => {
 };
 const emptyForm = () => ({
   truck: "", driverName: "", driverPhone: "", from: "", to: "", customer: "",
-  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash",
+  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", cargo: "",
 });
 
 interface Opts {
@@ -42,6 +42,8 @@ export default function TripDesk({
   const [openId, setOpenId] = useState<number | null>(null);
   const [money, setMoney] = useState({ kind: "cash", amount: "", note: "" });
   const [addingMoney, setAddingMoney] = useState(false);
+  const [leg, setLeg] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
+  const [addingLeg, setAddingLeg] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -82,12 +84,28 @@ export default function TripDesk({
     }
   };
 
-  const filtered = useMemo(() => {
+  // a journey = its first leg + later legs (empty run out, loaded run on); shown together, legs in order
+  const { filtered, journeys } = useMemo(() => {
+    const byRoot = new Map<number, any[]>();
+    for (const t of trips) {
+      const root = t.parentTripId || t.id;
+      byRoot.set(root, [...(byRoot.get(root) || []), t]);
+    }
+    const groups = [...byRoot.entries()].map(([root, legs]) => {
+      legs.sort((a, b) => (a.legNo || 1) - (b.legNo || 1));
+      return {
+        root,
+        legs,
+        freight: legs.reduce((s, x) => s + (x.revenue || 0), 0),
+        given: legs.reduce((s, x) => s + (x.totalGiven || 0), 0),
+      };
+    });
+    groups.sort((a, b) => new Date(b.legs[0].departureTime).getTime() - new Date(a.legs[0].departureTime).getTime());
     const n = q.trim().toLowerCase();
-    if (!n) return trips;
-    return trips.filter((t) =>
-      [t.vehicleNumber, t.driverName, t.origin, t.destination, t.company, t.tripNumber].join(" ").toLowerCase().includes(n),
-    );
+    const kept = n
+      ? groups.filter((g) => g.legs.some((t) => [t.vehicleNumber, t.driverName, t.origin, t.destination, t.company, t.tripNumber, t.cargo].join(" ").toLowerCase().includes(n)))
+      : groups;
+    return { filtered: kept.flatMap((g) => g.legs), journeys: new Map(kept.map((g) => [g.root, g])) };
   }, [trips, q]);
 
   const allSel = filtered.length > 0 && filtered.every((t) => selected.has(t.id));
@@ -120,6 +138,23 @@ export default function TripDesk({
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
+    }
+  };
+
+  const addLeg = async (t: any) => {
+    setAddingLeg(true);
+    try {
+      const r = await enterpriseFetch(`/api/trip-desk/${t.id}/next-leg`, {
+        method: "POST",
+        body: JSON.stringify({ ...leg, departure: new Date(leg.departure).toISOString() }),
+      });
+      showFeedback("success", `Leg ${r.legNo} added · اگلا مرحلہ شامل ہو گیا`);
+      setLeg({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setAddingLeg(false);
     }
   };
 
@@ -191,6 +226,10 @@ export default function TripDesk({
           <div>
             <label className={lbl}>Freight (PKR) · کرایہ</label>
             <input type="number" className={inp} value={form.freight} onChange={(e) => set("freight", e.target.value)} />
+          </div>
+          <div>
+            <label className={lbl}>Load / cargo · مال (blank = empty)</label>
+            <input className={inp} value={form.cargo} onChange={(e) => set("cargo", e.target.value)} placeholder="Empty" />
           </div>
         </div>
 
@@ -277,7 +316,12 @@ export default function TripDesk({
                     </td>
                     <td className="px-2 font-semibold text-slate-800">{t.vehicleNumber}</td>
                     <td className="px-2">{t.driverName}{t.driverMobile ? <span className="text-slate-400 text-xs"> · {t.driverMobile}</span> : null}</td>
-                    <td className="px-2">{t.origin} → {t.destination}</td>
+                    <td className="px-2">
+                      {t.origin} → {t.destination}
+                      <div className="text-[10px] text-slate-500">
+                        Leg {t.legNo || 1} · {t.cargo ? t.cargo : "Empty run · خالی"}
+                      </div>
+                    </td>
                     <td className="px-2">{t.company}</td>
                     <td className="px-2 whitespace-nowrap">{new Date(t.departureTime).toLocaleDateString()}</td>
                     <td className="px-2 text-right tabular-nums">{t.cash ? fmt(t.cash) : "—"}</td>
@@ -312,6 +356,35 @@ export default function TripDesk({
                             Add to ledger · کھاتے میں ڈالیں
                           </button>
                         </div>
+                        {(() => {
+                          const j = journeys.get(t.parentTripId || t.id);
+                          if (!j) return null;
+                          const lastLeg = j.legs[j.legs.length - 1];
+                          const net = j.freight - j.given;
+                          return (
+                            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                              <div className="text-xs font-semibold text-slate-700">
+                                Whole journey · پورا سفر ({j.legs.length} leg{j.legs.length > 1 ? "s" : ""}): freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>
+                              </div>
+                              {lastLeg.id === t.id && (
+                                <div>
+                                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Add next leg (e.g. loaded run) · اگلا مرحلہ</div>
+                                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                                    <input list="td-from" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder={`From (${t.destination})`} value={leg.from} onChange={(e) => setLeg({ ...leg, from: e.target.value })} />
+                                    <input list="td-to" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="To *" value={leg.to} onChange={(e) => setLeg({ ...leg, to: e.target.value })} />
+                                    <input className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Load / cargo" value={leg.cargo} onChange={(e) => setLeg({ ...leg, cargo: e.target.value })} />
+                                    <input list="td-customers" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder={`Customer (${t.company})`} value={leg.customer} onChange={(e) => setLeg({ ...leg, customer: e.target.value })} />
+                                    <input type="number" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Freight (PKR)" value={leg.freight} onChange={(e) => setLeg({ ...leg, freight: e.target.value })} />
+                                    <input type="datetime-local" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={leg.departure} onChange={(e) => setLeg({ ...leg, departure: e.target.value })} />
+                                  </div>
+                                  <button onClick={() => addLeg(t)} disabled={addingLeg || !leg.to.trim()} className="mt-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60">
+                                    Add leg · مرحلہ شامل کریں
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div className="mt-3">
                           <AttachmentPanel entityType="trip" entityId={t.id} title="Receipts & proof · رسیدیں اور ثبوت" />
                         </div>

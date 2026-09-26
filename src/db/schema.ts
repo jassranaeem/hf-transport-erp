@@ -564,6 +564,10 @@ export const trips = pgTable("trips", {
   expectedProfit: integer("expected_profit").notNull(),
   expectedArrival: timestamp("expected_arrival").notNull(),
   expectedFuel: integer("expected_fuel").notNull(),
+  // one journey can have several legs (empty run out, loaded run back): legs point at the first leg
+  parentTripId: integer("parent_trip_id"),
+  legNo: integer("leg_no").default(1).notNull(),
+  cargo: text("cargo"), // blank = empty run
   
   // Real-time tracking / state fields
   status: text("status").notNull().default("Scheduled"), // Scheduled -> Started -> In Transit -> Arrived -> Completed

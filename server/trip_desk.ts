@@ -151,6 +151,9 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
           status: r.trip.status,
           departureTime: r.trip.departureTime,
           revenue: r.trip.revenue,
+          parentTripId: r.trip.parentTripId,
+          legNo: r.trip.legNo,
+          cargo: r.trip.cargo,
           vehicleNumber: r.vehicleNumber,
           driverName: r.driverName,
           driverMobile: r.driverMobile,
@@ -317,6 +320,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         status: departure.getTime() <= Date.now() ? "In Transit" : "Scheduled",
         currentAddress: route.origin,
         remainingDistance: route.distance || 0,
+        cargo: clean(b.cargo) || null,
         createdBy: req.user?.id,
       })
       .returning();
@@ -394,6 +398,74 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
   }
 });
 
+router.post("/:id/next-leg", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const parent = (await db.select().from(schema.trips).where(and(eq(schema.trips.id, parseInt(req.params.id)), eq(schema.trips.isDeleted, false))).limit(1))[0];
+    if (!parent) return res.status(404).json({ error: "Trip not found" });
+    const b = req.body || {};
+    const to = clean(b.to);
+    if (!to) return res.status(400).json({ error: "Enter where this leg is going · یہ مرحلہ کہاں جا رہا ہے لکھیں" });
+
+    const rootId = parent.parentTripId || parent.id;
+    const legs = await db.select().from(schema.trips).where(and(eq(schema.trips.isDeleted, false), sql`(${schema.trips.id} = ${rootId} or ${schema.trips.parentTripId} = ${rootId})`)).orderBy(desc(schema.trips.legNo));
+    const last = legs[0] || parent;
+    const [lastRoute] = await db.select().from(schema.routes).where(eq(schema.routes.id, last.routeId)).limit(1);
+    const from = clean(b.from) || lastRoute.destination;
+
+    let [route] = await db.select().from(schema.routes).where(and(eq(schema.routes.isDeleted, false), sql`lower(trim(${schema.routes.origin})) = ${from.toLowerCase()}`, sql`lower(trim(${schema.routes.destination})) = ${to.toLowerCase()}`)).limit(1);
+    if (!route) [route] = await db.insert(schema.routes).values({ origin: from, destination: to, distance: 0, expectedHours: 0, benchmarkFuel: 0, expectedToll: 0, revenue: whole(b.freight), createdBy: req.user?.id }).returning();
+
+    const company = clean(b.customer);
+    let contractorId = last.contractorId;
+    if (company) {
+      let [con] = await db.select().from(schema.contractors).where(and(eq(schema.contractors.isDeleted, false), sql`lower(trim(${schema.contractors.company})) = ${company.toLowerCase()}`)).limit(1);
+      if (!con) [con] = await db.insert(schema.contractors).values({ company, createdBy: req.user?.id }).returning();
+      contractorId = con.id;
+    }
+
+    const departure = b.departure ? new Date(b.departure) : new Date();
+    if (isNaN(departure.getTime())) return res.status(400).json({ error: "The departure date is not valid · روانگی کی تاریخ درست نہیں" });
+    const freight = whole(b.freight);
+    const started = departure.getTime() <= Date.now();
+    const [leg] = await db
+      .insert(schema.trips)
+      .values({
+        tripNumber: `TRIP-${Date.now().toString().slice(-6)}${randomBytes(1).toString("hex").toUpperCase()}`,
+        vehicleId: parent.vehicleId,
+        driverId: parent.driverId,
+        routeId: route.id,
+        contractorId,
+        departureTime: departure,
+        actualDepartureTime: started ? departure : null,
+        revenue: freight,
+        distance: route.distance || 0,
+        etaHours: route.expectedHours || 0,
+        fuelBenchmark: route.benchmarkFuel || 0,
+        expectedProfit: freight,
+        expectedArrival: new Date(departure.getTime() + (route.expectedHours || 0) * 3600_000),
+        expectedFuel: route.benchmarkFuel || 0,
+        status: started ? "In Transit" : "Scheduled",
+        currentAddress: route.origin,
+        remainingDistance: route.distance || 0,
+        parentTripId: rootId,
+        legNo: (last.legNo || 1) + 1,
+        cargo: clean(b.cargo) || null,
+        createdBy: req.user?.id,
+      })
+      .returning();
+    // the leg before this one has reached its stop — but never auto-"Complete" it (that would raise an invoice)
+    if (["Scheduled", "Started", "In Transit"].includes(last.status)) {
+      await db.update(schema.trips).set({ status: "Arrived" }).where(eq(schema.trips.id, last.id));
+    }
+    await db.update(schema.vehicles).set({ currentStatus: "Active" }).where(eq(schema.vehicles.id, parent.vehicleId));
+    await db.update(schema.drivers).set({ status: "On Trip", assignedVehicleId: parent.vehicleId }).where(eq(schema.drivers.id, parent.driverId));
+    await audit(req, "CREATE", "trips", leg.id, null, leg);
+    res.json({ tripId: leg.id, tripNumber: leg.tripNumber, legNo: leg.legNo });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const tripId = parseInt(req.params.id);
@@ -439,7 +511,10 @@ router.post("/delete", requireRole(WRITE), async (req: AuthRequest, res: Respons
     const ids: number[] = (Array.isArray(req.body?.ids) ? req.body.ids : []).map((n: any) => parseInt(n)).filter(Boolean);
     if (!ids.length) return res.status(400).json({ error: "No trip selected · کوئی ٹرپ منتخب نہیں" });
 
-    const trips = await db.select().from(schema.trips).where(and(inArray(schema.trips.id, ids), eq(schema.trips.isDeleted, false)));
+    const trips = await db
+      .select()
+      .from(schema.trips)
+      .where(and(eq(schema.trips.isDeleted, false), sql`(${schema.trips.id} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) or ${schema.trips.parentTripId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}))`));
     const now = new Date();
     const entries = trips.length
       ? await db
