@@ -141,6 +141,13 @@
       "when": 1790167689991,
       "tag": "0019_attachment_blobs",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790254089991,
+      "tag": "0020_cleanup_orphan_attachments",
+      "breakpoints": true
     }
   ]
 }

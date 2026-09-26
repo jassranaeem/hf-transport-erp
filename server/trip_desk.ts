@@ -454,6 +454,17 @@ router.post("/delete", requireRole(WRITE), async (req: AuthRequest, res: Respons
         .where(inArray(schema.truckLedgerEntries.id, entries.map((e) => e.id)));
       for (const lid of new Set(entries.map((e) => e.ledgerId))) await recompute(lid);
     }
+    // receipts attached to a deleted trip / its entries must not keep haunting the duplicate-slip check
+    const tripIdList = trips.map((t) => t.id);
+    const entryIdList = entries.map((e) => e.id);
+    if (tripIdList.length) {
+      const gone = await db
+        .update(schema.attachments)
+        .set({ isDeleted: true, deletedAt: now, deletedBy: req.user?.id })
+        .where(and(eq(schema.attachments.isDeleted, false), sql`((${schema.attachments.entityType} = 'trip' and ${schema.attachments.entityId} in (${sql.join(tripIdList.map((i) => sql`${i}`), sql`, `)}))${entryIdList.length ? sql` or (${schema.attachments.entityType} = 'truck_ledger_entry' and ${schema.attachments.entityId} in (${sql.join(entryIdList.map((i) => sql`${i}`), sql`, `)}))` : sql``})`))
+        .returning({ id: schema.attachments.id });
+      if (gone.length) await db.delete(schema.attachmentBlobs).where(inArray(schema.attachmentBlobs.attachmentId, gone.map((g) => g.id)));
+    }
     await db
       .update(schema.trips)
       .set({ isDeleted: true, deletedAt: now, deletedBy: req.user?.id })
