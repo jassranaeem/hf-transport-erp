@@ -281,7 +281,8 @@ export async function buildExportWorkbook(
   const wb = new ExcelJS.Workbook();
   wb.creator = "HF Transport ERP";
   wb.created = new Date();
-  const ws = wb.addWorksheet(entity.label.slice(0, 28) || "Export");
+  // Excel forbids  * ? : \ / [ ]  in a sheet name ("Vehicles / Fleet" made every export of that table fail)
+  const ws = wb.addWorksheet(entity.label.replace(/[*?:\/\[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 28) || "Export");
 
   const cols = [
     { header: "id", key: "id", width: 8 },

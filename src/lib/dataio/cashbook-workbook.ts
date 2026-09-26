@@ -19,7 +19,7 @@
  */
 import ExcelJS from "exceljs";
 import { repairXlsxBuffer } from "./xlsx-repair.ts";
-import { cellText, toAmount, parseDate, looksLikeHeader } from "./truck-workbook.ts";
+import { cellText, toAmount, parseDate, detectDateOrder, looksLikeHeader } from "./truck-workbook.ts";
 import type { ParsedLedger, ParsedEntry, WorkbookReport, ParseResult, LedgerCategory } from "./truck-workbook.ts";
 
 const PLATE_RE = /^[A-Z]{1,4}[\s-]?\d{2,4}$/i;
@@ -111,6 +111,7 @@ export async function parseCashbookWorkbook(buffer: Buffer, sourceLabel?: string
     const cols = mapCashbookColumns(rows[headerIdx])!;
     let anyRow = false;
 
+    const dateOrder = detectDateOrder(rows);
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       if (mapCashbookColumns(r)) continue; // a repeated header mid-sheet
@@ -129,7 +130,7 @@ export async function parseCashbookWorkbook(buffer: Buffer, sourceLabel?: string
         anyRow = true;
         const registration = normalizePlate(vehicleRaw);
         const dateRaw = side.date != null ? (r[side.date] || "").trim() : "";
-        const entryDate = parseDate(dateRaw);
+        const entryDate = parseDate(dateRaw, dateOrder);
         const partyName = side.party != null ? (r[side.party] || "").trim() : "";
         const desc = side.desc != null ? (r[side.desc] || "").trim() : "";
         const description = [partyName, desc].filter(Boolean).join(" • ") || (direction === "In" ? "Cash book income" : "Cash book expense");

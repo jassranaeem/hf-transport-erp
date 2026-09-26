@@ -7,6 +7,195 @@
 @theme {
   --font-sans: "Inter", "Noto Naskh Arabic", "Noto Nastaliq Urdu", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Noto Naskh Arabic", ui-monospace, SFMono-Regular, monospace;
+  /* HFK brand palette: every colour family collapses to logo navy (#24539B),
+     logo red (#D70006) or neutral grey, so no stray green/amber/purple can appear. */
+  --color-emerald-50: #F2F5FA;
+  --color-emerald-100: #E6ECF6;
+  --color-emerald-200: #C9D7EC;
+  --color-emerald-300: #9DB6DE;
+  --color-emerald-400: #5F86C4;
+  --color-emerald-500: #2C5CAE;
+  --color-emerald-600: #24539B;
+  --color-emerald-700: #1E4480;
+  --color-emerald-800: #173563;
+  --color-emerald-900: #112849;
+  --color-emerald-950: #0A1A30;
+  --color-green-50: #F2F5FA;
+  --color-green-100: #E6ECF6;
+  --color-green-200: #C9D7EC;
+  --color-green-300: #9DB6DE;
+  --color-green-400: #5F86C4;
+  --color-green-500: #2C5CAE;
+  --color-green-600: #24539B;
+  --color-green-700: #1E4480;
+  --color-green-800: #173563;
+  --color-green-900: #112849;
+  --color-green-950: #0A1A30;
+  --color-teal-50: #F2F5FA;
+  --color-teal-100: #E6ECF6;
+  --color-teal-200: #C9D7EC;
+  --color-teal-300: #9DB6DE;
+  --color-teal-400: #5F86C4;
+  --color-teal-500: #2C5CAE;
+  --color-teal-600: #24539B;
+  --color-teal-700: #1E4480;
+  --color-teal-800: #173563;
+  --color-teal-900: #112849;
+  --color-teal-950: #0A1A30;
+  --color-lime-50: #F2F5FA;
+  --color-lime-100: #E6ECF6;
+  --color-lime-200: #C9D7EC;
+  --color-lime-300: #9DB6DE;
+  --color-lime-400: #5F86C4;
+  --color-lime-500: #2C5CAE;
+  --color-lime-600: #24539B;
+  --color-lime-700: #1E4480;
+  --color-lime-800: #173563;
+  --color-lime-900: #112849;
+  --color-lime-950: #0A1A30;
+  --color-cyan-50: #F2F5FA;
+  --color-cyan-100: #E6ECF6;
+  --color-cyan-200: #C9D7EC;
+  --color-cyan-300: #9DB6DE;
+  --color-cyan-400: #5F86C4;
+  --color-cyan-500: #2C5CAE;
+  --color-cyan-600: #24539B;
+  --color-cyan-700: #1E4480;
+  --color-cyan-800: #173563;
+  --color-cyan-900: #112849;
+  --color-cyan-950: #0A1A30;
+  --color-sky-50: #F2F5FA;
+  --color-sky-100: #E6ECF6;
+  --color-sky-200: #C9D7EC;
+  --color-sky-300: #9DB6DE;
+  --color-sky-400: #5F86C4;
+  --color-sky-500: #2C5CAE;
+  --color-sky-600: #24539B;
+  --color-sky-700: #1E4480;
+  --color-sky-800: #173563;
+  --color-sky-900: #112849;
+  --color-sky-950: #0A1A30;
+  --color-blue-50: #F2F5FA;
+  --color-blue-100: #E6ECF6;
+  --color-blue-200: #C9D7EC;
+  --color-blue-300: #9DB6DE;
+  --color-blue-400: #5F86C4;
+  --color-blue-500: #2C5CAE;
+  --color-blue-600: #24539B;
+  --color-blue-700: #1E4480;
+  --color-blue-800: #173563;
+  --color-blue-900: #112849;
+  --color-blue-950: #0A1A30;
+  --color-indigo-50: #F2F5FA;
+  --color-indigo-100: #E6ECF6;
+  --color-indigo-200: #C9D7EC;
+  --color-indigo-300: #9DB6DE;
+  --color-indigo-400: #5F86C4;
+  --color-indigo-500: #2C5CAE;
+  --color-indigo-600: #24539B;
+  --color-indigo-700: #1E4480;
+  --color-indigo-800: #173563;
+  --color-indigo-900: #112849;
+  --color-indigo-950: #0A1A30;
+  --color-violet-50: #F2F5FA;
+  --color-violet-100: #E6ECF6;
+  --color-violet-200: #C9D7EC;
+  --color-violet-300: #9DB6DE;
+  --color-violet-400: #5F86C4;
+  --color-violet-500: #2C5CAE;
+  --color-violet-600: #24539B;
+  --color-violet-700: #1E4480;
+  --color-violet-800: #173563;
+  --color-violet-900: #112849;
+  --color-violet-950: #0A1A30;
+  --color-purple-50: #F2F5FA;
+  --color-purple-100: #E6ECF6;
+  --color-purple-200: #C9D7EC;
+  --color-purple-300: #9DB6DE;
+  --color-purple-400: #5F86C4;
+  --color-purple-500: #2C5CAE;
+  --color-purple-600: #24539B;
+  --color-purple-700: #1E4480;
+  --color-purple-800: #173563;
+  --color-purple-900: #112849;
+  --color-purple-950: #0A1A30;
+  --color-fuchsia-50: #F2F5FA;
+  --color-fuchsia-100: #E6ECF6;
+  --color-fuchsia-200: #C9D7EC;
+  --color-fuchsia-300: #9DB6DE;
+  --color-fuchsia-400: #5F86C4;
+  --color-fuchsia-500: #2C5CAE;
+  --color-fuchsia-600: #24539B;
+  --color-fuchsia-700: #1E4480;
+  --color-fuchsia-800: #173563;
+  --color-fuchsia-900: #112849;
+  --color-fuchsia-950: #0A1A30;
+  --color-red-50: #FFF1F1;
+  --color-red-100: #FFE0E0;
+  --color-red-200: #FFC2C3;
+  --color-red-300: #FF9294;
+  --color-red-400: #F04C50;
+  --color-red-500: #E01A1F;
+  --color-red-600: #D70006;
+  --color-red-700: #B00005;
+  --color-red-800: #8C0004;
+  --color-red-900: #6B0003;
+  --color-red-950: #3D0002;
+  --color-rose-50: #FFF1F1;
+  --color-rose-100: #FFE0E0;
+  --color-rose-200: #FFC2C3;
+  --color-rose-300: #FF9294;
+  --color-rose-400: #F04C50;
+  --color-rose-500: #E01A1F;
+  --color-rose-600: #D70006;
+  --color-rose-700: #B00005;
+  --color-rose-800: #8C0004;
+  --color-rose-900: #6B0003;
+  --color-rose-950: #3D0002;
+  --color-pink-50: #FFF1F1;
+  --color-pink-100: #FFE0E0;
+  --color-pink-200: #FFC2C3;
+  --color-pink-300: #FF9294;
+  --color-pink-400: #F04C50;
+  --color-pink-500: #E01A1F;
+  --color-pink-600: #D70006;
+  --color-pink-700: #B00005;
+  --color-pink-800: #8C0004;
+  --color-pink-900: #6B0003;
+  --color-pink-950: #3D0002;
+  --color-amber-50: #F9FAFB;
+  --color-amber-100: #F3F4F6;
+  --color-amber-200: #E5E7EB;
+  --color-amber-300: #D1D5DB;
+  --color-amber-400: #9CA3AF;
+  --color-amber-500: #6B7280;
+  --color-amber-600: #4B5563;
+  --color-amber-700: #374151;
+  --color-amber-800: #1F2937;
+  --color-amber-900: #111827;
+  --color-amber-950: #030712;
+  --color-yellow-50: #F9FAFB;
+  --color-yellow-100: #F3F4F6;
+  --color-yellow-200: #E5E7EB;
+  --color-yellow-300: #D1D5DB;
+  --color-yellow-400: #9CA3AF;
+  --color-yellow-500: #6B7280;
+  --color-yellow-600: #4B5563;
+  --color-yellow-700: #374151;
+  --color-yellow-800: #1F2937;
+  --color-yellow-900: #111827;
+  --color-yellow-950: #030712;
+  --color-orange-50: #F9FAFB;
+  --color-orange-100: #F3F4F6;
+  --color-orange-200: #E5E7EB;
+  --color-orange-300: #D1D5DB;
+  --color-orange-400: #9CA3AF;
+  --color-orange-500: #6B7280;
+  --color-orange-600: #4B5563;
+  --color-orange-700: #374151;
+  --color-orange-800: #1F2937;
+  --color-orange-900: #111827;
+  --color-orange-950: #030712;
 }
 
 /* bidi: browser picks direction per element from its own text */
@@ -253,15 +442,15 @@ button.bg-slate-100:hover,
 .bg-red-600,
 .bg-red-500,
 .btn-danger {
-  background-color: #DC2626 !important; /* Background: Red */
+  background-color: #D70006 !important; /* Background: Red */
   color: #000000 !important; /* Text: Black */
-  border: 1px solid #DC2626 !important;
+  border: 1px solid #D70006 !important;
 }
 .bg-rose-600:hover,
 .bg-red-600:hover,
 .bg-red-500:hover,
 .btn-danger:hover {
-  background-color: #B91C1C !important;
+  background-color: #B00005 !important;
   color: #000000 !important;
 }
 
@@ -394,24 +583,24 @@ button:hover svg,
 .text-red-600 svg,
 .text-rose-500 svg,
 .text-red-500 svg {
-  color: #DC2626 !important;
-  stroke: #DC2626 !important;
+  color: #D70006 !important;
+  stroke: #D70006 !important;
 }
 
 .text-amber-600 svg,
 .text-yellow-600 svg,
 .text-amber-500 svg,
 .text-yellow-500 svg {
-  color: #D97706 !important;
-  stroke: #D97706 !important;
+  color: #6B7280 !important;
+  stroke: #6B7280 !important;
 }
 
 .text-blue-600 svg,
 .text-blue-500 svg,
 .text-sky-600 svg,
 .text-sky-500 svg {
-  color: #2563EB !important;
-  stroke: #2563EB !important;
+  color: #24539B !important;
+  stroke: #24539B !important;
 }
 
 /* 13. AI Module Overrides (AI Chat / Assistant) */
@@ -457,9 +646,9 @@ samp {
   --sheet-row-selected: #E9EEF5;
   --sheet-accent: #24539B;
   --sheet-accent-weak: #9DB6DE;
-  --sheet-edit: #FEFCE8;
-  --sheet-new: #F0FDF4;
-  --sheet-danger: #DC2626;
+  --sheet-edit: #EAF0FA;
+  --sheet-new: #F2F5FA;
+  --sheet-danger: #D70006;
   --sheet-tab-active: #FFFFFF;
 }
 

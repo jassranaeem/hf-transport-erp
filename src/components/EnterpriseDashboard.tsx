@@ -281,7 +281,7 @@ export default function EnterpriseDashboard({
       mimeType = "text/csv;charset=utf-8;";
     } else {
       const htmlRows = rows.map(r => `<tr>${r.map(v => `<td style="border:1px solid #ddd;padding:8px;">${v}</td>`).join("")}</tr>`).join("");
-      const htmlHeaders = headers.map(h => `<th style="background-color:#059669;color:white;font-weight:bold;padding:10px;border:1px solid #ddd;">${h}</th>`).join("");
+      const htmlHeaders = headers.map(h => `<th style="background-color:#24539B;color:white;font-weight:bold;padding:10px;border:1px solid #ddd;">${h}</th>`).join("");
       content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
         <head><meta charset="UTF-8"></head>
         <body>
@@ -1123,8 +1123,8 @@ export default function EnterpriseDashboard({
         { id: "drivers", label: "Driver Registry", icon: UserCheck },
         { id: "routes", label: "Transit Routes", icon: RouteIcon },
         { id: "contractors", label: "3rd Party Carriers", icon: Briefcase },
-        { id: "truck_ledgers", label: "Truck Ledgers (Khata)", icon: BookOpen, roles: ["Super Admin", "Admin", "Operations Manager", "Accountant"] },
-        { id: "parties", label: "Parties (Khata)", icon: Users, roles: ["Super Admin", "Admin", "Operations Manager", "Accountant"] },
+        { id: "truck_ledgers", label: "Truck Ledgers", icon: BookOpen, roles: ["Super Admin", "Admin", "Operations Manager", "Accountant"] },
+        { id: "parties", label: "Party Ledgers", icon: Users, roles: ["Super Admin", "Admin", "Operations Manager", "Accountant"] },
         { id: "fleet_search", label: "Compliance & Audit", icon: Search },
       ]
     },

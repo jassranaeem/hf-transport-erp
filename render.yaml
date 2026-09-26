@@ -8,8 +8,8 @@ services:
     name: hf-transport-erp
     runtime: node
     plan: free
-    region: oregon            # or: frankfurt, singapore, ohio
-    branch: main
+    region: singapore          # matches the Neon DB region (ap-southeast-1)
+    branch: master
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz

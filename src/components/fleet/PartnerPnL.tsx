@@ -3,7 +3,7 @@
  *
  * Pick the partnership truck + period → see revenue, every cost (fuel / tyre /
  * oil / maintenance / salary …), net profit or loss, and the split. Then post
- * the partner's share into his running account (Party Ledger / khata), so you
+ * the partner's share into his running account (Party Ledger / ledger), so you
  * always know how much is owed / paid.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -111,7 +111,7 @@ export default function PartnerPnL({
       .then((d) => {
         setStmt(d);
         if ((d.entriesInPeriod ?? 0) === 0 && hadDates) {
-          fb.current("error", "Is date range mein is truck ki koi khata entry nahi — dates clear karein ya range barhayein.");
+          fb.current("error", "No ledger entries for this truck in this date range — clear the dates or widen the range. · اس تاریخ کی حد میں اس ٹرک کی کوئی کھاتہ انٹری نہیں — تاریخیں صاف کریں یا حد بڑھائیں۔");
         }
       })
       .catch((e) => fb.current("error", e.message))
@@ -121,7 +121,7 @@ export default function PartnerPnL({
   useEffect(() => { if (ledgerId) run(); }, [run, ledgerId]);
 
   const createPartyForPartner = async () => {
-    const name = selectedVeh?.partnerName || prompt("Partner name for the khata?") || "";
+    const name = selectedVeh?.partnerName || prompt("Partner name for the ledger?") || "";
     if (!name) return;
     try {
       const r = await enterpriseFetch("/api/partner-pnl/partner-party", { method: "POST", body: JSON.stringify({ name }) });
@@ -135,7 +135,7 @@ export default function PartnerPnL({
 
   const postShare = async () => {
     if (!ledgerId || !partyId) {
-      showFeedback("error", "Pick the truck and the partner's khata (party) first");
+      showFeedback("error", "Pick the truck and the partner's ledger (party) first");
       return;
     }
     setPosting(true);
@@ -145,7 +145,7 @@ export default function PartnerPnL({
         body: JSON.stringify({ ledgerId, partyId, from: from || null, to: to || null, partnerPercent: pct }),
       });
       setPosted(r);
-      showFeedback("success", `Posted to partner khata — ${r.balanceLabel}`);
+      showFeedback("success", `Posted to partner ledger — ${r.balanceLabel}`);
       loadMeta();
     } catch (e: any) {
       showFeedback("error", e.message);
@@ -164,13 +164,13 @@ export default function PartnerPnL({
             <Handshake className="w-4 h-4" /> Partner P&amp;L <span className="text-[#9CA3AF] font-normal text-sm">· پارٹنر حساب</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Half-half truck: revenue − all costs = net, then split. Partner's share goes to his khata. ·
+            Half-half truck: revenue − all costs = net, then split. Partner's share goes to his ledger. ·
             آدھی آدھی گاڑی — منافع/نقصان کا حصہ پارٹنر کے کھاتے میں۔
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ModuleDataIO entityKey="partner_settlements" label="Settlements" onImported={loadMeta} />
-          <button onClick={loadMeta} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0FAF4]">
+          <button onClick={loadMeta} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
@@ -180,7 +180,7 @@ export default function PartnerPnL({
       <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
         <label className="flex flex-col gap-1 md:col-span-2">
           <span className="text-[#6B7280]">
-            Truck (khata) · {filteredTrucks.length} of {meta?.vehicles?.length || 0}
+            Truck (ledger) · {filteredTrucks.length} of {meta?.vehicles?.length || 0}
           </span>
           <input
             value={truckFilter}
@@ -220,12 +220,12 @@ export default function PartnerPnL({
           <input type="number" min={0} max={100} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm" />
         </label>
         <div className="md:col-span-5 flex items-center gap-3 flex-wrap">
-          <button onClick={run} disabled={loading || !ledgerId} className="bg-[#16A34A] text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-60">
+          <button onClick={run} disabled={loading || !ledgerId} className="bg-[#24539B] text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-60">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />} Calculate
           </button>
           {selectedVeh && !selectedVeh.isPartnership && (
-            <span className="text-[11px] text-[#B45309]" dir="auto">
-              This truck isn't marked as a partnership — set the partner share % and pick / create the partner's khata below to run an ad-hoc split. · یہ ٹرک پارٹنرشپ میں نہیں — % سیٹ کریں۔
+            <span className="text-[11px] text-[#4B5563]" dir="auto">
+              This truck isn't marked as a partnership — set the partner share % and pick / create the partner's ledger below to run an ad-hoc split. · یہ ٹرک پارٹنرشپ میں نہیں — % سیٹ کریں۔
             </span>
           )}
         </div>
@@ -236,31 +236,31 @@ export default function PartnerPnL({
       {stmt && !loading && (
         <div className="text-[11px] text-[#6B7280] flex flex-wrap items-center gap-x-3" dir="auto">
           <span>
-            <b>{stmt.entriesInPeriod ?? 0}</b> khata entries counted
+            <b>{stmt.entriesInPeriod ?? 0}</b> ledger entries counted
             {stmt.period.from || stmt.period.to
               ? ` (${stmt.period.from ? stmt.period.from.slice(0, 10) : "start"} → ${stmt.period.to ? stmt.period.to.slice(0, 10) : "now"})`
               : " (all dates)"}
           </span>
           {stmt.coverage?.minDate && (
             <span>
-              · this truck's khata has entries {String(stmt.coverage.minDate).slice(0, 10)} → {String(stmt.coverage.maxDate).slice(0, 10)}
+              · this truck's ledger has entries {String(stmt.coverage.minDate).slice(0, 10)} → {String(stmt.coverage.maxDate).slice(0, 10)}
             </span>
           )}
           {stmt.coverage?.undatedEntries > 0 && (
-            <span className="text-[#B45309]">· {stmt.coverage.undatedEntries} entries have no date (excluded when a date filter is set)</span>
+            <span className="text-[#4B5563]">· {stmt.coverage.undatedEntries} entries have no date (excluded when a date filter is set)</span>
           )}
           {(from || to) && (
-            <button onClick={() => { setFrom(""); setTo(""); }} className="underline text-[#16A34A]">clear dates</button>
+            <button onClick={() => { setFrom(""); setTo(""); }} className="underline text-[#24539B]">clear dates</button>
           )}
         </div>
       )}
 
       {stmt && !loading && (stmt.entriesInPeriod ?? 0) === 0 && (
-        <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-[12px] text-[#B45309]" dir="auto">
-          Is date range mein is truck ki koi khata entry nahi mili.
+        <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[12px] text-[#4B5563]" dir="auto">
+          No ledger entries were found for this truck in this date range. · اس تاریخ کی حد میں اس ٹرک کی کوئی کھاتہ انٹری نہیں ملی۔
           {stmt.coverage?.minDate
-            ? ` Is truck ka data ${String(stmt.coverage.minDate).slice(0, 10)} se ${String(stmt.coverage.maxDate).slice(0, 10)} tak hai — dates us range mein rakhein ya "clear dates" dabayein.`
-            : " Is truck ki entries pe date hi nahi — dates clear karke poora hisab dekhein."}
+            ? ` This truck's data runs from ${String(stmt.coverage.minDate).slice(0, 10)} to ${String(stmt.coverage.maxDate).slice(0, 10)} — keep the dates inside that range or press "clear dates". · اس ٹرک کا ڈیٹا اس حد میں ہے — تاریخیں اسی حد میں رکھیں یا "تاریخیں صاف کریں" دبائیں۔`
+            : " This truck's entries have no dates — clear the dates to see the full statement. · اس ٹرک کی انٹریز پر تاریخ نہیں — تاریخیں صاف کر کے مکمل حساب دیکھیں۔"}
         </div>
       )}
 
@@ -275,7 +275,7 @@ export default function PartnerPnL({
           </div>
 
           <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Where the money went · تفصیل <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span></div>
+            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Where the money went · تفصیل <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span></div>
             <table className="w-full text-xs">
               <thead className="bg-[#F9FAFB] text-[#6B7280]">
                 <tr>
@@ -292,16 +292,16 @@ export default function PartnerPnL({
                   <React.Fragment key={l.category}>
                     <tr
                       onClick={() => toggleCategoryDetail(l.category)}
-                      className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB] ${openCategory === l.category ? "bg-[#EFF6FF]" : ""}`}
+                      className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB] ${openCategory === l.category ? "bg-[#F2F5FA]" : ""}`}
                     >
                       <td className="px-2 py-1.5 w-5">{openCategory === l.category ? <ChevronDown className="w-3.5 h-3.5 text-[#6B7280]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#9CA3AF]" />}</td>
                       <td className="px-2 py-1.5">{l.category}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#15803D]">{l.received ? l.received.toLocaleString() : ""}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{l.paid ? l.paid.toLocaleString() : ""}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{l.received ? l.received.toLocaleString() : ""}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{l.paid ? l.paid.toLocaleString() : ""}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{l.entries}</td>
                       <td className="px-2 py-1.5 text-[10px]">
-                        {l.received > 0 && l.countedRevenue && <span className="text-[#15803D]">counted as revenue</span>}
-                        {l.paid > 0 && l.countedCost && <span className="text-[#B91C1C]">counted as cost</span>}
+                        {l.received > 0 && l.countedRevenue && <span className="text-[#1E4480]">counted as revenue</span>}
+                        {l.paid > 0 && l.countedCost && <span className="text-[#B00005]">counted as cost</span>}
                         {((l.received > 0 && !l.countedRevenue) || (l.paid > 0 && !l.countedCost)) && (
                           <span className="text-[#9CA3AF]">not counted (owner capital / transfer / profit marker)</span>
                         )}
@@ -323,8 +323,8 @@ export default function PartnerPnL({
                                   <tr key={e.id} className="border-t border-[#F3F4F6]">
                                     <td className="px-3 py-1.5 text-[#6B7280] whitespace-nowrap">{e.entryDate ? e.entryDate.slice(0, 10) : "—"}</td>
                                     <td className="px-3 py-1.5 max-w-[320px] truncate" dir="auto" title={e.description || ""}>{e.description || "—"}</td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#15803D]">{e.received ? e.received.toLocaleString() : ""}</td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{e.paid ? e.paid.toLocaleString() : ""}</td>
+                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#1E4480]">{e.received ? e.received.toLocaleString() : ""}</td>
+                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#B00005]">{e.paid ? e.paid.toLocaleString() : ""}</td>
                                   </tr>
                                 ))}
                                 {(categoryEntries || []).length === 0 && (
@@ -342,33 +342,33 @@ export default function PartnerPnL({
             </table>
           </div>
 
-          {/* post to partner khata */}
+          {/* post to partner ledger */}
           <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
-            <h3 className="text-sm font-semibold flex items-center gap-1.5"><Wallet className="w-4 h-4" /> Post partner's share to his khata</h3>
+            <h3 className="text-sm font-semibold flex items-center gap-1.5"><Wallet className="w-4 h-4" /> Post partner's share to his ledger</h3>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <select value={partyId ?? ""} onChange={(e) => setPartyId(Number(e.target.value) || null)} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm">
-                <option value="">— pick partner's party (khata) —</option>
+                <option value="">— pick partner's party (ledger) —</option>
                 {(meta?.parties || []).map((p) => (
                   <option key={p.id} value={p.id}>{p.name} ({p.type}) · bal {PKR(p.balance)}</option>
                 ))}
               </select>
-              <button onClick={createPartyForPartner} className="border border-[#E5E7EB] rounded px-2 py-1.5 hover:bg-[#F0FAF4]">
+              <button onClick={createPartyForPartner} className="border border-[#E5E7EB] rounded px-2 py-1.5 hover:bg-[#F2F5FA]">
                 + New party for {selectedVeh?.partnerName || "partner"}
               </button>
-              <button onClick={postShare} disabled={posting || !partyId} className="bg-[#16A34A] text-white font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-60">
+              <button onClick={postShare} disabled={posting || !partyId} className="bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-60">
                 {posting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
                 Post {PKR(t.partnerShare)} {t.net >= 0 ? "(we owe partner)" : "(partner owes us)"}
               </button>
             </div>
             {posted && (
-              <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-2 text-[12px] text-[#15803D]">
+              <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-2 text-[12px] text-[#1E4480]">
                 Posted. <b>{posted.balanceLabel}</b>.{" "}
-                <button className="underline" onClick={() => onOpenParty?.(posted.partyId)}>Open the partner's khata</button>
+                <button className="underline" onClick={() => onOpenParty?.(posted.partyId)}>Open the partner's ledger</button>
               </div>
             )}
             <p className="text-[11px] text-[#9CA3AF]" dir="auto">
               Profit → credited to the partner (we owe him). Loss → debited (he owes us). When you actually pay him,
-              add a debit entry in his khata. Running balance = kitna jama / kitna dena. ·
+              add a debit entry in his ledger. Running balance = how much is owed to / by him. ·
               جب پارٹنر کو ادائیگی کریں تو اس کے کھاتے میں debit اندراج کریں۔
             </p>
           </div>
@@ -379,7 +379,7 @@ export default function PartnerPnL({
 }
 
 function Card({ label, value, tone, big }: { label: string; value: string; tone?: "good" | "bad"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>

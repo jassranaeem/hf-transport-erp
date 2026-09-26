@@ -14,18 +14,16 @@ import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import {
   Briefcase, RefreshCw, Loader2, TrendingUp, TrendingDown, Landmark, FileText,
-  Receipt, CreditCard, Wallet, BookOpen, ListChecks, Handshake, ArrowRight, ClipboardList,
+  Receipt, BookOpen, ListChecks, Handshake, ArrowRight, ClipboardList,
 } from "lucide-react";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 
 const LINKS = [
+  { sheet: "cash_book", label: "Daily Cash Book", icon: Landmark },
   { sheet: "invoices", label: "Invoices", icon: FileText },
   { sheet: "quotations", label: "Quotations", icon: ClipboardList },
-  { sheet: "bills", label: "Bills", icon: Receipt },
-  { sheet: "payments", label: "Payments", icon: CreditCard },
-  { sheet: "expenses", label: "Expenses", icon: Wallet },
-  { sheet: "cash_closings", label: "Cash Closings", icon: Landmark },
+  { sheet: "bills_payments_expenses", label: "Bills / Payments / Expenses", icon: Receipt },
   { sheet: "bank_accounts", label: "Bank Accounts", icon: Landmark },
   { sheet: "accounts", label: "Chart of Accounts", icon: BookOpen },
   { sheet: "journal_entries", label: "Journal Entries", icon: ListChecks },
@@ -99,27 +97,27 @@ export default function FinanceOverview({
           <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] flex items-center gap-1.5 mb-2">
             <TrendingUp className="w-3.5 h-3.5" /> Receivable (Invoices)
           </div>
-          <div className="text-2xl font-extrabold tabular-nums text-[#15803D]">{arAging ? PKR(arAging.totalAR) : "—"}</div>
+          <div className="text-2xl font-extrabold tabular-nums text-[#1E4480]">{arAging ? PKR(arAging.totalAR) : "—"}</div>
           {arAging && (arAging.overdue60 + arAging.overdue90 + arAging.overdue120 + arAging.overdue120Plus) > 0 && (
-            <p className="text-[10px] text-[#B91C1C] mt-1">{PKR(arAging.overdue60 + arAging.overdue90 + arAging.overdue120 + arAging.overdue120Plus)} overdue 60+ days</p>
+            <p className="text-[10px] text-[#B00005] mt-1">{PKR(arAging.overdue60 + arAging.overdue90 + arAging.overdue120 + arAging.overdue120Plus)} overdue 60+ days</p>
           )}
         </div>
         <div className="rounded-xl border border-[#E5E7EB] bg-white p-3">
           <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] flex items-center gap-1.5 mb-2">
             <TrendingDown className="w-3.5 h-3.5" /> Payable (Bills)
           </div>
-          <div className="text-2xl font-extrabold tabular-nums text-[#B91C1C]">{apAging ? PKR(apAging.totalAP) : "—"}</div>
+          <div className="text-2xl font-extrabold tabular-nums text-[#B00005]">{apAging ? PKR(apAging.totalAP) : "—"}</div>
         </div>
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Go to · جائیں</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Go to · جائیں</div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3">
           {LINKS.map(({ sheet, label, icon: Icon }) => (
             <button
               key={sheet}
               onClick={() => onNavigate?.("finance", sheet)}
-              className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-xs font-semibold text-[#374151] hover:border-[#16A34A] hover:bg-[#F0FDF4] transition-colors"
+              className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-xs font-semibold text-[#374151] hover:border-[#24539B] hover:bg-[#F2F5FA] transition-colors"
             >
               <Icon className="w-4 h-4 text-[#6B7280] shrink-0" />
               <span className="flex-1 text-left">{label}</span>
@@ -133,7 +131,7 @@ export default function FinanceOverview({
 }
 
 function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>

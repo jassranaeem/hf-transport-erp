@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -511,10 +511,10 @@ export const drivers = pgTable("drivers", {
 export const contractors = pgTable("contractors", {
   id: serial("id").primaryKey(),
   company: text("company").notNull().unique(),
-  contactPerson: text("contact_person").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email").notNull().unique(),
-  ntn: text("ntn").notNull().unique(), // National Tax Number
+  contactPerson: text("contact_person"),
+  phone: text("phone"),
+  email: text("email").unique(),
+  ntn: text("ntn").unique(), // National Tax Number
   strn: text("strn").unique(), // Sales Tax Registration Number
   address: text("address"),
   creditLimit: integer("credit_limit").notNull().default(0),
@@ -564,6 +564,10 @@ export const trips = pgTable("trips", {
   expectedProfit: integer("expected_profit").notNull(),
   expectedArrival: timestamp("expected_arrival").notNull(),
   expectedFuel: integer("expected_fuel").notNull(),
+  // one journey can have several legs (empty run out, loaded run back): legs point at the first leg
+  parentTripId: integer("parent_trip_id"),
+  legNo: integer("leg_no").default(1).notNull(),
+  cargo: text("cargo"), // blank = empty run
   
   // Real-time tracking / state fields
   status: text("status").notNull().default("Scheduled"), // Scheduled -> Started -> In Transit -> Arrived -> Completed
@@ -2107,6 +2111,16 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
 // ---------------------------------------------------------
 // ATTACHMENTS  (real file uploads linked to any record in any module)
 // ---------------------------------------------------------
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+// File bytes live in Postgres (not on the web server disk, which is wiped on every
+// redeploy / spin-down on the free host). Kept in their own table so listing
+// attachments never drags the bytes along.
+export const attachmentBlobs = pgTable("attachment_blobs", {
+  attachmentId: integer("attachment_id").primaryKey(),
+  data: bytea("data").notNull(),
+});
+
 export const attachments = pgTable("attachments", {
   id: serial("id").primaryKey(),
   entityType: text("entity_type").notNull(), // trip, invoice, expense, fuel_transaction, vehicle_maintenance, vehicle, driver, contractor, partner_settlement, truck_ledger_entry, company_profile, document
@@ -2355,6 +2369,39 @@ export const personalExpenses = pgTable("personal_expenses", {
     peDateIdx: index("pe_date_idx").on(table.entryDate),
     peCategoryIdx: index("pe_category_idx").on(table.category),
     pePersonIdx: index("pe_person_idx").on(table.person),
+  };
+});
+
+// Daily cash-in-hand log — itemized in/out transactions (who, how much),
+// grouped into calendar days (midnight to midnight). A day's opening balance
+// is just the running total of every transaction before that day started, so
+// nothing needs to be manually carried forward each morning.
+export const cashTransactions = pgTable("cash_transactions", {
+  id: serial("id").primaryKey(),
+  entryDate: timestamp("entry_date").defaultNow().notNull(),
+  direction: text("direction").notNull(), // In | Out
+  amount: integer("amount").notNull().default(0), // PKR, always positive
+  person: text("person"), // who it came from / went to
+  description: text("description"),
+  notes: text("notes"),
+  sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
+  sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  deletedBy: integer("deleted_by"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+}, (table) => {
+  return {
+    ctDateIdx: index("ct_date_idx").on(table.entryDate),
+    // unique (not just indexed) so a bulk import can upsert in one statement
+    // instead of one row at a time - NULLs (hand-entered rows) never conflict
+    // with each other in Postgres, only two imported rows from the exact same
+    // sheet+row+direction would.
+    ctSourceIdx: uniqueIndex("ct_source_idx").on(table.sourceSheet, table.sourceRow, table.direction),
   };
 });
 

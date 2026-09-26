@@ -94,11 +94,11 @@ export default function DuesAlerts({
   }) => {
     const c =
       tone === "good"
-        ? "text-[#15803D] border-[#BBF7D0] bg-[#F0FDF4]"
+        ? "text-[#1E4480] border-[#C9D7EC] bg-[#F2F5FA]"
         : tone === "bad"
-        ? "text-[#B91C1C] border-[#FECACA] bg-[#FEF2F2]"
+        ? "text-[#B00005] border-[#FFC2C3] bg-[#FFF1F1]"
         : tone === "warn"
-        ? "text-[#B45309] border-[#FDE68A] bg-[#FFFBEB]"
+        ? "text-[#4B5563] border-[#E5E7EB] bg-[#F9FAFB]"
         : "text-[#1F2937] border-[#E5E7EB] bg-white";
     return (
       <div className={`rounded-xl border p-3 ${c}`}>
@@ -127,7 +127,7 @@ export default function DuesAlerts({
     <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden flex flex-col min-h-0">
       <div
         className={`px-3 py-2 text-xs font-bold flex items-center justify-between ${
-          tone === "good" ? "bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "bg-[#FEF2F2] text-[#B91C1C]" : "bg-[#FEF2F2] text-[#B91C1C]"
+          tone === "good" ? "bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "bg-[#FFF1F1] text-[#B00005]" : "bg-[#FFF1F1] text-[#B00005]"
         }`}
       >
         <span>{title}</span>
@@ -139,7 +139,7 @@ export default function DuesAlerts({
           <button
             key={p.id}
             onClick={() => onOpenParty?.(p.id)}
-            className="w-full text-left px-3 py-2 border-b border-[#F3F4F6] hover:bg-[#F0FAF4] flex items-center justify-between gap-2"
+            className="w-full text-left px-3 py-2 border-b border-[#F3F4F6] hover:bg-[#F2F5FA] flex items-center justify-between gap-2"
           >
             <span className="min-w-0">
               <span className="block text-[13px] font-semibold truncate" dir="auto">{p.name}</span>
@@ -151,7 +151,7 @@ export default function DuesAlerts({
             </span>
             <span
               className={`text-[13px] font-bold tabular-nums shrink-0 ${
-                p.balance > 0 ? "text-[#15803D]" : p.balance < 0 ? "text-[#B91C1C]" : "text-[#9CA3AF]"
+                p.balance > 0 ? "text-[#1E4480]" : p.balance < 0 ? "text-[#B00005]" : "text-[#9CA3AF]"
               }`}
             >
               {fmt(p.balance)}
@@ -177,7 +177,7 @@ export default function DuesAlerts({
             <ModuleDataIO entityKey="parties" label="Parties" onImported={load} />
             <button
               onClick={load}
-              className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0FAF4]"
+              className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh <span className="text-[#9CA3AF]">تازہ کریں</span>
             </button>
@@ -186,14 +186,14 @@ export default function DuesAlerts({
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card icon={ArrowDownLeft} label="Receivable" urdu="وصول طلب (party se lena)" value={fmt(t.receiving)} tone="good" />
-        <Card icon={Wallet} label="Payable" urdu="واجب الادا (party ko dena)" value={fmt(t.payable)} tone="bad" />
+        <Card icon={ArrowDownLeft} label="Receivable" urdu="وصول طلب (پارٹی سے لینا)" value={fmt(t.receiving)} tone="good" />
+        <Card icon={Wallet} label="Payable" urdu="واجب الادا (پارٹی کو دینا)" value={fmt(t.payable)} tone="bad" />
         <Card icon={Scale} label="Net position" urdu="خالص پوزیشن" value={fmt(t.net)} tone={t.net >= 0 ? "good" : "bad"} />
         <Card icon={AlertTriangle} label="Dead / stuck" urdu="پھنسا ہوا (Blocked/Inactive)" value={fmt(t.dead)} tone="warn" />
       </div>
 
       {(t.dead > 0 || data.doNotPay.length > 0) && (
-        <div className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[12px] text-[#B91C1C] flex items-start gap-2">
+        <div className="rounded-lg border border-[#FFC2C3] bg-[#FFF1F1] px-3 py-2 text-[12px] text-[#B00005] flex items-start gap-2">
           <Ban className="w-4 h-4 mt-0.5 shrink-0" />
           <span dir="auto">
             <b>{data.doNotPay.length}</b> blocked part{data.doNotPay.length === 1 ? "y" : "ies"} — hold all payments to them ·
@@ -210,7 +210,7 @@ export default function DuesAlerts({
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#FFFBEB] text-[#B45309] flex items-center gap-1.5" dir="auto">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F9FAFB] text-[#4B5563] flex items-center gap-1.5" dir="auto">
           <Clock className="w-3.5 h-3.5" /> Overdue — no entry for {data.overdueDays}+ days, balance still open
           <span className="ml-auto text-[10px] font-medium opacity-70">پرانے بقایا جات</span>
         </div>
@@ -220,7 +220,7 @@ export default function DuesAlerts({
             <button
               key={p.id}
               onClick={() => onOpenParty?.(p.id)}
-              className="w-full text-left px-3 py-2 border-b border-[#F3F4F6] hover:bg-[#F0FAF4] flex items-center justify-between gap-2"
+              className="w-full text-left px-3 py-2 border-b border-[#F3F4F6] hover:bg-[#F2F5FA] flex items-center justify-between gap-2"
             >
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold truncate" dir="auto">{p.name}</span>
@@ -231,7 +231,7 @@ export default function DuesAlerts({
               </span>
               <span
                 className={`text-[13px] font-bold tabular-nums shrink-0 ${
-                  p.balance > 0 ? "text-[#15803D]" : "text-[#B91C1C]"
+                  p.balance > 0 ? "text-[#1E4480]" : "text-[#B00005]"
                 }`}
               >
                 {p.balance > 0 ? "collect " : "pay "}
