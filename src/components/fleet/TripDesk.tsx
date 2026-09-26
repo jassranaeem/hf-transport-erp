@@ -1,8 +1,10 @@
 /**
- * Trip Desk — the one place to start a trip. One short form creates the
- * truck / driver / route / customer if they're new, the trip itself, the
- * truck's khata, and the cash + diesel given. The list below lets you pick
- * trips and delete them, or add more cash / diesel to a running trip.
+ * Trip Desk — one trip = one whole journey of a truck, however many stops it has
+ * (e.g. Karachi → 250 border with meat, then 250 border → Islamabad with grapes).
+ * A single form starts the trip; later stops are added inside it; cash, diesel and
+ * receipts hang off the trip; and the trip is completed once, at the very end.
+ * Anything that does not exist yet (truck, driver, route, customer, ledger) is
+ * created automatically.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
@@ -15,16 +17,36 @@ const nowLocal = () => {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 };
+const toLocal = (iso: string) => {
+  const d = new Date(iso);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
 const emptyForm = () => ({
   truck: "", driverName: "", driverPhone: "", from: "", to: "", customer: "",
   departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", cargo: "",
 });
+const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
 
 interface Opts {
   vehicles: { id: number; vehicleNumber: string }[];
   drivers: { id: number; driverName: string; mobile: string }[];
   contractors: { id: number; company: string }[];
   routes: { id: number; origin: string; destination: string }[];
+}
+interface Journey {
+  root: number;
+  legs: any[];
+  first: any;
+  last: any;
+  freight: number;
+  given: number;
+  fromLedger: number;
+  cash: number;
+  diesel: number;
+  route: string;
+  loads: string;
+  customers: string;
 }
 
 export default function TripDesk({
@@ -40,18 +62,18 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ kind: "cash", amount: "", note: "" });
+  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "" });
   const [addingMoney, setAddingMoney] = useState(false);
-  const [leg, setLeg] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
-  const [addingLeg, setAddingLeg] = useState(false);
+  const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
+  const [addingStop, setAddingStop] = useState(false);
   const [entries, setEntries] = useState<any[]>([]);
-  const [editing, setEditing] = useState(false);
+  const [editLegId, setEditLegId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string } | null>(null);
 
-  const loadEntries = useCallback((tripId: number) => {
-    enterpriseFetch(`/api/trip-desk/${tripId}/entries`).then(setEntries).catch(() => setEntries([]));
+  const loadEntries = useCallback((rootId: number) => {
+    enterpriseFetch(`/api/trip-desk/${rootId}/entries?journey=1`).then(setEntries).catch(() => setEntries([]));
   }, []);
 
   const load = useCallback(() => {
@@ -65,71 +87,15 @@ export default function TripDesk({
   }, [showFeedback]);
   useEffect(load, [load]);
   useEffect(() => {
-    setEditing(false);
+    setEditLegId(null);
     setEntryEdit(null);
     if (openId != null) loadEntries(openId);
   }, [openId, loadEntries]);
 
-  const toLocal = (iso: string) => {
-    const d = new Date(iso);
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-    return d.toISOString().slice(0, 16);
-  };
-  const startEdit = (t: any) => {
-    setEditForm({
-      departure: toLocal(t.departureTime), from: t.origin || "", to: t.destination || "", customer: t.company || "",
-      freight: String(t.revenue || ""), cargo: t.cargo || "", driverName: t.driverName || "", driverPhone: t.driverMobile || "",
-    });
-    setEditing(true);
-  };
-  const saveEdit = async (t: any) => {
-    setSavingEdit(true);
-    try {
-      await enterpriseFetch(`/api/trip-desk/${t.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ ...editForm, departure: new Date(editForm.departure).toISOString() }),
-      });
-      showFeedback("success", "Trip updated · ٹرپ اپڈیٹ ہو گئی");
-      setEditing(false);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-  const saveEntry = async () => {
-    if (!entryEdit) return;
-    try {
-      await enterpriseFetch(`/api/trip-desk/entry/${entryEdit.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description }),
-      });
-      showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
-      setEntryEdit(null);
-      if (openId != null) loadEntries(openId);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-  const deleteEntry = async (id: number) => {
-    if (!window.confirm("Delete this entry? · کیا یہ انٹری حذف کریں؟")) return;
-    try {
-      await enterpriseFetch(`/api/trip-desk/entry/${id}`, { method: "DELETE" });
-      if (openId != null) loadEntries(openId);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
   const truckKnown = form.truck.trim() && opts.vehicles.some((v) => norm(v.vehicleNumber) === norm(form.truck));
   const driverMatch = opts.drivers.find((d) => d.driverName.toLowerCase() === form.driverName.trim().toLowerCase());
-
   const onDriverName = (v: string) => {
     const m = opts.drivers.find((d) => d.driverName.toLowerCase() === v.trim().toLowerCase());
     setForm((f) => ({ ...f, driverName: v, driverPhone: m && !f.driverPhone ? m.mobile || "" : f.driverPhone }));
@@ -152,32 +118,43 @@ export default function TripDesk({
     }
   };
 
-  // a journey = its first leg + later legs (empty run out, loaded run on); shown together, legs in order
-  const { filtered, journeys } = useMemo(() => {
+  // one journey = the first leg + every later stop; shown as ONE trip
+  const journeyList: Journey[] = useMemo(() => {
     const byRoot = new Map<number, any[]>();
     for (const t of trips) {
       const root = t.parentTripId || t.id;
       byRoot.set(root, [...(byRoot.get(root) || []), t]);
     }
-    const groups = [...byRoot.entries()].map(([root, legs]) => {
+    const list = [...byRoot.entries()].map(([root, legs]) => {
       legs.sort((a, b) => (a.legNo || 1) - (b.legNo || 1));
+      const first = legs[0];
+      const last = legs[legs.length - 1];
+      const stops = [first.origin, ...legs.map((l) => l.destination)];
       return {
-        root,
-        legs,
+        root, legs, first, last,
         freight: legs.reduce((s, x) => s + (x.revenue || 0), 0),
         given: legs.reduce((s, x) => s + (x.totalGiven || 0) + (x.ledgerPaid || 0), 0),
         fromLedger: legs.reduce((s, x) => s + (x.ledgerPaid || 0), 0),
-      };
+        cash: legs.reduce((s, x) => s + (x.cash || 0), 0),
+        diesel: legs.reduce((s, x) => s + (x.diesel || 0), 0),
+        route: stops.join(" → "),
+        loads: legs.map((l) => l.cargo || "Empty").join(" → "),
+        customers: [...new Set(legs.map((l) => l.company).filter(Boolean))].join(", "),
+      } as Journey;
     });
-    groups.sort((a, b) => new Date(b.legs[0].departureTime).getTime() - new Date(a.legs[0].departureTime).getTime());
-    const n = q.trim().toLowerCase();
-    const kept = n
-      ? groups.filter((g) => g.legs.some((t) => [t.vehicleNumber, t.driverName, t.origin, t.destination, t.company, t.tripNumber, t.cargo].join(" ").toLowerCase().includes(n)))
-      : groups;
-    return { filtered: kept.flatMap((g) => g.legs), journeys: new Map(kept.map((g) => [g.root, g])) };
-  }, [trips, q]);
+    list.sort((a, b) => new Date(b.first.departureTime).getTime() - new Date(a.first.departureTime).getTime());
+    return list;
+  }, [trips]);
 
-  const allSel = filtered.length > 0 && filtered.every((t) => selected.has(t.id));
+  const filtered = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    if (!n) return journeyList;
+    return journeyList.filter((j) =>
+      [j.first.vehicleNumber, j.first.driverName, j.route, j.customers, j.loads, ...j.legs.map((l) => l.tripNumber)].join(" ").toLowerCase().includes(n),
+    );
+  }, [journeyList, q]);
+
+  const allSel = filtered.length > 0 && filtered.every((j) => selected.has(j.root));
   const toggle = (id: number) =>
     setSelected((s) => {
       const n = new Set(s);
@@ -188,10 +165,10 @@ export default function TripDesk({
   const deleteSelected = async () => {
     const ids = [...selected];
     if (!ids.length) return;
-    if (!window.confirm(`Delete ${ids.length} trip(s)? Their cash / diesel ledger entries will be removed too. · کیا ${ids.length} ٹرپ حذف کریں؟ ان کی کیش / ڈیزل کھاتہ انٹریز بھی ہٹ جائیں گی۔`)) return;
+    if (!window.confirm(`Delete ${ids.length} trip(s) with all their stops? Their cash / diesel ledger entries and receipts will be removed too. · کیا ${ids.length} ٹرپ حذف کریں؟ ان کی کیش / ڈیزل انٹریز اور رسیدیں بھی ہٹ جائیں گی۔`)) return;
     try {
       const r = await enterpriseFetch("/api/trip-desk/delete", { method: "POST", body: JSON.stringify({ ids }) });
-      showFeedback("success", `${r.deleted} trip(s) deleted, ${r.khataEntriesRemoved} ledger entries removed · حذف ہو گئیں`);
+      showFeedback("success", `${r.deleted} record(s) deleted, ${r.khataEntriesRemoved} ledger entries removed · حذف ہو گئیں`);
       setSelected(new Set());
       load();
     } catch (e: any) {
@@ -199,44 +176,77 @@ export default function TripDesk({
     }
   };
 
-  const changeStatus = async (t: any, status: string) => {
-    if (status === "Completed" && !window.confirm("Completing this trip will create its invoice automatically. Continue? · ٹرپ مکمل کرنے پر اس کی انوائس خود بن جائے گی۔ جاری رکھیں؟")) return;
+  const setStatus = async (id: number, status: string) =>
+    enterpriseFetch(`/api/operations/trips/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+
+  // the trip has ONE status: the status of its current (last) stop. Completing it completes every stop.
+  const changeJourneyStatus = async (j: Journey, status: string) => {
+    if (status === "Completed" && !window.confirm("Completing this trip will create the invoice(s) for its stops automatically. Continue? · ٹرپ مکمل کرنے پر انوائس خود بن جائیں گی۔ جاری رکھیں؟")) return;
     try {
-      await enterpriseFetch(`/api/operations/trips/${t.id}/status`, { method: "PUT", body: JSON.stringify({ status }) });
-      showFeedback("success", `${t.vehicleNumber}: ${status}`);
+      if (status === "Completed") {
+        for (const l of j.legs) if (l.status !== "Completed") await setStatus(l.id, "Completed");
+      } else {
+        await setStatus(j.last.id, status);
+      }
+      showFeedback("success", `${j.first.vehicleNumber}: ${status}`);
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
     }
   };
 
-  const addLeg = async (t: any) => {
-    setAddingLeg(true);
+  const addStop = async (j: Journey) => {
+    setAddingStop(true);
     try {
-      const r = await enterpriseFetch(`/api/trip-desk/${t.id}/next-leg`, {
+      const r = await enterpriseFetch(`/api/trip-desk/${j.last.id}/next-leg`, {
         method: "POST",
-        body: JSON.stringify({ ...leg, departure: new Date(leg.departure).toISOString() }),
+        body: JSON.stringify({ ...stop, departure: new Date(stop.departure).toISOString() }),
       });
-      showFeedback("success", `Leg ${r.legNo} added · اگلا مرحلہ شامل ہو گیا`);
-      setLeg({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
+      showFeedback("success", `Stop ${r.legNo} added to the trip · اگلا پڑاؤ شامل ہو گیا`);
+      setStop({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
     } finally {
-      setAddingLeg(false);
+      setAddingStop(false);
     }
   };
 
-  const addMoney = async (tripId: number) => {
+  const startEditLeg = (l: any) => {
+    setEditForm({
+      departure: toLocal(l.departureTime), from: l.origin || "", to: l.destination || "", customer: l.company || "",
+      freight: String(l.revenue || ""), cargo: l.cargo || "", driverName: l.driverName || "", driverPhone: l.driverMobile || "",
+    });
+    setEditLegId(l.id);
+  };
+  const saveEditLeg = async () => {
+    if (editLegId == null) return;
+    setSavingEdit(true);
+    try {
+      await enterpriseFetch(`/api/trip-desk/${editLegId}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...editForm, departure: new Date(editForm.departure).toISOString() }),
+      });
+      showFeedback("success", "Updated · اپڈیٹ ہو گیا");
+      setEditLegId(null);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const addMoney = async (j: Journey) => {
     setAddingMoney(true);
     try {
-      await enterpriseFetch(`/api/trip-desk/${tripId}/money`, {
+      await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
         method: "POST",
         body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note }),
       });
       showFeedback("success", "Ledger entry added · کھاتے میں انٹری ہو گئی");
-      setMoney({ kind: "cash", amount: "", note: "" });
-      loadEntries(tripId);
+      setMoney({ tripId: 0, kind: "cash", amount: "", note: "" });
+      loadEntries(j.root);
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
@@ -244,9 +254,36 @@ export default function TripDesk({
       setAddingMoney(false);
     }
   };
+  const saveEntry = async (rootId: number) => {
+    if (!entryEdit) return;
+    try {
+      await enterpriseFetch(`/api/trip-desk/entry/${entryEdit.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description }),
+      });
+      showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
+      setEntryEdit(null);
+      loadEntries(rootId);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+  const deleteEntry = async (id: number, rootId: number) => {
+    if (!window.confirm("Delete this entry? · کیا یہ انٹری حذف کریں؟")) return;
+    try {
+      await enterpriseFetch(`/api/trip-desk/entry/${id}`, { method: "DELETE" });
+      loadEntries(rootId);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
 
   const inp = "mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white";
   const lbl = "text-[11px] font-semibold text-slate-500";
+  const small = "border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white";
+  const btn = "text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60";
 
   return (
     <div className="space-y-4 p-3">
@@ -257,9 +294,9 @@ export default function TripDesk({
       <datalist id="td-to">{[...new Set(opts.routes.map((r) => r.destination))].map((o) => <option key={o} value={o} />)}</datalist>
 
       <div className="border border-emerald-200 rounded-xl bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-800">New trip <span className="text-slate-400 font-normal text-sm">· ایک فارم، سب کچھ</span></h2>
-          <span className="text-[11px] text-slate-400">Anything that does not exist yet is created automatically · جو موجود نہیں وہ خود بن جاتا ہے</span>
+        <div className="flex items-center justify-between flex-wrap gap-1">
+          <h2 className="text-base font-bold text-slate-800">New trip <span className="text-slate-400 font-normal text-sm">· نئی ٹرپ</span></h2>
+          <span className="text-[11px] text-slate-400">Fill in the first stop. More stops (e.g. the loaded run back) are added inside the trip. · پہلا پڑاؤ بھریں، آگے کے پڑاؤ ٹرپ کے اندر شامل ہوں گے</span>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -333,11 +370,7 @@ export default function TripDesk({
           </div>
         </div>
 
-        <button
-          onClick={submit}
-          disabled={saving}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-5 py-2 hover:bg-emerald-700 disabled:opacity-60"
-        >
+        <button onClick={submit} disabled={saving} className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-5 py-2 hover:bg-emerald-700 disabled:opacity-60">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create trip · ٹرپ بنائیں
         </button>
       </div>
@@ -360,13 +393,13 @@ export default function TripDesk({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
               <tr>
-                <th className="w-8 px-2 py-2"><input type="checkbox" checked={allSel} onChange={() => setSelected(allSel ? new Set() : new Set(filtered.map((t) => t.id)))} /></th>
+                <th className="w-8 px-2 py-2"><input type="checkbox" checked={allSel} onChange={() => setSelected(allSel ? new Set() : new Set(filtered.map((j) => j.root)))} /></th>
                 <th className="w-6" />
                 <th className="text-left px-2 py-2">Truck · ٹرک</th>
                 <th className="text-left px-2">Driver · ڈرائیور</th>
                 <th className="text-left px-2">Route · روٹ</th>
                 <th className="text-left px-2">Customer · کسٹمر</th>
-                <th className="text-left px-2">Date · تاریخ</th>
+                <th className="text-left px-2">Started · شروع</th>
                 <th className="text-right px-2">Cash · نقد</th>
                 <th className="text-right px-2">Diesel · ڈیزل</th>
                 <th className="text-right px-2">Freight · کرایہ</th>
@@ -377,62 +410,69 @@ export default function TripDesk({
               {filtered.length === 0 && (
                 <tr><td colSpan={11} className="p-6 text-center text-slate-400 text-sm">{loading ? "Loading…" : "No trips yet. · ابھی کوئی ٹرپ نہیں۔"}</td></tr>
               )}
-              {filtered.map((t) => (
-                <React.Fragment key={t.id}>
-                  <tr className={`border-t border-slate-100 hover:bg-slate-50 ${selected.has(t.id) ? "bg-red-50/40" : ""}`}>
-                    <td className="px-2 py-2"><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
-                    <td className="cursor-pointer" onClick={() => setOpenId(openId === t.id ? null : t.id)}>
-                      {openId === t.id ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                    </td>
-                    <td className="px-2 font-semibold text-slate-800">{t.vehicleNumber}</td>
-                    <td className="px-2">{t.driverName}{t.driverMobile ? <span className="text-slate-400 text-xs"> · {t.driverMobile}</span> : null}</td>
-                    <td className="px-2">
-                      {t.origin} → {t.destination}
-                      <div className="text-[10px] text-slate-500">
-                        Leg {t.legNo || 1} · {t.cargo ? t.cargo : "Empty run · خالی"}
-                      </div>
-                    </td>
-                    <td className="px-2">{t.company}</td>
-                    <td className="px-2 whitespace-nowrap">{new Date(t.departureTime).toLocaleDateString()}</td>
-                    <td className="px-2 text-right tabular-nums">{t.cash ? fmt(t.cash) : "—"}</td>
-                    <td className="px-2 text-right tabular-nums">{t.diesel ? fmt(t.diesel) : "—"}</td>
-                    <td className="px-2 text-right tabular-nums">{t.revenue ? fmt(t.revenue) : "—"}</td>
-                    <td className="px-2">
-                      <select
-                        value={t.status}
-                        onChange={(e) => changeStatus(t, e.target.value)}
-                        className="text-[11px] rounded-lg border border-slate-200 bg-white px-1.5 py-1"
-                      >
-                        {["Scheduled", "Started", "In Transit", "Arrived", "Completed"].map((s) => <option key={s}>{s}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                  {openId === t.id && (
-                    <tr className="bg-slate-50/60">
-                      <td colSpan={11} className="px-4 py-3">
-                        <div className="text-xs text-slate-500 mb-2">
-                          {t.tripNumber} · Total given: <b className="text-slate-700">{fmt(t.totalGiven)}</b>
-                          {t.otherExpense > 0 && <> (other expenses {fmt(t.otherExpense)})</>}
-                        </div>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <select className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white" value={money.kind} onChange={(e) => setMoney({ ...money, kind: e.target.value })}>
-                            <option value="cash">Cash</option>
-                            <option value="diesel">Diesel</option>
-                            <option value="other">Other expense</option>
-                          </select>
-                          <input type="number" placeholder="Amount" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm w-32" value={money.amount} onChange={(e) => setMoney({ ...money, amount: e.target.value })} />
-                          <input placeholder="Note" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm flex-1 min-w-[140px]" value={money.note} onChange={(e) => setMoney({ ...money, note: e.target.value })} />
-                          <button onClick={() => addMoney(t.id)} disabled={addingMoney || !money.amount} className="text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60">
-                            Add to ledger · کھاتے میں ڈالیں
-                          </button>
-                        </div>
-                        <div className="mb-3">
-                          {!editing ? (
-                            <button onClick={() => startEdit(t)} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
-                              <Pencil className="w-3.5 h-3.5" /> Edit trip · ٹرپ میں ترمیم
-                            </button>
-                          ) : (
+              {filtered.map((j) => {
+                const open = openId === j.root;
+                const net = j.freight - j.given;
+                return (
+                  <React.Fragment key={j.root}>
+                    <tr className={`border-t border-slate-100 hover:bg-slate-50 ${selected.has(j.root) ? "bg-red-50/40" : ""}`}>
+                      <td className="px-2 py-2"><input type="checkbox" checked={selected.has(j.root)} onChange={() => toggle(j.root)} /></td>
+                      <td className="cursor-pointer" onClick={() => setOpenId(open ? null : j.root)}>
+                        {open ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                      </td>
+                      <td className="px-2 font-semibold text-slate-800">{j.first.vehicleNumber}</td>
+                      <td className="px-2">{j.first.driverName}{j.first.driverMobile ? <span className="text-slate-400 text-xs"> · {j.first.driverMobile}</span> : null}</td>
+                      <td className="px-2">
+                        {j.route}
+                        <div className="text-[10px] text-slate-500">{j.loads}</div>
+                      </td>
+                      <td className="px-2">{j.customers}</td>
+                      <td className="px-2 whitespace-nowrap">{new Date(j.first.departureTime).toLocaleDateString()}</td>
+                      <td className="px-2 text-right tabular-nums">{j.cash ? fmt(j.cash) : "—"}</td>
+                      <td className="px-2 text-right tabular-nums">{j.diesel ? fmt(j.diesel) : "—"}</td>
+                      <td className="px-2 text-right tabular-nums">{j.freight ? fmt(j.freight) : "—"}</td>
+                      <td className="px-2">
+                        <select
+                          value={j.legs.every((l) => l.status === "Completed") ? "Completed" : j.last.status}
+                          onChange={(e) => changeJourneyStatus(j, e.target.value)}
+                          className="text-[11px] rounded-lg border border-slate-200 bg-white px-1.5 py-1"
+                        >
+                          {[...new Set([j.last.status, ...STATUSES])].map((s) => <option key={s}>{s}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="bg-slate-50/60">
+                        <td colSpan={11} className="px-4 py-3 space-y-3">
+                          <div className="text-xs font-semibold text-slate-700">
+                            Whole trip · پورا سفر: freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>
+                            {j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} already in this truck's ledger since the trip started)</span>}
+                          </div>
+
+                          <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
+                                <tr><th className="text-left px-2 py-1.5">Stop · پڑاؤ</th><th className="text-left px-2">Route</th><th className="text-left px-2">Load</th><th className="text-left px-2">Customer</th><th className="text-right px-2">Freight</th><th className="text-left px-2">Departure</th><th className="w-10" /></tr>
+                              </thead>
+                              <tbody>
+                                {j.legs.map((l) => (
+                                  <tr key={l.id} className="border-t border-slate-100">
+                                    <td className="px-2 py-1.5">{l.legNo || 1}</td>
+                                    <td className="px-2">{l.origin} → {l.destination}</td>
+                                    <td className="px-2">{l.cargo || "Empty · خالی"}</td>
+                                    <td className="px-2">{l.company}</td>
+                                    <td className="px-2 text-right tabular-nums">{l.revenue ? fmt(l.revenue) : "—"}</td>
+                                    <td className="px-2 whitespace-nowrap">{new Date(l.departureTime).toLocaleString()}</td>
+                                    <td className="px-2"><button onClick={() => startEditLeg(l)} className="text-slate-500 hover:text-emerald-700" title="Edit"><Pencil className="w-3.5 h-3.5" /></button></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {editLegId != null && j.legs.some((l) => l.id === editLegId) && (
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                              <div className="text-[11px] font-semibold text-slate-500">Edit stop {j.legs.find((l) => l.id === editLegId)?.legNo || 1} · پڑاؤ میں ترمیم</div>
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                 {([
                                   ["departure", "Departure · روانگی", "datetime-local"],
@@ -451,87 +491,89 @@ export default function TripDesk({
                                 ))}
                               </div>
                               <div className="flex gap-2">
-                                <button onClick={() => saveEdit(t)} disabled={savingEdit} className="text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60">Save · محفوظ کریں</button>
-                                <button onClick={() => setEditing(false)} className="text-sm rounded-lg border border-slate-300 bg-white px-4 py-1.5">Cancel</button>
+                                <button onClick={saveEditLeg} disabled={savingEdit} className={btn}>Save · محفوظ کریں</button>
+                                <button onClick={() => setEditLegId(null)} className="text-sm rounded-lg border border-slate-300 bg-white px-4 py-1.5">Cancel</button>
                               </div>
                             </div>
                           )}
-                        </div>
-                        {entries.length > 0 && (
-                          <div className="mb-3 rounded-lg border border-slate-200 bg-white overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
-                                <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">Type</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Note · تفصیل</th><th className="w-16" /></tr>
-                              </thead>
-                              <tbody>
-                                {entries.map((en) => (
-                                  <tr key={en.id} className="border-t border-slate-100">
-                                    {entryEdit?.id === en.id ? (
-                                      <>
-                                        <td className="px-2 py-1"><input type="date" className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.date} onChange={(e) => setEntryEdit({ ...entryEdit, date: e.target.value })} /></td>
-                                        <td className="px-2">{en.category}</td>
-                                        <td className="px-2 text-right"><input type="number" className="border border-slate-300 rounded px-1.5 py-1 w-28 text-right" value={entryEdit.amount} onChange={(e) => setEntryEdit({ ...entryEdit, amount: e.target.value })} /></td>
-                                        <td className="px-2"><input className="border border-slate-300 rounded px-1.5 py-1 w-full" value={entryEdit.description} onChange={(e) => setEntryEdit({ ...entryEdit, description: e.target.value })} /></td>
-                                        <td className="px-2 whitespace-nowrap">
-                                          <button onClick={saveEntry} className="font-semibold text-emerald-700 mr-2">Save</button>
-                                          <button onClick={() => setEntryEdit(null)} className="text-slate-500">Cancel</button>
-                                        </td>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
-                                        <td className="px-2">{en.category}</td>
-                                        <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
-                                        <td className="px-2">{en.description || "—"}</td>
-                                        <td className="px-2 whitespace-nowrap">
-                                          <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
-                                          <button onClick={() => deleteEntry(en.id)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
-                                        </td>
-                                      </>
-                                    )}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                        {(() => {
-                          const j = journeys.get(t.parentTripId || t.id);
-                          if (!j) return null;
-                          const lastLeg = j.legs[j.legs.length - 1];
-                          const net = j.freight - j.given;
-                          return (
-                            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                              <div className="text-xs font-semibold text-slate-700">
-                                Whole journey · پورا سفر ({j.legs.length} leg{j.legs.length > 1 ? "s" : ""}): freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>{j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} already in this truck's ledger since the first leg left)</span>}
-                              </div>
-                              {lastLeg.id === t.id && (
-                                <div>
-                                  <div className="text-[11px] font-semibold text-slate-500 mb-1">Add next leg (e.g. loaded run) · اگلا مرحلہ</div>
-                                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-                                    <input list="td-from" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder={`From (${t.destination})`} value={leg.from} onChange={(e) => setLeg({ ...leg, from: e.target.value })} />
-                                    <input list="td-to" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="To *" value={leg.to} onChange={(e) => setLeg({ ...leg, to: e.target.value })} />
-                                    <input className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Load / cargo" value={leg.cargo} onChange={(e) => setLeg({ ...leg, cargo: e.target.value })} />
-                                    <input list="td-customers" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder={`Customer (${t.company})`} value={leg.customer} onChange={(e) => setLeg({ ...leg, customer: e.target.value })} />
-                                    <input type="number" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Freight (PKR)" value={leg.freight} onChange={(e) => setLeg({ ...leg, freight: e.target.value })} />
-                                    <input type="datetime-local" className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" value={leg.departure} onChange={(e) => setLeg({ ...leg, departure: e.target.value })} />
-                                  </div>
-                                  <button onClick={() => addLeg(t)} disabled={addingLeg || !leg.to.trim()} className="mt-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60">
-                                    Add leg · مرحلہ شامل کریں
-                                  </button>
-                                </div>
-                              )}
+
+                          <div className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="text-[11px] font-semibold text-slate-500 mb-1">Add next stop to this trip (e.g. the loaded run) · اگلا پڑاؤ</div>
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                              <input list="td-from" className={small} placeholder={`From (${j.last.destination})`} value={stop.from} onChange={(e) => setStop({ ...stop, from: e.target.value })} />
+                              <input list="td-to" className={small} placeholder="To *" value={stop.to} onChange={(e) => setStop({ ...stop, to: e.target.value })} />
+                              <input className={small} placeholder="Load / cargo" value={stop.cargo} onChange={(e) => setStop({ ...stop, cargo: e.target.value })} />
+                              <input list="td-customers" className={small} placeholder={`Customer (${j.last.company})`} value={stop.customer} onChange={(e) => setStop({ ...stop, customer: e.target.value })} />
+                              <input type="number" className={small} placeholder="Freight (PKR)" value={stop.freight} onChange={(e) => setStop({ ...stop, freight: e.target.value })} />
+                              <input type="datetime-local" className={small} value={stop.departure} onChange={(e) => setStop({ ...stop, departure: e.target.value })} />
                             </div>
-                          );
-                        })()}
-                        <div className="mt-3">
-                          <AttachmentPanel entityType="trip" entityId={t.id} title="Receipts & proof · رسیدیں اور ثبوت" />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
+                            <button onClick={() => addStop(j)} disabled={addingStop || !stop.to.trim()} className={`mt-2 ${btn}`}>Add stop · پڑاؤ شامل کریں</button>
+                          </div>
+
+                          <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                            <div className="text-[11px] font-semibold text-slate-500">Money given for this trip · اس ٹرپ کے لیے دی گئی رقم</div>
+                            <div className="flex flex-wrap items-end gap-2">
+                              {j.legs.length > 1 && (
+                                <select className={small} value={money.tripId || j.last.id} onChange={(e) => setMoney({ ...money, tripId: Number(e.target.value) })}>
+                                  {j.legs.map((l) => <option key={l.id} value={l.id}>Stop {l.legNo || 1}: {l.origin} → {l.destination}</option>)}
+                                </select>
+                              )}
+                              <select className={small} value={money.kind} onChange={(e) => setMoney({ ...money, kind: e.target.value })}>
+                                <option value="cash">Cash</option>
+                                <option value="diesel">Diesel</option>
+                                <option value="other">Other expense</option>
+                              </select>
+                              <input type="number" placeholder="Amount" className={`${small} w-32`} value={money.amount} onChange={(e) => setMoney({ ...money, amount: e.target.value })} />
+                              <input placeholder="Note" className={`${small} flex-1 min-w-[140px]`} value={money.note} onChange={(e) => setMoney({ ...money, note: e.target.value })} />
+                              <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>Add to ledger · کھاتے میں ڈالیں</button>
+                            </div>
+                            {entries.length > 0 && (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
+                                    <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">Type</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Note · تفصیل</th><th className="w-16" /></tr>
+                                  </thead>
+                                  <tbody>
+                                    {entries.map((en) => (
+                                      <tr key={en.id} className="border-t border-slate-100">
+                                        {entryEdit?.id === en.id ? (
+                                          <>
+                                            <td className="px-2 py-1"><input type="date" className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.date} onChange={(e) => setEntryEdit({ ...entryEdit, date: e.target.value })} /></td>
+                                            <td className="px-2">{en.category}</td>
+                                            <td className="px-2 text-right"><input type="number" className="border border-slate-300 rounded px-1.5 py-1 w-28 text-right" value={entryEdit.amount} onChange={(e) => setEntryEdit({ ...entryEdit, amount: e.target.value })} /></td>
+                                            <td className="px-2"><input className="border border-slate-300 rounded px-1.5 py-1 w-full" value={entryEdit.description} onChange={(e) => setEntryEdit({ ...entryEdit, description: e.target.value })} /></td>
+                                            <td className="px-2 whitespace-nowrap">
+                                              <button onClick={() => saveEntry(j.root)} className="font-semibold text-emerald-700 mr-2">Save</button>
+                                              <button onClick={() => setEntryEdit(null)} className="text-slate-500">Cancel</button>
+                                            </td>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
+                                            <td className="px-2">{en.category}</td>
+                                            <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
+                                            <td className="px-2">{en.description || "—"}</td>
+                                            <td className="px-2 whitespace-nowrap">
+                                              <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
+                                              <button onClick={() => deleteEntry(en.id, j.root)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
+                                            </td>
+                                          </>
+                                        )}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+
+                          <AttachmentPanel entityType="trip" entityId={j.root} title="Receipts & proof · رسیدیں اور ثبوت" />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

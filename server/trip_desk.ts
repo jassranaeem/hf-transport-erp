@@ -534,6 +534,14 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
 // ---- edit a trip and the money entries typed through it ------------------
 router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Response) => {
   try {
+    // a trip's money = every entry on any of its stops
+    const rootId = parseInt(req.params.id);
+    const stops = await db
+      .select({ id: schema.trips.id })
+      .from(schema.trips)
+      .where(and(eq(schema.trips.isDeleted, false), sql`(${schema.trips.id} = ${rootId} or ${schema.trips.parentTripId} = ${rootId})`));
+    const stopIds = stops.map((x) => x.id);
+    if (!stopIds.length) return res.json([]);
     const rows = await db
       .select({
         id: schema.truckLedgerEntries.id,
@@ -544,7 +552,7 @@ router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Resp
         description: schema.truckLedgerEntries.description,
       })
       .from(schema.truckLedgerEntries)
-      .where(and(eq(schema.truckLedgerEntries.derivedTripId, parseInt(req.params.id)), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .where(and(inArray(schema.truckLedgerEntries.derivedTripId, stopIds), eq(schema.truckLedgerEntries.isDeleted, false)))
       .orderBy(schema.truckLedgerEntries.entryDate, schema.truckLedgerEntries.id);
     res.json(rows);
   } catch (e: any) {
