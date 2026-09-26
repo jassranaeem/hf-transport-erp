@@ -141,6 +141,30 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
       byTrip.set(m.tripId, cur);
     }
 
+    // Money the truck's own ledger already holds for this journey (e.g. an imported Excel khata) but
+    // that was not typed through a trip: everything paid out since the first leg left.
+    const ledgerPaid = new Map<number, number>();
+    const roots = rows.filter((r) => !r.trip.parentTripId).slice(0, 60);
+    await Promise.all(
+      roots.map(async (r) => {
+        const plate = normPlate(r.vehicleNumber || "");
+        const [x] = await db
+          .select({ paid: sql<number>`coalesce(sum(${schema.truckLedgerEntries.paid}),0)::bigint` })
+          .from(schema.truckLedgerEntries)
+          .innerJoin(schema.truckLedgers, eq(schema.truckLedgerEntries.ledgerId, schema.truckLedgers.id))
+          .where(
+            and(
+              eq(schema.truckLedgers.isDeleted, false),
+              eq(schema.truckLedgerEntries.isDeleted, false),
+              isNull(schema.truckLedgerEntries.derivedTripId),
+              sql`${schema.truckLedgerEntries.entryDate} >= ${r.trip.departureTime}`,
+              sql`(${schema.truckLedgers.vehicleId} = ${r.trip.vehicleId} or regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate})`,
+            ),
+          );
+        ledgerPaid.set(r.trip.id, Number(x?.paid || 0));
+      }),
+    );
+
     res.json(
       rows.map((r) => {
         const m = byTrip.get(r.trip.id) || {};
@@ -164,6 +188,7 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
           diesel: m.Diesel || 0,
           otherExpense: total - (m.TripCash || 0) - (m.Diesel || 0),
           totalGiven: total,
+          ledgerPaid: ledgerPaid.get(r.trip.id) || 0,
         };
       }),
     );

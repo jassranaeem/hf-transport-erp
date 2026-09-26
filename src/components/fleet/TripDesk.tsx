@@ -97,7 +97,8 @@ export default function TripDesk({
         root,
         legs,
         freight: legs.reduce((s, x) => s + (x.revenue || 0), 0),
-        given: legs.reduce((s, x) => s + (x.totalGiven || 0), 0),
+        given: legs.reduce((s, x) => s + (x.totalGiven || 0) + (x.ledgerPaid || 0), 0),
+        fromLedger: legs.reduce((s, x) => s + (x.ledgerPaid || 0), 0),
       };
     });
     groups.sort((a, b) => new Date(b.legs[0].departureTime).getTime() - new Date(a.legs[0].departureTime).getTime());
@@ -364,7 +365,7 @@ export default function TripDesk({
                           return (
                             <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
                               <div className="text-xs font-semibold text-slate-700">
-                                Whole journey · پورا سفر ({j.legs.length} leg{j.legs.length > 1 ? "s" : ""}): freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>
+                                Whole journey · پورا سفر ({j.legs.length} leg{j.legs.length > 1 ? "s" : ""}): freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>{j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} already in this truck's ledger since the first leg left)</span>}
                               </div>
                               {lastLeg.id === t.id && (
                                 <div>
