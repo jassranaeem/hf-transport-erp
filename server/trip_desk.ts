@@ -531,6 +531,132 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
   }
 });
 
+// ---- edit a trip and the money entries typed through it ------------------
+router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: schema.truckLedgerEntries.id,
+        entryDate: schema.truckLedgerEntries.entryDate,
+        category: schema.truckLedgerEntries.category,
+        method: schema.truckLedgerEntries.method,
+        paid: schema.truckLedgerEntries.paid,
+        description: schema.truckLedgerEntries.description,
+      })
+      .from(schema.truckLedgerEntries)
+      .where(and(eq(schema.truckLedgerEntries.derivedTripId, parseInt(req.params.id)), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .orderBy(schema.truckLedgerEntries.entryDate, schema.truckLedgerEntries.id);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.entryId);
+    const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
+    if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
+    const b = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date(), updatedBy: req.user?.id };
+    if (b.entryDate) {
+      const d = new Date(b.entryDate);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
+      patch.entryDate = d;
+      patch.rawDate = d.toISOString().slice(0, 10);
+    }
+    if (b.amount !== undefined) {
+      const amt = whole(b.amount);
+      if (amt <= 0) return res.status(400).json({ error: "Enter an amount · رقم لکھیں" });
+      patch.paid = amt;
+    }
+    if (b.description !== undefined) patch.description = clean(b.description) || null;
+    const [row] = await db.update(schema.truckLedgerEntries).set(patch).where(eq(schema.truckLedgerEntries.id, id)).returning();
+    await recompute(old.ledgerId);
+    await audit(req, "UPDATE", "truck_ledger_entries", id, old, row);
+    res.json(row);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.entryId);
+    const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
+    if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
+    await db.update(schema.truckLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
+    await recompute(old.ledgerId);
+    await audit(req, "DELETE", "truck_ledger_entries", id, old, null);
+    res.json({ deleted: 1 });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.trips).where(and(eq(schema.trips.id, id), eq(schema.trips.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Trip not found" });
+    const b = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date(), updatedBy: req.user?.id };
+
+    if (b.departure) {
+      const d = new Date(b.departure);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: "The departure date is not valid · روانگی کی تاریخ درست نہیں" });
+      patch.departureTime = d;
+      patch.actualDepartureTime = d.getTime() <= Date.now() ? d : null;
+      patch.expectedArrival = new Date(d.getTime() + (old.etaHours || 0) * 3600_000);
+    }
+    if (b.freight !== undefined) {
+      patch.revenue = whole(b.freight);
+      patch.expectedProfit = whole(b.freight);
+    }
+    if (b.cargo !== undefined) patch.cargo = clean(b.cargo) || null;
+
+    const from = clean(b.from);
+    const to = clean(b.to);
+    if (from || to) {
+      const [cur] = await db.select().from(schema.routes).where(eq(schema.routes.id, old.routeId)).limit(1);
+      const o = from || cur.origin;
+      const d = to || cur.destination;
+      let [route] = await db.select().from(schema.routes).where(and(eq(schema.routes.isDeleted, false), sql`lower(trim(${schema.routes.origin})) = ${o.toLowerCase()}`, sql`lower(trim(${schema.routes.destination})) = ${d.toLowerCase()}`)).limit(1);
+      if (!route) [route] = await db.insert(schema.routes).values({ origin: o, destination: d, distance: 0, expectedHours: 0, benchmarkFuel: 0, expectedToll: 0, revenue: 0, createdBy: req.user?.id }).returning();
+      patch.routeId = route.id;
+      patch.currentAddress = route.origin;
+    }
+
+    const company = clean(b.customer);
+    if (company) {
+      let [con] = await db.select().from(schema.contractors).where(and(eq(schema.contractors.isDeleted, false), sql`lower(trim(${schema.contractors.company})) = ${company.toLowerCase()}`)).limit(1);
+      if (!con) [con] = await db.insert(schema.contractors).values({ company, createdBy: req.user?.id }).returning();
+      patch.contractorId = con.id;
+    }
+
+    const driverName = clean(b.driverName);
+    if (driverName) {
+      const phone = clean(b.driverPhone);
+      const digits = phone.replace(/\D/g, "");
+      let [drv] = await db.select().from(schema.drivers).where(and(eq(schema.drivers.isDeleted, false), digits ? sql`regexp_replace(${schema.drivers.mobile}, '[^0-9]', '', 'g') = ${digits}` : sql`lower(trim(${schema.drivers.driverName})) = ${driverName.toLowerCase()}`)).limit(1);
+      if (!drv) {
+        const tag = randomBytes(4).toString("hex").toUpperCase();
+        [drv] = await db.insert(schema.drivers).values({ driverName, cnic: `PENDING-${tag}`, licenseNumber: `PENDING-${tag}`, licenseExpiry: new Date(0), mobile: phone, salary: 0, createdBy: req.user?.id }).returning();
+      } else if (phone && drv.mobile !== phone) {
+        await db.update(schema.drivers).set({ mobile: phone }).where(eq(schema.drivers.id, drv.id));
+      }
+      patch.driverId = drv.id;
+      await db.update(schema.drivers).set({ status: "On Trip", assignedVehicleId: old.vehicleId }).where(eq(schema.drivers.id, drv.id));
+    }
+
+    const [row] = await db.update(schema.trips).set(patch).where(eq(schema.trips.id, id)).returning();
+    await audit(req, "UPDATE", "trips", id, old, row);
+    res.json(row);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post("/delete", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const ids: number[] = (Array.isArray(req.body?.ids) ? req.body.ids : []).map((n: any) => parseInt(n)).filter(Boolean);

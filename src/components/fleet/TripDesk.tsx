@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
-import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
 const nowLocal = () => {
@@ -44,6 +44,15 @@ export default function TripDesk({
   const [addingMoney, setAddingMoney] = useState(false);
   const [leg, setLeg] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
   const [addingLeg, setAddingLeg] = useState(false);
+  const [entries, setEntries] = useState<any[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string } | null>(null);
+
+  const loadEntries = useCallback((tripId: number) => {
+    enterpriseFetch(`/api/trip-desk/${tripId}/entries`).then(setEntries).catch(() => setEntries([]));
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -55,6 +64,65 @@ export default function TripDesk({
       .finally(() => setLoading(false));
   }, [showFeedback]);
   useEffect(load, [load]);
+  useEffect(() => {
+    setEditing(false);
+    setEntryEdit(null);
+    if (openId != null) loadEntries(openId);
+  }, [openId, loadEntries]);
+
+  const toLocal = (iso: string) => {
+    const d = new Date(iso);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+  const startEdit = (t: any) => {
+    setEditForm({
+      departure: toLocal(t.departureTime), from: t.origin || "", to: t.destination || "", customer: t.company || "",
+      freight: String(t.revenue || ""), cargo: t.cargo || "", driverName: t.driverName || "", driverPhone: t.driverMobile || "",
+    });
+    setEditing(true);
+  };
+  const saveEdit = async (t: any) => {
+    setSavingEdit(true);
+    try {
+      await enterpriseFetch(`/api/trip-desk/${t.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...editForm, departure: new Date(editForm.departure).toISOString() }),
+      });
+      showFeedback("success", "Trip updated · ٹرپ اپڈیٹ ہو گئی");
+      setEditing(false);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+  const saveEntry = async () => {
+    if (!entryEdit) return;
+    try {
+      await enterpriseFetch(`/api/trip-desk/entry/${entryEdit.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description }),
+      });
+      showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
+      setEntryEdit(null);
+      if (openId != null) loadEntries(openId);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+  const deleteEntry = async (id: number) => {
+    if (!window.confirm("Delete this entry? · کیا یہ انٹری حذف کریں؟")) return;
+    try {
+      await enterpriseFetch(`/api/trip-desk/entry/${id}`, { method: "DELETE" });
+      if (openId != null) loadEntries(openId);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
 
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -168,6 +236,7 @@ export default function TripDesk({
       });
       showFeedback("success", "Ledger entry added · کھاتے میں انٹری ہو گئی");
       setMoney({ kind: "cash", amount: "", note: "" });
+      loadEntries(tripId);
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
@@ -357,6 +426,75 @@ export default function TripDesk({
                             Add to ledger · کھاتے میں ڈالیں
                           </button>
                         </div>
+                        <div className="mb-3">
+                          {!editing ? (
+                            <button onClick={() => startEdit(t)} className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
+                              <Pencil className="w-3.5 h-3.5" /> Edit trip · ٹرپ میں ترمیم
+                            </button>
+                          ) : (
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                {([
+                                  ["departure", "Departure · روانگی", "datetime-local"],
+                                  ["from", "From · کہاں سے", "text"],
+                                  ["to", "To · کہاں تک", "text"],
+                                  ["customer", "Customer · کسٹمر", "text"],
+                                  ["freight", "Freight (PKR) · کرایہ", "number"],
+                                  ["cargo", "Load / cargo · مال", "text"],
+                                  ["driverName", "Driver · ڈرائیور", "text"],
+                                  ["driverPhone", "Driver phone · فون", "text"],
+                                ] as const).map(([k, label, type]) => (
+                                  <div key={k}>
+                                    <label className={lbl}>{label}</label>
+                                    <input type={type} className={inp} value={editForm[k] ?? ""} onChange={(e) => setEditForm({ ...editForm, [k]: e.target.value })} />
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => saveEdit(t)} disabled={savingEdit} className="text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-1.5 hover:bg-emerald-700 disabled:opacity-60">Save · محفوظ کریں</button>
+                                <button onClick={() => setEditing(false)} className="text-sm rounded-lg border border-slate-300 bg-white px-4 py-1.5">Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {entries.length > 0 && (
+                          <div className="mb-3 rounded-lg border border-slate-200 bg-white overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
+                                <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">Type</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Note · تفصیل</th><th className="w-16" /></tr>
+                              </thead>
+                              <tbody>
+                                {entries.map((en) => (
+                                  <tr key={en.id} className="border-t border-slate-100">
+                                    {entryEdit?.id === en.id ? (
+                                      <>
+                                        <td className="px-2 py-1"><input type="date" className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.date} onChange={(e) => setEntryEdit({ ...entryEdit, date: e.target.value })} /></td>
+                                        <td className="px-2">{en.category}</td>
+                                        <td className="px-2 text-right"><input type="number" className="border border-slate-300 rounded px-1.5 py-1 w-28 text-right" value={entryEdit.amount} onChange={(e) => setEntryEdit({ ...entryEdit, amount: e.target.value })} /></td>
+                                        <td className="px-2"><input className="border border-slate-300 rounded px-1.5 py-1 w-full" value={entryEdit.description} onChange={(e) => setEntryEdit({ ...entryEdit, description: e.target.value })} /></td>
+                                        <td className="px-2 whitespace-nowrap">
+                                          <button onClick={saveEntry} className="font-semibold text-emerald-700 mr-2">Save</button>
+                                          <button onClick={() => setEntryEdit(null)} className="text-slate-500">Cancel</button>
+                                        </td>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
+                                        <td className="px-2">{en.category}</td>
+                                        <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
+                                        <td className="px-2">{en.description || "—"}</td>
+                                        <td className="px-2 whitespace-nowrap">
+                                          <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
+                                          <button onClick={() => deleteEntry(en.id)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
+                                        </td>
+                                      </>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                         {(() => {
                           const j = journeys.get(t.parentTripId || t.id);
                           if (!j) return null;
