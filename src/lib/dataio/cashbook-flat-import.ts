@@ -11,7 +11,7 @@
  */
 import ExcelJS from "exceljs";
 import { repairXlsxBuffer } from "./xlsx-repair.ts";
-import { cellText, toAmount, parseDate, looksLikeHeader } from "./truck-workbook.ts";
+import { cellText, toAmount, parseDate, detectDateOrder, looksLikeHeader } from "./truck-workbook.ts";
 import { mapCashbookColumns } from "./cashbook-workbook.ts";
 
 export interface FlatCashRow {
@@ -51,6 +51,7 @@ export async function parseCashbookFlat(buffer: Buffer, sourceLabel?: string): P
     let cols: ReturnType<typeof mapCashbookColumns> = null;
     let anyRow = false;
 
+    const dateOrder = detectDateOrder(rawRows);
     for (let i = 0; i < rawRows.length; i++) {
       const r = rawRows[i];
       const maybeHeader = mapCashbookColumns(r);
@@ -77,7 +78,7 @@ export async function parseCashbookFlat(buffer: Buffer, sourceLabel?: string): P
         const description = [vehicleRaw, desc].filter(Boolean).join(" • ") || null;
 
         rows.push({
-          entryDate: parseDate(dateRaw),
+          entryDate: parseDate(dateRaw, dateOrder),
           rawDate: dateRaw,
           direction: direction === "In" ? "In" : "Out",
           amount: amt,

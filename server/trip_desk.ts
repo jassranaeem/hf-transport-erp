@@ -333,7 +333,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         and(
           eq(schema.truckLedgers.isDeleted, false),
           isNull(schema.truckLedgers.sourceSheet), // never write into an Excel-imported sheet ledger
-          sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+          eq(schema.truckLedgers.vehicleId, veh.id), // the ledger the Truck Search profile lists for THIS truck,
         ),
       )
       .limit(1);
