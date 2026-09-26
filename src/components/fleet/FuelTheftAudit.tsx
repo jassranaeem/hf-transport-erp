@@ -83,7 +83,7 @@ export default function FuelTheftAudit({
         </div>
         <button
           onClick={load}
-          className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0FAF4]"
+          className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh <span className="text-[#9CA3AF]">تازہ کریں</span>
         </button>
@@ -117,7 +117,7 @@ export default function FuelTheftAudit({
 
       {/* rule-based anomalies */}
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#DC2626] text-white flex items-center gap-1.5">
+        <div className="px-3 py-2 text-xs font-bold bg-[#D70006] text-white flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5" style={{ color: "#fff", stroke: "#fff" }} />
           Anomalies ({withMeta.length}) · بے قاعدگیاں — click a row for the calculation
         </div>
@@ -133,11 +133,11 @@ export default function FuelTheftAudit({
               <div key={a.id}>
                 <button
                   onClick={() => setOpenRow(isOpen ? null : rowKey)}
-                  className="w-full text-left p-3 flex items-start justify-between gap-3 hover:bg-[#FEF2F2]"
+                  className="w-full text-left p-3 flex items-start justify-between gap-3 hover:bg-[#FFF1F1]"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase rounded px-1.5 py-0.5 bg-[#FEE2E2] text-[#B91C1C]">
+                      <span className="text-[10px] font-bold uppercase rounded px-1.5 py-0.5 bg-[#FFE0E0] text-[#B00005]">
                         {a.severity}
                       </span>
                       <span className="text-[13px] font-semibold">{a.alertType}</span>
@@ -153,13 +153,13 @@ export default function FuelTheftAudit({
                   </div>
                   <span
                     onClick={(e) => { e.stopPropagation(); resolve(a.id); }}
-                    className="shrink-0 flex items-center gap-1 text-[11px] rounded-md bg-[#16A34A] text-white px-2 py-1 cursor-pointer"
+                    className="shrink-0 flex items-center gap-1 text-[11px] rounded-md bg-[#24539B] text-white px-2 py-1 cursor-pointer"
                   >
                     <ShieldCheck className="w-3 h-3" /> Resolve
                   </span>
                 </button>
                 {isOpen && (
-                  <div className="px-4 pb-3 bg-[#FEF2F2]">
+                  <div className="px-4 pb-3 bg-[#FFF1F1]">
                     {ft ? (
                       <table className="text-[11px] w-full max-w-md">
                         <tbody>
@@ -174,7 +174,7 @@ export default function FuelTheftAudit({
                           />
                           <CalcRow k="Mileage on this fill · اس فِل کی ایوریج" v={ft.legKmpl != null ? `${ft.legKmpl} km / litre` : "—"} />
                           {ft.flags?.map((fl: any, i: number) => (
-                            <tr key={i} className="text-[#B45309]">
+                            <tr key={i} className="text-[#4B5563]">
                               <td className="py-0.5 pr-3 align-top" dir="auto">{fl.code}</td>
                               <td className="py-0.5" dir="auto">{fl.detail}</td>
                             </tr>
@@ -205,7 +205,7 @@ export default function FuelTheftAudit({
       {/* per-driver integrity audit with calculation columns */}
       {drivers.length > 0 && (
         <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-          <div className="px-3 py-2 text-xs font-bold bg-[#EA580C] text-white flex items-center gap-1.5">
+          <div className="px-3 py-2 text-xs font-bold bg-[#6B7280] text-white flex items-center gap-1.5">
             <TrendingDown className="w-3.5 h-3.5" style={{ color: "#fff", stroke: "#fff" }} />
             Per driver — litres drawn vs km driven · فی ڈرائیور — ڈلوایا بمقابلہ سفر
           </div>
@@ -227,20 +227,20 @@ export default function FuelTheftAudit({
                 {drivers.map((d: any) => {
                   const risky = d.riskLevel && d.riskLevel !== "Low";
                   return (
-                    <tr key={d.driverId} className={`border-t border-[#F3F4F6] ${risky ? "bg-[#FEF2F2]" : ""}`}>
+                    <tr key={d.driverId} className={`border-t border-[#F3F4F6] ${risky ? "bg-[#FFF1F1]" : ""}`}>
                       <td className="px-2 py-1.5" dir="auto">{d.driverName}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{d.litresDrawn}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{d.distanceKm}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{d.expectedLitres}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${d.overdrawLitres > 0 ? "text-[#B91C1C]" : "text-[#15803D]"}`}>
+                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${d.overdrawLitres > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                         {d.overdrawLitres} {d.overdrawPercent != null ? `(${d.overdrawPercent}%)` : ""}
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{d.impliedKmPerLitre ?? "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{d.estimatedLossValue ? PKR(d.estimatedLossValue) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{d.estimatedLossValue ? PKR(d.estimatedLossValue) : "—"}</td>
                       <td className="px-2 py-1.5">
                         <span
                           className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
-                            risky ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#DCFCE7] text-[#15803D]"
+                            risky ? "bg-[#FFE0E0] text-[#B00005]" : "bg-[#E6ECF6] text-[#1E4480]"
                           }`}
                         >
                           {d.riskLevel}
@@ -264,7 +264,7 @@ export default function FuelTheftAudit({
 
 function CalcRow({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
-    <tr className={bold ? "font-bold text-[#B91C1C]" : ""}>
+    <tr className={bold ? "font-bold text-[#B00005]" : ""}>
       <td className="py-0.5 pr-3 align-top text-[#4B5563]" dir="auto">{k}</td>
       <td className="py-0.5" dir="auto">{v}</td>
     </tr>
@@ -274,9 +274,9 @@ function CalcRow({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
 function Tile({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "neutral" }) {
   const c =
     tone === "bad"
-      ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]"
+      ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
       : tone === "good"
-      ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]"
+      ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]"
       : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>

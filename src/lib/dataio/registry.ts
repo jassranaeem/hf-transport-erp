@@ -413,7 +413,7 @@ export const ENTITIES: EntitySpec[] = [
   {
     key: "party_ledger_entries",
     label: "Party Ledger Entries",
-    description: "Running khata rows for a party (naam / jama)",
+    description: "Running ledger rows for a party (debit / credit)",
     table: schema.partyLedgerEntries,
     softDelete: true,
     resource: "finance",
@@ -424,8 +424,8 @@ export const ENTITIES: EntitySpec[] = [
       { column: "Description", field: "description", type: "string" },
       { column: "Ref No", field: "refNo", type: "string", note: "bilty / cheque / invoice no." },
       { column: "Method", field: "method", type: "string", note: "Cash, Online, Cheque, Adjustment, ..." },
-      { column: "Debit (Naam)", field: "debit", type: "int", default: 0, note: "party ko diya / party par charha" },
-      { column: "Credit (Jama)", field: "credit", type: "int", default: 0, note: "party se mila" },
+      { column: "Debit", field: "debit", type: "int", default: 0, note: "paid to the party / charged to the party" },
+      { column: "Credit", field: "credit", type: "int", default: 0, note: "received from the party" },
       { column: "Category", field: "category", type: "string", default: "Other" },
       { column: "Section", field: "sectionLabel", type: "string" },
       { column: "Needs Review", field: "needsReview", type: "boolean", default: false },
@@ -435,7 +435,7 @@ export const ENTITIES: EntitySpec[] = [
   {
     key: "truck_ledger_entries",
     label: "Truck Ledger Entries",
-    description: "Running per-truck cash ledger (khata) rows",
+    description: "Running per-truck cash ledger rows",
     table: schema.truckLedgerEntries,
     softDelete: true,
     resource: "finance",

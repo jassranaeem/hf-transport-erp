@@ -16,9 +16,9 @@ const d = (s: string) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
 
 const STATUS_STYLE: Record<string, string> = {
   Draft: "bg-slate-100 text-slate-600",
-  Sent: "bg-[#DBEAFE] text-[#1E40AF]",
-  Accepted: "bg-[#DCFCE7] text-[#166534]",
-  Rejected: "bg-[#FEE2E2] text-[#991B1B]",
+  Sent: "bg-[#E6ECF6] text-[#173563]",
+  Accepted: "bg-[#E6ECF6] text-[#173563]",
+  Rejected: "bg-[#FFE0E0] text-[#8C0004]",
 };
 
 export default function QuotationsList({
@@ -63,11 +63,11 @@ export default function QuotationsList({
   };
 
   const convert = async (id: number, r: any) => {
-    if (!r.contractorId) { showFeedback("error", "Pehle isko ek registered client se link karein (Edit → existing client chunein), phir convert karein."); return; }
-    if (!window.confirm(`Is quotation ko invoice mein convert karein?`)) return;
+    if (!r.contractorId) { showFeedback("error", "Link this to a registered client first (Edit → choose an existing client), then convert. · پہلے اسے رجسٹرڈ کلائنٹ سے جوڑیں (ایڈٹ ← موجودہ کلائنٹ منتخب کریں)، پھر تبدیل کریں۔"); return; }
+    if (!window.confirm(`Convert this quotation into an invoice? · کیا اس کوٹیشن کو انوائس میں تبدیل کریں؟`)) return;
     try {
       const res = await enterpriseFetch(`/api/quotations/${id}/convert-to-invoice`, { method: "POST" });
-      showFeedback("success", `Invoice ${res.invoice?.invoiceNumber || ""} ban gayi`);
+      showFeedback("success", `Invoice ${res.invoice?.invoiceNumber || ""} created · بن گئی`);
       load();
     } catch (e: any) { showFeedback("error", e.message); }
   };
@@ -87,14 +87,14 @@ export default function QuotationsList({
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <h2 className="text-base font-bold flex items-center gap-2"><FileText className="w-4 h-4" /> Quotations <span className="text-[#9CA3AF] font-normal text-sm">· قیمتی تخمینے</span></h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">Rate quote kisi company ko bhejein — validity window ke saath. Accept hone par invoice mein convert karein.</p>
+          <p className="text-[12px] text-[#6B7280]" dir="auto">Send a rate quote to a company with a validity window; convert it to an invoice once accepted. · کسی کمپنی کو ریٹ کوٹ بھیجیں، مدتِ قبولیت کے ساتھ۔ منظور ہونے پر انوائس میں تبدیل کریں۔</p>
         </div>
         <div className="flex-1" />
         <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="quotations" label="Quotations" onImported={load} />
-        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5"><Plus className="w-4 h-4" /> New Quotation · نیا تخمینہ</button>
+        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5"><Plus className="w-4 h-4" /> New Quotation · نیا تخمینہ</button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -130,14 +130,14 @@ export default function QuotationsList({
                   <td className="px-2 py-1.5" dir="auto">{r.clientCompany}</td>
                   <td className="px-2 py-1.5 text-slate-500">{[r.routeFrom, r.routeTo].filter(Boolean).join(" → ") || "—"}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{PKR(r.totalAmount)}</td>
-                  <td className={`px-2 py-1.5 whitespace-nowrap ${r.isExpired ? "text-[#B91C1C] font-semibold" : "text-slate-500"}`}>
+                  <td className={`px-2 py-1.5 whitespace-nowrap ${r.isExpired ? "text-[#B00005] font-semibold" : "text-slate-500"}`}>
                     <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> {d(r.validUntil)}</span>
                   </td>
                   <td className="px-2 py-1.5">
                     {r.convertedInvoiceId ? (
-                      <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-[#DCFCE7] text-[#166534]">INVOICED</span>
+                      <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-[#E6ECF6] text-[#173563]">INVOICED</span>
                     ) : (
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.isExpired ? "bg-[#FEE2E2] text-[#991B1B]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.isExpired ? "bg-[#FFE0E0] text-[#8C0004]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
                         {r.isExpired ? "EXPIRED" : (r.status || "").toUpperCase()}
                       </span>
                     )}

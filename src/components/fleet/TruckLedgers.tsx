@@ -62,6 +62,8 @@ const CAT_COLORS: Record<string, string> = {
   TomanFX: "bg-purple-100 text-purple-800", Capital: "bg-indigo-100 text-indigo-800",
   SafiBachat: "bg-teal-100 text-teal-800", OnlineTransfer: "bg-blue-100 text-blue-800",
 };
+const CAT_LABEL: Record<string, string> = { TripCash: "Trip cash", TomanFX: "Toman FX", PartsBill: "Parts bill", MobilOil: "Mobil oil", OnlineTransfer: "Online transfer", SafiBachat: "Net savings" };
+const catLabel = (c: string) => CAT_LABEL[c] || c;
 const catClass = (c: string) => CAT_COLORS[c] || "bg-slate-100 text-slate-600";
 
 export default function TruckLedgers({
@@ -89,6 +91,47 @@ export default function TruckLedgers({
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+
+  const emptyNew = { vehicleId: null as number | null, registration: "", title: "", ownerName: "", driverName: "", driverPhone: "", isPartnership: false, openingBalance: "", openingDate: "", notes: "" };
+  const [showNew, setShowNew] = useState(false);
+  const [newForm, setNewForm] = useState(emptyNew);
+  const [truckQ, setTruckQ] = useState("");
+  const [truckHits, setTruckHits] = useState<any[]>([]);
+  const [savingNew, setSavingNew] = useState(false);
+  useEffect(() => {
+    if (!showNew || newForm.vehicleId || !truckQ.trim()) { setTruckHits([]); return; }
+    const t = setTimeout(() => {
+      enterpriseFetch(`/api/operations/vehicles?limit=8&search=${encodeURIComponent(truckQ.trim())}`)
+        .then((r) => setTruckHits(r.data || []))
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [truckQ, showNew, newForm.vehicleId]);
+
+  const createLedger = async () => {
+    if (!newForm.vehicleId && !truckQ.trim()) { showFeedback("error", "Choose a truck or type its registration number · ٹرک منتخب کریں یا رجسٹریشن نمبر لکھیں"); return; }
+    setSavingNew(true);
+    try {
+      const created = await enterpriseFetch("/api/ledgers", {
+        method: "POST",
+        body: JSON.stringify({
+          ...newForm,
+          registration: newForm.vehicleId ? undefined : truckQ.trim(),
+          openingBalance: newForm.openingBalance === "" ? 0 : Number(newForm.openingBalance),
+        }),
+      });
+      showFeedback("success", `Ledger created for ${created.registration} · کھاتہ بن گیا`);
+      setShowNew(false);
+      setNewForm(emptyNew);
+      setTruckQ("");
+      loadList();
+      setSelId(created.id);
+    } catch (e: any) {
+      showFeedback("error", e.message || "Could not create the ledger · کھاتہ نہیں بن سکا");
+    } finally {
+      setSavingNew(false);
+    }
+  };
 
   const [listLoading, setListLoading] = useState(false);
   const loadList = (toast = false) => {
@@ -251,7 +294,7 @@ export default function TruckLedgers({
       });
       if (created?.duplicateWarning) {
         setDupWarn(created.duplicateWarning);
-        showFeedback("error", "⚠ Possible DUPLICATE — same amount, date & description already in this khata");
+        showFeedback("error", "⚠ Possible DUPLICATE — same amount, date & description already in this ledger");
       } else {
         showFeedback("success", "Entry added");
         setShowAdd(false);
@@ -292,6 +335,12 @@ export default function TruckLedgers({
           <BookOpen className="w-4 h-4" /> Truck Ledgers <span className="text-[#9CA3AF] font-normal text-sm">· ٹرک کھاتہ</span>
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowNew((s) => !s)}
+            className="flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Ledger <span className="opacity-80">نیا کھاتہ</span>
+          </button>
           <ModuleDataIO entityKey="truck_ledgers" label="Truck Ledgers" onImported={refreshAll} />
           <button
             onClick={refreshAll}
@@ -301,6 +350,74 @@ export default function TruckLedgers({
           </button>
         </div>
       </div>
+
+      {showNew && (
+        <div className="border border-emerald-200 rounded-xl bg-white p-4 space-y-3">
+          <div className="text-sm font-bold text-slate-800">New truck ledger · نیا ٹرک کھاتہ</div>
+          <div className="relative">
+            <label className="text-[11px] font-semibold text-slate-500">Truck (search the fleet or type a new number) · ٹرک</label>
+            <input
+              value={truckQ}
+              onChange={(e) => { setTruckQ(e.target.value); setNewForm({ ...newForm, vehicleId: null }); }}
+              placeholder="e.g. TLD 918"
+              className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+            {newForm.vehicleId && <div className="text-[11px] text-emerald-700 mt-1">Fleet truck selected ✓</div>}
+            {truckHits.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow max-h-48 overflow-y-auto">
+                {truckHits.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => { setNewForm({ ...newForm, vehicleId: v.id }); setTruckQ(v.vehicleNumber); setTruckHits([]); }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-50"
+                  >
+                    {v.vehicleNumber} <span className="text-slate-400 text-xs">{v.truckBrand} {v.model}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {([
+              ["title", "Ledger name (optional) · کھاتے کا نام", "text"],
+              ["ownerName", "Owner / partner · مالک / پارٹنر", "text"],
+              ["driverName", "Driver name · ڈرائیور کا نام", "text"],
+              ["driverPhone", "Driver phone · ڈرائیور کا فون", "text"],
+              ["openingBalance", "Opening balance (PKR) · ابتدائی بیلنس", "number"],
+              ["openingDate", "Opening date", "date"],
+            ] as const).map(([k, label, type]) => (
+              <div key={k}>
+                <label className="text-[11px] font-semibold text-slate-500">{label}</label>
+                <input
+                  type={type}
+                  value={(newForm as any)[k]}
+                  onChange={(e) => setNewForm({ ...newForm, [k]: e.target.value })}
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            ))}
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-slate-500">Notes</label>
+            <textarea
+              value={newForm.notes}
+              onChange={(e) => setNewForm({ ...newForm, notes: e.target.value })}
+              rows={2}
+              className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={newForm.isPartnership} onChange={(e) => setNewForm({ ...newForm, isPartnership: e.target.checked })} />
+            Partnership truck
+          </label>
+          <div className="flex gap-2">
+            <button onClick={createLedger} disabled={savingNew} className="text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700 disabled:opacity-60">
+              {savingNew ? "Saving…" : "Create ledger · کھاتہ بنائیں"}
+            </button>
+            <button onClick={() => setShowNew(false)} className="text-sm rounded-lg border border-slate-300 px-4 py-2 bg-white">Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* Excel import */}
       <div className="border border-slate-200 rounded-xl bg-white">
@@ -317,7 +434,7 @@ export default function TruckLedgers({
         {showImport && (
           <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3">
             <p className="text-[12px] text-slate-500">
-              Upload the same workbook you keep your truck khatas in (<code>.xlsx</code>). The system reads every
+              Upload the same workbook you keep your truck ledgers in (<code>.xlsx</code>). The system reads every
               truck sheet, classifies each row (freight / diesel / tyre / visa / toman …), rebuilds the running
               balances and flags anything that needs a look. Re-uploading replaces the previous import.
             </p>
@@ -565,7 +682,7 @@ export default function TruckLedgers({
                     onClick={() => setCatFilter(catFilter === c.category ? "" : c.category)}
                     className={`text-[11px] rounded-full px-2 py-0.5 ${catFilter === c.category ? "ring-2 ring-slate-800 " : ""}${catClass(c.category)}`}
                   >
-                    {c.category} · {c.entries}
+                    {catLabel(c.category)} · {c.entries}
                   </button>
                 ))}
                 <label className="text-[11px] flex items-center gap-1 ml-auto text-amber-700">
@@ -599,7 +716,7 @@ export default function TruckLedgers({
                   <input type="date" value={form.entryDate} onChange={(e) => setForm({ ...form, entryDate: e.target.value })} className="border rounded px-2 py-1" />
                   <input placeholder="Method (Cash/Online…)" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className="border rounded px-2 py-1" />
                   <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="border rounded px-2 py-1">
-                    {CATS.map((c) => <option key={c}>{c}</option>)}
+                    {CATS.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
                   </select>
                   <input placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="border rounded px-2 py-1 col-span-2 md:col-span-3" />
                   <input placeholder="Received (in)" value={form.received} onChange={(e) => setForm({ ...form, received: e.target.value })} className="border rounded px-2 py-1" />
@@ -644,7 +761,7 @@ export default function TruckLedgers({
                                 </div>
                               )}
                             </td>
-                            <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] ${catClass(e.category)}`}>{e.category}</span></td>
+                            <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] ${catClass(e.category)}`}>{catLabel(e.category)}</span></td>
                             <td className="px-2 py-1.5 text-right text-emerald-700">{e.received ? e.received.toLocaleString() : ""}</td>
                             <td className="px-2 py-1.5 text-right text-red-600">{e.paid ? e.paid.toLocaleString() : ""}</td>
                             <td className={`px-2 py-1.5 text-right font-medium ${e.runningBalance < 0 ? "text-red-600" : "text-slate-700"}`}>{e.runningBalance.toLocaleString()}</td>
@@ -683,7 +800,7 @@ export default function TruckLedgers({
                                       </label>
                                       <label className="flex flex-col text-[10px] text-slate-500">Category
                                         <select value={editForm.category} onChange={(ev) => setEditForm({ ...editForm, category: ev.target.value })} className="border rounded px-2 py-1 text-slate-800">
-                                          {CATS.map((c) => <option key={c}>{c}</option>)}
+                                          {CATS.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
                                         </select>
                                       </label>
                                       <label className="flex flex-col text-[10px] text-slate-500 col-span-2 md:col-span-3">Description

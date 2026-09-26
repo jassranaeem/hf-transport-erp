@@ -19,9 +19,9 @@ const PKR = (n: number) => "Rs " + Math.round(n || 0).toLocaleString("en-PK");
 const d = (s: string) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
 
 const STATUS_STYLE: Record<string, string> = {
-  Paid: "bg-[#DCFCE7] text-[#166534]",
-  "Partially Paid": "bg-[#FEF3C7] text-[#92400E]",
-  Unpaid: "bg-[#FEE2E2] text-[#991B1B]",
+  Paid: "bg-[#E6ECF6] text-[#173563]",
+  "Partially Paid": "bg-[#F3F4F6] text-[#374151]",
+  Unpaid: "bg-[#FFE0E0] text-[#8C0004]",
 };
 
 export default function InvoicesList({
@@ -72,7 +72,7 @@ export default function InvoicesList({
   }, [rows]);
 
   const recordPayment = async (id: number) => {
-    if (!Number(payForm.amount)) { showFeedback("error", "Amount daalein"); return; }
+    if (!Number(payForm.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setPosting(true);
     try {
       await enterpriseFetch(`/api/finance/invoices/${id}/payments`, {
@@ -113,14 +113,14 @@ export default function InvoicesList({
           <h2 className="text-base font-bold flex items-center gap-2">
             <FileText className="w-4 h-4" /> Invoices <span className="text-[#9CA3AF] font-normal text-sm">· انوائسز</span>
           </h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">Har invoice yahan — view / print, payment record, outstanding &amp; overdue.</p>
+          <p className="text-[12px] text-[#6B7280]" dir="auto">Every invoice in one place — view / print, record payments, outstanding &amp; overdue. · ہر انوائس ایک جگہ۔</p>
         </div>
         <div className="flex-1" />
         <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="invoices" label="Invoices" onImported={load} />
-        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> New Invoice · نیا انوائس
         </button>
       </div>
@@ -174,9 +174,9 @@ export default function InvoicesList({
                       <td className="px-2 py-1.5" dir="auto">{r.contractorName || "—"}</td>
                       <td className="px-2 py-1.5 text-slate-500">{r.tripNumber || "—"}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{PKR(r.totalAmount)}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B91C1C]" : "text-[#15803D]"}`}>{PKR(r.outstandingBalance)}</td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>{PKR(r.outstandingBalance)}</td>
                       <td className="px-2 py-1.5">
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOverdue ? "bg-[#FEE2E2] text-[#991B1B]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOverdue ? "bg-[#FFE0E0] text-[#8C0004]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
                           {isOverdue ? "OVERDUE" : (r.status || "").toUpperCase()}
                         </span>
                       </td>
@@ -195,7 +195,7 @@ export default function InvoicesList({
                       </td>
                     </tr>
                     {payFor === r.id && (
-                      <tr className="bg-[#F0FDF4]">
+                      <tr className="bg-[#F2F5FA]">
                         <td colSpan={8} className="px-3 py-3">
                           <div className="flex flex-wrap items-end gap-2 text-xs">
                             <label className="flex flex-col text-[10px] text-slate-500">Method
@@ -239,8 +239,8 @@ export default function InvoicesList({
 }
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "bad" }) {
-  const c = tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]"
-    : tone === "warn" ? "border-[#FDE68A] bg-[#FFFBEB] text-[#B45309]"
+  const c = tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
+    : tone === "warn" ? "border-[#E5E7EB] bg-[#F9FAFB] text-[#4B5563]"
     : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>

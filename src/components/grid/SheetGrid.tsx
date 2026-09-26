@@ -624,7 +624,7 @@ export default function SheetGrid(props: Props) {
   return (
     <div className="sheet-grid relative flex flex-col h-full min-h-0 bg-white border border-[var(--sheet-line,#E5E7EB)] rounded-lg overflow-hidden">
       {/* toolbar */}
-      <div className="flex items-center gap-2 px-2.5 py-2 border-b border-[var(--sheet-line,#E5E7EB)] bg-[var(--sheet-header,#F3F7F4)] flex-wrap">
+      <div className="flex items-center gap-2 px-2.5 py-2 border-b border-[var(--sheet-line,#E5E7EB)] bg-[var(--sheet-header,#F2F5FA)] flex-wrap">
         {onSearch && (
           <div className="flex items-center gap-1.5 bg-white border border-[#E5E7EB] rounded-md px-2 h-8">
             <Search className="w-3.5 h-3.5 text-[#4B5563]" />
@@ -651,7 +651,7 @@ export default function SheetGrid(props: Props) {
             onClick={() => setShowFilters((s) => !s)}
             className={`flex items-center gap-1 h-8 px-2 rounded-md text-xs border ${
               showFilters || Object.values(filters).some(Boolean)
-                ? "bg-[#DCFCE7] border-[#16A34A]"
+                ? "bg-[#E6ECF6] border-[#24539B]"
                 : "bg-white border-[#E5E7EB]"
             }`}
           >
@@ -661,7 +661,7 @@ export default function SheetGrid(props: Props) {
         {canWrite && (
           <button
             onClick={addRow}
-            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F0FAF4]"
+            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F2F5FA]"
           >
             <Plus className="w-3.5 h-3.5" /> Row
           </button>
@@ -670,7 +670,7 @@ export default function SheetGrid(props: Props) {
           <button
             onClick={() => setShowColMenu((s) => !s)}
             className={`flex items-center gap-1 h-8 px-2 rounded-md text-xs border ${
-              hiddenCols.size ? "bg-[#DCFCE7] border-[#16A34A]" : "bg-white border-[#E5E7EB]"
+              hiddenCols.size ? "bg-[#E6ECF6] border-[#24539B]" : "bg-white border-[#E5E7EB]"
             }`}
             title="Show / hide columns"
           >
@@ -679,16 +679,16 @@ export default function SheetGrid(props: Props) {
           {showColMenu && (
             <div className="absolute z-40 mt-1 left-0 w-56 max-h-72 overflow-y-auto bg-white border border-[#E5E7EB] rounded-md shadow-lg p-1 text-xs">
               <div className="flex justify-between px-2 py-1 text-[10px] text-[#6B7280]">
-                <button onClick={() => setHiddenCols(new Set())} className="hover:text-[#16A34A]">show all</button>
+                <button onClick={() => setHiddenCols(new Set())} className="hover:text-[#24539B]">show all</button>
                 <button
                   onClick={() => setHiddenCols(new Set(allColumns.filter((c) => c.readonly).map((c) => c.field)))}
-                  className="hover:text-[#16A34A]"
+                  className="hover:text-[#24539B]"
                 >
                   hide read-only
                 </button>
               </div>
               {allColumns.map((c) => (
-                <label key={c.field} className="flex items-center gap-2 px-2 py-1 hover:bg-[#F0FAF4] rounded cursor-pointer">
+                <label key={c.field} className="flex items-center gap-2 px-2 py-1 hover:bg-[#F2F5FA] rounded cursor-pointer">
                   <input
                     type="checkbox"
                     checked={!hiddenCols.has(c.field)}
@@ -709,7 +709,7 @@ export default function SheetGrid(props: Props) {
         {onRefresh && (
           <button
             onClick={onRefresh}
-            className="flex items-center gap-1 h-8 px-2 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F0FAF4]"
+            className="flex items-center gap-1 h-8 px-2 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F2F5FA]"
             title="Refresh · تازہ کریں"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -717,7 +717,7 @@ export default function SheetGrid(props: Props) {
         )}
         <button
           onClick={() => setShowHelp(true)}
-          className="flex items-center justify-center h-8 w-8 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F0FAF4]"
+          className="flex items-center justify-center h-8 w-8 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F2F5FA]"
           title="Keyboard shortcuts (?)"
         >
           <Keyboard className="w-3.5 h-3.5" />
@@ -731,7 +731,7 @@ export default function SheetGrid(props: Props) {
         {canDelete && selected.size > 0 && (
           <button
             onClick={deleteSelected}
-            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs font-semibold bg-white border border-[#DC2626] text-[#DC2626] hover:bg-[#FEF2F2]"
+            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs font-semibold bg-white border border-[#D70006] text-[#D70006] hover:bg-[#FFF1F1]"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete {selected.size} selected
           </button>
@@ -740,14 +740,14 @@ export default function SheetGrid(props: Props) {
           <>
             <button
               onClick={discard}
-              className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F0FAF4]"
+              className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F2F5FA]"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Discard
             </button>
             <button
               onClick={doSave}
               disabled={saving}
-              className="flex items-center gap-1 h-8 px-3 rounded-md text-xs font-semibold bg-[#16A34A] border border-[#16A34A] disabled:opacity-60"
+              className="flex items-center gap-1 h-8 px-3 rounded-md text-xs font-semibold bg-[#24539B] border border-[#24539B] disabled:opacity-60"
             >
               <Save className="w-3.5 h-3.5" />
               {saving ? "Saving…" : `Save ${edits.size + newRows.filter((r) => Object.keys(r).length).length + deleted.size} change${edits.size + newRows.length + deleted.size === 1 ? "" : "s"}`}
@@ -783,7 +783,7 @@ export default function SheetGrid(props: Props) {
         <div style={{ width: totalWidth, position: "relative" }}>
           {/* header */}
           <div
-            className="sticky top-0 z-20 grid bg-[var(--sheet-header,#F3F7F4)] border-b border-[var(--sheet-line,#E5E7EB)] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
+            className="sticky top-0 z-20 grid bg-[var(--sheet-header,#F2F5FA)] border-b border-[var(--sheet-line,#E5E7EB)] shadow-[0_1px_0_rgba(0,0,0,0.04)]"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             <div className="px-2 py-1.5 text-[10px] font-semibold text-[#4B5563] border-r border-[#E5E7EB] flex items-center gap-1">
@@ -802,11 +802,11 @@ export default function SheetGrid(props: Props) {
               <button
                 key={col.field}
                 onClick={() => toggleSort(col.field)}
-                className="px-2 py-1.5 text-left text-[11px] font-semibold border-r border-[#E5E7EB] flex items-center gap-1 hover:bg-[#E8F3EC] truncate"
+                className="px-2 py-1.5 text-left text-[11px] font-semibold border-r border-[#E5E7EB] flex items-center gap-1 hover:bg-[#E6ECF6] truncate"
                 title={`${col.column}  (${col.type}${col.ref ? ` → ${col.ref.entity}` : ""}${col.naturalKey ? ", key" : ""})`}
               >
                 <span className="truncate">{col.column}</span>
-                {col.required && <span className="text-[#DC2626]">*</span>}
+                {col.required && <span className="text-[#D70006]">*</span>}
                 {sort?.field === col.field &&
                   (sort.dir === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
               </button>
@@ -837,7 +837,7 @@ export default function SheetGrid(props: Props) {
                   {/* gutter */}
                   <div
                     className={`flex items-center gap-1 px-1.5 border-r border-b border-[#E5E7EB] text-[10px] text-[#4B5563] ${
-                      draftFilled ? "bg-[#ECFDF3]" : hasEdit ? "bg-[#FEFCE8]" : trailingGhost ? "bg-[#FAFAFA]" : "bg-white"
+                      draftFilled ? "bg-[#F2F5FA]" : hasEdit ? "bg-[#F9FAFB]" : trailingGhost ? "bg-[#FAFAFA]" : "bg-white"
                     }`}
                   >
                     {canDelete && !ghost && !isDeletedRow && (
@@ -862,7 +862,7 @@ export default function SheetGrid(props: Props) {
                           </button>
                         )}
                         {isDeletedRow ? (
-                          <button title="Undo delete" onClick={() => undeleteRow(id!)} className="text-[#16A34A]">
+                          <button title="Undo delete" onClick={() => undeleteRow(id!)} className="text-[#24539B]">
                             <RotateCcw className="w-3 h-3" />
                           </button>
                         ) : (
@@ -870,7 +870,7 @@ export default function SheetGrid(props: Props) {
                             <button
                               title={ghost ? "Remove draft" : "Delete row"}
                               onClick={() => removeRow(r)}
-                              className="opacity-50 hover:opacity-100 hover:text-[#DC2626]"
+                              className="opacity-50 hover:opacity-100 hover:text-[#D70006]"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -909,14 +909,14 @@ export default function SheetGrid(props: Props) {
                             : ""
                         } ${
                           isDeletedRow
-                            ? "bg-[#FEECEC] line-through text-[#9CA3AF]"
+                            ? "bg-[#FFF1F1] line-through text-[#9CA3AF]"
                             : cellEdited
-                            ? "bg-[#FEFCE8]"
+                            ? "bg-[#F9FAFB]"
                             : draftFilled
-                            ? "bg-[#F0FDF4]"
+                            ? "bg-[#F2F5FA]"
                             : "bg-white"
-                        } ${selected && !editingThis ? "outline outline-1 outline-[#86EFAC] -outline-offset-1" : ""} ${
-                          isActive ? "outline outline-2 outline-[#16A34A] -outline-offset-1 z-10" : ""
+                        } ${selected && !editingThis ? "outline outline-1 outline-[#9DB6DE] -outline-offset-1" : ""} ${
+                          isActive ? "outline outline-2 outline-[#24539B] -outline-offset-1 z-10" : ""
                         } ${col.readonly ? "text-[#6B7280]" : "cursor-cell"}`}
                         title={col.readonly ? "read-only" : undefined}
                       >
@@ -953,7 +953,7 @@ export default function SheetGrid(props: Props) {
 
       {/* row error strip */}
       {Object.keys(rowErrors).length > 0 && (
-        <div className="border-t border-[#FCA5A5] bg-[#FEF2F2] px-3 py-1.5 text-[11px] text-[#B91C1C] max-h-24 overflow-auto">
+        <div className="border-t border-[#FF9294] bg-[#FFF1F1] px-3 py-1.5 text-[11px] text-[#B00005] max-h-24 overflow-auto">
           {Object.entries(rowErrors).map(([r, m]) => (
             <div key={r}>Row {Number(r) + 1}: {m}</div>
           ))}
@@ -962,7 +962,7 @@ export default function SheetGrid(props: Props) {
 
       {/* pagination */}
       {page && page.total > page.limit && (
-        <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-[var(--sheet-line,#E5E7EB)] text-[11px] bg-[var(--sheet-header,#F3F7F4)]">
+        <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-t border-[var(--sheet-line,#E5E7EB)] text-[11px] bg-[var(--sheet-header,#F2F5FA)]">
           <span className="text-[#4B5563] tabular-nums">
             {page.offset + 1}–{Math.min(page.offset + page.limit, page.total)} of {page.total.toLocaleString()}
           </span>
@@ -1006,7 +1006,7 @@ export default function SheetGrid(props: Props) {
               ["?", "toggle this help"],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3 py-0.5 border-b border-[#F3F4F6]">
-                <span className="font-mono text-[#16A34A]">{k}</span>
+                <span className="font-mono text-[#24539B]">{k}</span>
                 <span className="text-right text-[#4B5563]">{v}</span>
               </div>
             ))}
@@ -1032,7 +1032,7 @@ const CellEditor = React.forwardRef<
   }
 >(({ col, value, options, onChange, onCommit }, ref) => {
   const base =
-    "absolute inset-0 w-full h-full px-2 text-[12px] border-0 bg-white outline outline-2 outline-[#16A34A] -outline-offset-1";
+    "absolute inset-0 w-full h-full px-2 text-[12px] border-0 bg-white outline outline-2 outline-[#24539B] -outline-offset-1";
 
   if (col.type === "boolean") {
     return (

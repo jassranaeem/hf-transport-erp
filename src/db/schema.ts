@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -2107,6 +2107,16 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
 // ---------------------------------------------------------
 // ATTACHMENTS  (real file uploads linked to any record in any module)
 // ---------------------------------------------------------
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+// File bytes live in Postgres (not on the web server disk, which is wiped on every
+// redeploy / spin-down on the free host). Kept in their own table so listing
+// attachments never drags the bytes along.
+export const attachmentBlobs = pgTable("attachment_blobs", {
+  attachmentId: integer("attachment_id").primaryKey(),
+  data: bytea("data").notNull(),
+});
+
 export const attachments = pgTable("attachments", {
   id: serial("id").primaryKey(),
   entityType: text("entity_type").notNull(), // trip, invoice, expense, fuel_transaction, vehicle_maintenance, vehicle, driver, contractor, partner_settlement, truck_ledger_entry, company_profile, document

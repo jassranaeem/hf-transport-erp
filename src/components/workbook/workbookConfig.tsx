@@ -74,25 +74,19 @@ export const WORKBOOKS: WorkbookDef[] = [
     id: "fleet",
     label: "Fleet",
     icon: Truck,
-    // Truck Search (full profile + Setup Import) first — the one place people
-    // land to look something up or bring in Excel data. Then asset value,
-    // then the individual master-data sheets, then GPS (trackers + map
-    // combined), then Dispatch last.
+    // Fleet Desk first: trips, trucks, drivers, routes and customers all in
+    // one place (add / edit / delete). Then lookup, asset value, GPS, dispatch.
     sheets: [
+      c("fleet_desk", "Fleet Desk (Trips · Trucks · Drivers)", "FleetDesk", "vehicles"),
       c("compliance", "Truck Search (Full Profile)", "FleetSearch", "vehicles"),
       c("asset_value", "Fleet Asset Value", "FleetAssetValue", "vehicles"),
-      e("vehicles", "Vehicles", "vehicles", "vehicles"),
-      e("drivers", "Drivers", "drivers", "drivers"),
-      e("routes", "Routes", "routes", "routes"),
-      e("contractors", "Carriers / Customers", "contractors", "contractors"),
-      e("trips", "Trips", "trips", "dispatch"),
       c("gps", "GPS Tracking", "GpsTracking", "dispatch"),
       c("dispatch", "Dispatch Board", "SmartDispatch", "dispatch"),
     ],
   },
   {
     id: "khata",
-    label: "Khata",
+    label: "Ledgers",
     icon: BookOpen,
     // Overview first (the whole khata at a glance), then the natural
     // reading order: which trucks, which parties, each one's ledger, who's

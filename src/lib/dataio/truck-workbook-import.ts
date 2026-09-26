@@ -166,7 +166,7 @@ async function syncEntryToModules(
   if (!e.paid || e.paid <= 0) return; // rest of this function only handles cash-out entries
   if (e.category === "Capital") return; // owner injection, not an expense
 
-  const noteHead = `Imported from truck khata (${registration})${e.rawDate ? ` · ${e.rawDate}` : ""}: `;
+  const noteHead = `Imported from truck ledger (${registration})${e.rawDate ? ` · ${e.rawDate}` : ""}: `;
   const notes = (noteHead + (e.description || "")).slice(0, 500);
 
   if (MAINTENANCE_CATEGORIES.has(e.category)) {

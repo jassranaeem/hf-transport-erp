@@ -91,10 +91,10 @@ export default function NewQuotation({
   const validUntil = new Date(new Date(f.quotationDate).getTime() + (Number(f.validityDays) || 3) * 86400000);
 
   const save = async () => {
-    if (!f.clientCompany.trim() && !contractorId) { showFeedback("error", "Client company ka naam ya existing client chunein."); return; }
+    if (!f.clientCompany.trim() && !contractorId) { showFeedback("error", "Enter a client company name or choose an existing client. · کلائنٹ کمپنی کا نام لکھیں یا موجودہ کلائنٹ منتخب کریں۔"); return; }
     const goodLines = lines.filter((l) => l.description.trim() && (Number(l.rate) || 0) > 0)
       .map((l) => ({ description: l.description.trim(), qty: Number(l.qty) || 1, unit: l.unit || "trip", rate: Number(l.rate) || 0 }));
-    if (!goodLines.length) { showFeedback("error", "Kam se kam ek line item (description + rate) daalein."); return; }
+    if (!goodLines.length) { showFeedback("error", "Add at least one line item (description + rate). · کم از کم ایک لائن آئٹم (تفصیل + ریٹ) شامل کریں۔"); return; }
 
     setBusy(true);
     try {
@@ -118,15 +118,15 @@ export default function NewQuotation({
       };
       if (isEdit) {
         const r = await enterpriseFetch(`/api/quotations/${editQuotationId}`, { method: "PUT", body: JSON.stringify(body) });
-        showFeedback("success", `Quotation ${r.quotationNumber || ""} update ho gayi`);
+        showFeedback("success", `Quotation ${r.quotationNumber || ""} updated · اپڈیٹ ہو گئی`);
         if (onCreated) onCreated(r.id); else setPreviewId(r.id);
       } else {
         const r = await enterpriseFetch(`/api/quotations`, { method: "POST", body: JSON.stringify(body) });
-        showFeedback("success", `Quotation ${r.quotationNumber || ""} ban gayi — ${f.validityDays} din valid`);
+        showFeedback("success", `Quotation ${r.quotationNumber || ""} created — valid for ${f.validityDays} days · بن گئی`);
         if (onCreated) onCreated(r.id); else setPreviewId(r.id);
       }
     } catch (e: any) {
-      showFeedback("error", e.message || "Save nahi hua");
+      showFeedback("error", e.message || "Could not save · محفوظ نہیں ہوا");
     } finally {
       setBusy(false);
     }
@@ -140,16 +140,16 @@ export default function NewQuotation({
           {isEdit && quoteNumber && <span className="text-[10px] font-normal text-slate-400">({quoteNumber})</span>}
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
-          Rate poochne wali company ko "qaraya nama" bhejein — letterhead, rate, aur kitne din ke liye yeh rate pabandi hai. Yeh ledger/invoice mein kuch post nahi karta.
+          Send a rate quote to the company that asked — letterhead, rates and how many days the rates hold. It does not post anything to the ledger or invoices. · ریٹ پوچھنے والی کمپنی کو کوٹیشن بھیجیں — لیٹر ہیڈ، ریٹ اور ریٹ کتنے دن قابلِ عمل ہیں۔ یہ لیجر / انوائس میں کچھ پوسٹ نہیں کرتا۔
         </p>
       </div>
 
       <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
         <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Quotation For · کس کمپنی کے لیے</div>
         <label className="flex flex-col text-[10px] text-slate-500">
-          Existing client (optional) — ya neeche naya naam type karein
+          Existing client (optional) — or type a new name below · موجودہ کلائنٹ (اختیاری) — یا نیچے نیا نام لکھیں
           <select value={contractorId} onChange={(e) => pickContractor(e.target.value ? Number(e.target.value) : "")} className="border rounded px-2 py-1.5 text-sm text-slate-800">
-            <option value="">— naya / walk-in company —</option>
+            <option value="">— new / walk-in company —</option>
             {contractors.map((c) => <option key={c.id} value={c.id}>{c.company}</option>)}
           </select>
         </label>
@@ -175,12 +175,12 @@ export default function NewQuotation({
         <Field label="Cargo description · مال کی تفصیل" wide><input dir="auto" value={f.cargoDescription} onChange={(e) => setF({ ...f, cargoDescription: e.target.value })} className="i" /></Field>
       </section>
 
-      <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] px-3 py-2 text-[12px] text-[#15803D]" dir="auto">
-        Yeh rate <b>{f.validityDays || 3} din</b> ke liye pabandi hogi — <b>{isNaN(validUntil.getTime()) ? "—" : validUntil.toLocaleDateString("en-GB")}</b> tak. Uske baad company is rate ki paband nahi.
+      <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] px-3 py-2 text-[12px] text-[#1E4480]" dir="auto">
+        These rates hold for <b>{f.validityDays || 3} days</b> — until <b>{isNaN(validUntil.getTime()) ? "—" : validUntil.toLocaleDateString("en-GB")}</b>. After that the company is not bound to these rates. · اس کے بعد کمپنی ان ریٹس کی پابند نہیں۔
       </div>
 
       <section className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Line items · تفصیل</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Line items · تفصیل</div>
         <table className="w-full text-xs">
           <thead className="bg-[#F9FAFB] text-[#6B7280]">
             <tr>
@@ -214,7 +214,7 @@ export default function NewQuotation({
       <Field label="Notes"><input dir="auto" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} className="i" /></Field>
 
       <div className="flex items-center gap-2">
-        <button onClick={save} disabled={busy} className="h-10 px-5 rounded-lg bg-[#16A34A] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
+        <button onClick={save} disabled={busy} className="h-10 px-5 rounded-lg bg-[#24539B] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} {isEdit ? "Save changes · تبدیلیاں محفوظ کریں" : "Create quotation · قیمت بنائیں"}
         </button>
       </div>

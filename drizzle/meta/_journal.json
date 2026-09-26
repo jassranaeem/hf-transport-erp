@@ -134,6 +134,13 @@
       "when": 1790081289991,
       "tag": "0018_cash_transactions_unique_source",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790167689991,
+      "tag": "0019_attachment_blobs",
+      "breakpoints": true
     }
   ]
 }

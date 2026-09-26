@@ -56,7 +56,7 @@ export default function VendorPortal({ showFeedback }: VendorPortalProps) {
         }));
         setInvoices(list);
       })
-      .catch(() => showFeedback("error", "Vendor bills load nahi ho sake"))
+      .catch(() => showFeedback("error", "Could not load vendor bills · وینڈر بلز لوڈ نہیں ہو سکے"))
       .finally(() => setLoading(false));
   };
 
@@ -100,9 +100,9 @@ export default function VendorPortal({ showFeedback }: VendorPortalProps) {
       setInvoiceDueDate("");
       setVendorName("");
       loadBills();
-      showFeedback("success", "Vendor bill save ho gaya — Finance → Bills mein bhi dikhega, GL entry sahi ban gayi.");
+      showFeedback("success", "Vendor bill saved — it also appears under Finance → Bills and the GL entry was posted. · وینڈر بل محفوظ ہو گیا");
     } catch (err: any) {
-      showFeedback("error", err.message || "Vendor bill save nahi hua");
+      showFeedback("error", err.message || "Could not save the vendor bill · وینڈر بل محفوظ نہیں ہوا");
     } finally {
       setSubmitting(false);
     }
@@ -156,7 +156,7 @@ export default function VendorPortal({ showFeedback }: VendorPortalProps) {
             {loading ? (
               <p className="text-[11px] text-slate-500">Loading…</p>
             ) : invoices.length === 0 ? (
-              <p className="text-[11px] text-slate-500">Abhi koi vendor bill nahi hai. Neeche wale form se ek submit karein.</p>
+              <p className="text-[11px] text-slate-500">No vendor bills yet. Submit one using the form below. · ابھی کوئی وینڈر بل نہیں۔ نیچے دیے فارم سے جمع کرائیں۔</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">

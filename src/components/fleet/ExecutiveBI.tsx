@@ -231,7 +231,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                 {/* Trend line for revenue */}
                 <polyline
                   fill="none"
-                  stroke="#3b82f6"
+                  stroke="#2C5CAE"
                   strokeWidth="2.5"
                   points="20,110 80,95 140,75 200,60 260,40 320,55 380,25"
                 />
@@ -239,14 +239,14 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                 {/* Trend line for Net profit */}
                 <polyline
                   fill="none"
-                  stroke="#10b981"
+                  stroke="#2C5CAE"
                   strokeWidth="2.5"
                   points="20,120 80,112 140,90 200,85 260,65 320,78 380,48"
                 />
 
                 {/* Data point anchors */}
-                <circle cx="380" cy="25" r="4" fill="#3b82f6" />
-                <circle cx="380" cy="48" r="4" fill="#10b981" />
+                <circle cx="380" cy="25" r="4" fill="#2C5CAE" />
+                <circle cx="380" cy="48" r="4" fill="#2C5CAE" />
               </svg>
 
               {/* Labels */}

@@ -240,7 +240,7 @@ router.post("/import-cashbook", requireRole(WRITE), workbookUpload.single("file"
 // running all of them per file never double-counts the same sheet.
 // ---------------------------------------------------------------------------
 const PARSERS: Array<{ key: "khata" | "freightLog" | "cashbook"; label: string; fn: (buf: Buffer, sourceLabel?: string) => Promise<ParseResult> }> = [
-  { key: "khata", label: "Truck Ledgers (khata)", fn: parseTruckWorkbook },
+  { key: "khata", label: "Truck Ledgers", fn: parseTruckWorkbook },
   { key: "freightLog", label: "Trip logs", fn: parseFreightLogWorkbook },
   { key: "cashbook", label: "Dual cash-book", fn: parseCashbookWorkbook },
 ];
@@ -392,6 +392,80 @@ router.post("/import-batch", requireRole(WRITE), workbookUpload.array("files", 1
     res.json({ message: msg, totals, files: perFile });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Batch import failed" });
+  }
+});
+
+// ---- create a ledger for a truck that has none -------------------------
+router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const vehicleId = b.vehicleId ? parseInt(b.vehicleId) : null;
+    let registration = String(b.registration || "").trim().toUpperCase();
+    if (vehicleId) {
+      const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
+      if (!veh) return res.status(404).json({ error: "Vehicle not found" });
+      registration = veh.vehicleNumber;
+    }
+    if (!registration) return res.status(400).json({ error: "Pick a truck or type its registration number" });
+
+    const dup = await db
+      .select({ id: schema.truckLedgers.id })
+      .from(schema.truckLedgers)
+      .where(
+        and(
+          eq(schema.truckLedgers.isDeleted, false),
+          vehicleId ? eq(schema.truckLedgers.vehicleId, vehicleId) : eq(schema.truckLedgers.registration, registration),
+        ),
+      )
+      .limit(1);
+    if (dup.length && !b.allowDuplicate) {
+      return res.status(409).json({ error: `A ledger for ${registration} already exists · ${registration} کا کھاتہ پہلے سے موجود ہے`, existingId: dup[0].id });
+    }
+
+    const opening = Math.round(Number(b.openingBalance) || 0);
+    const [created] = await db
+      .insert(schema.truckLedgers)
+      .values({
+        vehicleId,
+        registration,
+        title: String(b.title || "").trim() || registration,
+        ownerName: b.ownerName || null,
+        driverName: b.driverName || null,
+        driverPhone: b.driverPhone || null,
+        isPartnership: !!b.isPartnership,
+        openingBalance: opening,
+        notes: b.notes || null,
+        createdBy: req.user?.id,
+      })
+      .returning();
+    if (opening !== 0) {
+      await db.insert(schema.truckLedgerEntries).values({
+        ledgerId: created.id,
+        entryDate: b.openingDate ? new Date(b.openingDate) : new Date(),
+        rawDate: b.openingDate ? String(b.openingDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        method: "Opening",
+        description: "Opening balance",
+        received: opening > 0 ? opening : 0,
+        paid: opening < 0 ? -opening : 0,
+        category: "Other",
+        direction: opening > 0 ? "In" : "Out",
+        sectionLabel: "Manual",
+        createdBy: req.user?.id,
+      });
+      await recompute(created.id);
+    }
+    await logAudit({
+      action: "CREATE",
+      tableName: "truck_ledgers",
+      recordId: created.id,
+      oldValues: null,
+      newValues: created,
+      performedBy: req.user?.id,
+      ipAddress: req.ip,
+    });
+    res.json(created);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -609,7 +683,7 @@ router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Re
         )
         .limit(1);
       if (existing.length) {
-        dupWarning = `DUPLICATE: PKR ${amount.toLocaleString()} on ${String(b.entryDate).slice(0, 10)} "${b.description}" is already in this truck's khata.`;
+        dupWarning = `DUPLICATE: PKR ${amount.toLocaleString()} on ${String(b.entryDate).slice(0, 10)} "${b.description}" is already in this truck's ledger. · یہ اندراج پہلے سے موجود ہے۔`;
       }
     }
 

@@ -396,14 +396,14 @@ export default function FleetSearch({
           <Search className="w-4 h-4 text-emerald-600" /> Truck Search — full profile in one place
         </h2>
         <p className="text-[12px] text-slate-500">
-          Koi bhi truck number type karein — khata, trips, expenses, maintenance, fuel, aur compliance sab ek hi jagah dikhega.
+          Type any truck number — ledger, trips, expenses, maintenance, fuel and compliance all appear in one place. · کوئی بھی ٹرک نمبر لکھیں — کھاتہ، ٹرپس، اخراجات، مینٹیننس، ایندھن اور کمپلائنس سب ایک جگہ نظر آئیں گے۔
         </p>
         <div className="relative">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
           <input
             type="text"
             autoFocus
-            placeholder="Truck number type karein (e.g. TLB 100)…"
+            placeholder="Type a truck number (e.g. TLB 100)…"
             value={q}
             onChange={(e) => { setQ(e.target.value); setSelectedId(null); }}
             className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"

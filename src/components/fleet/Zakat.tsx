@@ -44,7 +44,7 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    if (!Number(form.amount)) { showFeedback("error", "Amount daalein · رقم درج کریں"); return; }
+    if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setSaving(true);
     try {
       await enterpriseFetch("/api/zakat", { method: "POST", body: JSON.stringify(form) });
@@ -105,7 +105,7 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
             <Landmark className="w-4 h-4" /> Zakat <span className="text-[#9CA3AF] font-normal text-sm">· زکوٰۃ کا اندراج</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Log what you actually gave, when, and to whom — separate from business khata and household expenses. ·
+            Log what you actually gave, when, and to whom — separate from the business ledger and household expenses. ·
             آپ نے جو زکوٰۃ دی وہ یہاں خود درج کریں۔
           </p>
         </div>
@@ -118,7 +118,7 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="zakat_payments" label="Zakat" onImported={load} />
-        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> Add Zakat given · نئی ادائیگی
         </button>
       </div>
@@ -133,14 +133,14 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
           <Big label="Entries · اندراجات" value={String(yearData.count)} tone="neutral" />
         </div>
       )}
-      <p className="text-[11px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2" dir="auto">
+      <p className="text-[11px] text-[#4B5563] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2" dir="auto">
         This is your real record of Zakat given. It is separate from the automatic 2.5%-of-wealth estimate on the
         Yearly Report (Finance → Monthly Report → Yearly) — compare the two there. · یہ آپ کی اصل زکوٰۃ کی فہرست ہے،
         سالانہ رپورٹ کے تخمینے سے الگ۔
       </p>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F3F7F4]">
+        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
           <span className="flex items-center gap-1.5"><History className="w-3.5 h-3.5" /> Month by month · مہینہ بہ مہینہ — {year}</span>
           {showTrend ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </button>
@@ -152,7 +152,7 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
                 {yearData.months.map((m: any) => (
                   <tr key={m.month} className="border-t border-[#F3F4F6]">
                     <td className="px-2 py-1.5">{m.month}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#15803D] font-semibold">{PKR(m.total)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480] font-semibold">{PKR(m.total)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{m.count}</td>
                   </tr>
                 ))}
@@ -166,7 +166,7 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Entries · {year} ({rows.length})</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Entries · {year} ({rows.length})</div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-[#F9FAFB] text-[#6B7280]">
@@ -187,14 +187,14 @@ export default function Zakat({ showFeedback }: { showFeedback: (t: "success" | 
                     <td className="px-2 py-1.5" dir="auto">{r.recipient || "—"}</td>
                     <td className="px-2 py-1.5 max-w-[260px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
                     <td className="px-2 py-1.5">{r.method}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#15803D]">{PKR(r.amount)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#1E4480]">{PKR(r.amount)}</td>
                     <td className="px-1 whitespace-nowrap">
                       <button onClick={() => startEdit(r)} title="Edit" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => del(r.id)} title="Delete" className="text-slate-400 hover:text-red-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>
                   {editId === r.id && (
-                    <tr className="bg-[#F0FDF4]">
+                    <tr className="bg-[#F2F5FA]">
                       <td colSpan={6} className="px-3 py-3">
                         <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact />
                       </td>
@@ -218,7 +218,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   return (
-    <div className={`rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3 ${compact ? "" : "shadow-sm"}`}>
+    <div className={`rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 ${compact ? "" : "shadow-sm"}`}>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <label className="flex flex-col text-[10px] text-slate-500">Date · تاریخ
           <input type="date" value={value.entryDate} onChange={(e) => set("entryDate", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
@@ -248,7 +248,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         </label>
       </div>
       <div className="flex items-center gap-2 mt-3">
-        <button onClick={onSubmit} disabled={saving} className="bg-[#16A34A] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+        <button onClick={onSubmit} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} {submitLabel}
         </button>
         <button onClick={onCancel} className="border border-slate-300 rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -258,7 +258,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
 }
 
 function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>

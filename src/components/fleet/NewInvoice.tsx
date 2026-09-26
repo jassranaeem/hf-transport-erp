@@ -187,12 +187,12 @@ export default function NewInvoice({
   }, [f.routeFrom, f.routeTo]);
 
   const addClient = async () => {
-    if (!newClient.company?.trim()) { showFeedback("error", "Client ka company name zaroori hai."); return; }
+    if (!newClient.company?.trim()) { showFeedback("error", "Client company name is required. · کلائنٹ کمپنی کا نام ضروری ہے۔"); return; }
     setSavingClient(true);
     try {
       const r = await enterpriseFetch(`/api/entities/contractors`, { method: "POST", body: JSON.stringify({ ...newClient, status: "Active", paymentTerms: f.paymentTerms || "Net 30" }) });
       const created = r?.row || r;
-      showFeedback("success", `Client "${created.company}" add ho gaya`);
+      showFeedback("success", `Client "${created.company}" added · شامل ہو گیا`);
       await new Promise((res) => setTimeout(res, 150));
       const list = await enterpriseFetch(`/api/entities/contractors?limit=500&sort=company&dir=asc`);
       setContractors(list.rows || []);
@@ -200,14 +200,14 @@ export default function NewInvoice({
       setAddingClient(false);
       setNewClient({ company: "", contactPerson: "", phone: "", email: "", ntn: "", strn: "", address: "" });
     } catch (e: any) {
-      showFeedback("error", e.message || "Client add nahi hua (NTN / email pehle se to nahi?)");
+      showFeedback("error", e.message || "Could not add the client (is the NTN / email already used?) · کلائنٹ شامل نہیں ہوا");
     } finally {
       setSavingClient(false);
     }
   };
 
   const create = async () => {
-    if (!contractorId) { showFeedback("error", "Pehle client chunein · کلائنٹ منتخب کریں"); return; }
+    if (!contractorId) { showFeedback("error", "Select a client first · پہلے کلائنٹ منتخب کریں"); return; }
     const goodLines = lines
       .filter((l) => l.description.trim() && (Number(l.rate) || 0) > 0)
       .map((l) => ({ description: l.description.trim(), qty: Number(l.qty) || 1, unit: l.unit || "trip", rate: Number(l.rate) || 0 }));
@@ -217,8 +217,8 @@ export default function NewInvoice({
       // while actually being empty, so naming the exact gap here matters.
       const noDescription = !lines.some((l) => l.description.trim());
       const noRate = !lines.some((l) => (Number(l.rate) || 0) > 0);
-      const missing = [noDescription && "Description", noRate && "Rate"].filter(Boolean).join(" aur ");
-      showFeedback("error", `Line item mein ${missing} bharein (kam az kam ek line ka).`);
+      const missing = [noDescription && "Description", noRate && "Rate"].filter(Boolean).join(" and ");
+      showFeedback("error", `Fill in ${missing} on at least one line item. · کم از کم ایک لائن میں ${missing} بھریں۔`);
       return;
     }
 
@@ -250,16 +250,16 @@ export default function NewInvoice({
         body.contractorId = contractorId; // allow re-pointing to the right client
         const r = await enterpriseFetch(`/api/finance/invoices/${editInvoiceId}`, { method: "PUT", body: JSON.stringify(body) });
         const inv = r?.invoice || r;
-        showFeedback("success", `Invoice ${inv.invoiceNumber || ""} update ho gayi`);
+        showFeedback("success", `Invoice ${inv.invoiceNumber || ""} updated · اپڈیٹ ہو گئی`);
         if (onCreated) onCreated(inv.id); else setPreviewId(inv.id);
       } else {
         const r = await enterpriseFetch(`/api/finance/invoices`, { method: "POST", body: JSON.stringify(body) });
         const inv = r?.invoice || r;
-        showFeedback("success", `Invoice ${inv.invoiceNumber || ""} ban gayi`);
+        showFeedback("success", `Invoice ${inv.invoiceNumber || ""} created · بن گئی`);
         if (onCreated) onCreated(inv.id); else setPreviewId(inv.id);
       }
     } catch (e: any) {
-      showFeedback("error", e.message || (isEdit ? "Update nahi hui" : "Invoice nahi bani"));
+      showFeedback("error", e.message || (isEdit ? "Could not update the invoice · اپڈیٹ نہیں ہوئی" : "Could not create the invoice · انوائس نہیں بنی"));
     } finally {
       setBusy(false);
     }
@@ -274,17 +274,17 @@ export default function NewInvoice({
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
           {isEdit
-            ? "Ghalti theek karein — invoice number aur bilty number wahi rahenge, baaki sab change ho sakta hai. Tabdeeli audit log mein bhi jati hai."
-            : "Client, bilty / serial, cargo aur rate bharein · تفصیل بھریں — invoice ban ke record + print / PDF ke liye ready ho jati hai."}
+            ? "Correct a mistake — the invoice number and bilty number stay the same, everything else can change. Changes are recorded in the audit log. · غلطی درست کریں — انوائس نمبر اور بلٹی نمبر وہی رہیں گے، باقی سب بدلا جا سکتا ہے۔ تبدیلی آڈٹ لاگ میں بھی درج ہوتی ہے۔"
+            : "Enter the client, bilty / serial, cargo and rate — the invoice is saved and ready to print / save as PDF. · کلائنٹ، بلٹی / سیریل، مال اور ریٹ بھریں — انوائس محفوظ ہو کر پرنٹ / پی ڈی ایف کے لیے تیار ہو جاتی ہے۔"}
         </p>
       </div>
 
       {!letterheadReady && (
-        <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-[12px] text-[#B45309] flex items-start gap-2" dir="auto">
+        <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[12px] text-[#4B5563] flex items-start gap-2" dir="auto">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
-            Company Profile abhi adhoora hai (address / NTN missing) — invoice ka letterhead poora nahi lagega.
-            <b> Console → Company Profile</b> mein details + logo daal dein.
+            The Company Profile is incomplete (address / NTN missing) — the invoice letterhead will be incomplete. · کمپنی پروفائل نامکمل ہے (ایڈریس / این ٹی این غائب) — انوائس لیٹر ہیڈ مکمل نہیں ہوگا۔
+            <b> Console → Company Profile</b> and add the details and logo.
           </span>
         </div>
       )}
@@ -389,7 +389,7 @@ export default function NewInvoice({
 
       {/* line items */}
       <section className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Line items · تفصیل</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Line items · تفصیل</div>
         <table className="w-full text-xs">
           <thead className="bg-[#F9FAFB] text-[#6B7280]">
             <tr>
@@ -439,12 +439,12 @@ export default function NewInvoice({
       </section>
 
       <div className="flex items-center gap-2">
-        <button onClick={create} disabled={busy} className="h-10 px-5 rounded-lg bg-[#16A34A] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
+        <button onClick={create} disabled={busy} className="h-10 px-5 rounded-lg bg-[#24539B] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
           {isEdit ? "Save changes · تبدیلیاں محفوظ کریں" : "Create invoice · انوائس بنائیں"}
         </button>
         <span className="text-[11px] text-slate-400" dir="auto">
-          {isEdit ? "Totals, status aur ledger sab dobara calculate ho jayenge." : "Invoice record ban jayega — phir print / Save-PDF ho sakta hai."}
+          {isEdit ? "Totals, status and ledger will be recalculated. · ٹوٹل، اسٹیٹس اور لیجر دوبارہ حساب ہوں گے۔" : "The invoice record will be created — you can then print / save as PDF. · انوائس ریکارڈ بن جائے گا — پھر پرنٹ / پی ڈی ایف ہو سکتا ہے۔"}
         </span>
       </div>
 

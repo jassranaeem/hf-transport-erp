@@ -151,7 +151,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
         <button onClick={() => setShowAddPartner((s) => !s)} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> Partner
         </button>
-        <button onClick={() => setShowAddAgreement((s) => !s)} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => setShowAddAgreement((s) => !s)} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> New Agreement
         </button>
       </div>
@@ -166,7 +166,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
       )}
 
       {showAddPartner && (
-        <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3">
+        <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
             <Field label="Name *"><input value={partnerForm.name} onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })} className="border rounded px-2 py-1" /></Field>
             <Field label="CNIC"><input value={partnerForm.cnic} onChange={(e) => setPartnerForm({ ...partnerForm, cnic: e.target.value })} className="border rounded px-2 py-1" /></Field>
@@ -175,7 +175,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
             <Field label="Address" className="col-span-2"><input value={partnerForm.address} onChange={(e) => setPartnerForm({ ...partnerForm, address: e.target.value })} className="border rounded px-2 py-1" /></Field>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={addPartner} disabled={savingPartner} className="bg-[#16A34A] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
+            <button onClick={addPartner} disabled={savingPartner} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
               {savingPartner ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Save Partner
             </button>
             <button onClick={() => setShowAddPartner(false)} className="border rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -184,7 +184,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
       )}
 
       {showAddAgreement && (
-        <div className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] p-3">
+        <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <Field label="Partner *">
               <select value={agreementForm.partnerId} onChange={(e) => setAgreementForm({ ...agreementForm, partnerId: e.target.value })} className="border rounded px-2 py-1">
@@ -206,7 +206,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
             <Field label="Notes" className="col-span-2"><input value={agreementForm.notes} onChange={(e) => setAgreementForm({ ...agreementForm, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={addAgreement} disabled={savingAgreement} className="bg-[#2563EB] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
+            <button onClick={addAgreement} disabled={savingAgreement} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
               {savingAgreement ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Save Agreement
             </button>
             <button onClick={() => setShowAddAgreement(false)} className="border rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -215,7 +215,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
       )}
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Agreements · {agreements.length}</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Agreements · {agreements.length}</div>
         <div className="divide-y divide-[#F3F4F6]">
           {agreements.map((a) => (
             <div key={a.id}>
@@ -224,10 +224,10 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
                 <span className="font-mono text-[#6B7280] w-28 shrink-0">{a.agreementNumber}</span>
                 <span className="font-semibold w-32 shrink-0 truncate">{a.partnerName || "—"}</span>
                 <span className="text-[#6B7280] w-24 shrink-0">{a.vehicleNumber || "—"}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${a.status === "Settled" ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FEF3C7] text-[#92400E]"}`}>{a.status}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${a.status === "Settled" ? "bg-[#E6ECF6] text-[#173563]" : "bg-[#F3F4F6] text-[#374151]"}`}>{a.status}</span>
                 <span className="flex-1" />
                 <span className="text-[#6B7280]">Outstanding</span>
-                <span className="font-bold tabular-nums text-[#B91C1C] w-28 text-right">{PKR(a.currentBalance)}</span>
+                <span className="font-bold tabular-nums text-[#B00005] w-28 text-right">{PKR(a.currentBalance)}</span>
                 <span className="text-[#6B7280] w-16 text-right">{a.recoveryPercent}%</span>
               </button>
               {openId === a.id && (
@@ -269,16 +269,16 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
         <Big label="Outstanding" value={PKR(t.outstanding)} tone="bad" />
       </div>
       {t.estimatedPartnerSkimToDate > 0 && (
-        <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C] flex items-center gap-2">
+        <div className="rounded-lg border border-[#FF9294] bg-[#FFF1F1] px-3 py-2 text-[11px] text-[#B00005] flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           Possible under-reporting: expected revenue (GPS/fuel-based) runs ~{PKR(t.estimatedPartnerSkimToDate)} higher than what's been declared ({t.revenueUnderReportPercent}%).
         </div>
       )}
 
       {!showSettleForm ? (
-        <button onClick={onSettle} className="text-xs font-semibold text-[#2563EB] flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Record a settlement</button>
+        <button onClick={onSettle} className="text-xs font-semibold text-[#24539B] flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Record a settlement</button>
       ) : (
-        <div className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] p-3">
+        <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-2">
             <Field label="Gross revenue *"><input inputMode="numeric" value={settleForm.grossRevenue} onChange={(e: any) => setSettleForm({ ...settleForm, grossRevenue: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
             <Field label="Period from"><input type="date" value={settleForm.periodFrom} onChange={(e: any) => setSettleForm({ ...settleForm, periodFrom: e.target.value })} className="border rounded px-2 py-1" /></Field>
@@ -292,9 +292,9 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
               <input inputMode="numeric" value={ex.amount} onChange={(e: any) => { const arr = [...settleForm.expenses]; arr[i] = { ...arr[i], amount: e.target.value.replace(/\D/g, "") }; setSettleForm({ ...settleForm, expenses: arr }); }} className="border rounded px-2 py-1 text-xs w-28" placeholder="Amount" />
             </div>
           ))}
-          <button onClick={() => setSettleForm({ ...settleForm, expenses: [...settleForm.expenses, { type: "", amount: "" }] })} className="text-[11px] text-[#2563EB] mb-2">+ add expense line</button>
+          <button onClick={() => setSettleForm({ ...settleForm, expenses: [...settleForm.expenses, { type: "", amount: "" }] })} className="text-[11px] text-[#24539B] mb-2">+ add expense line</button>
           <div className="flex gap-2">
-            <button onClick={onSubmitSettlement} disabled={saving} className="bg-[#2563EB] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
+            <button onClick={onSubmitSettlement} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Submit Settlement
             </button>
             <button onClick={onCancelSettle} className="border rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -313,10 +313,10 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
                 <td className="px-2 py-1.5 font-mono">{s.settlementNumber}</td>
                 <td className="px-2 py-1.5 text-[#6B7280]">{s.periodFrom?.slice(0, 10)} → {s.periodTo?.slice(0, 10)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{PKR(s.grossRevenue)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{PKR(s.totalExpenses)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#15803D]">{PKR(s.amountToCompany)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(s.totalExpenses)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#1E4480]">{PKR(s.amountToCompany)}</td>
                 <td className="px-2 py-1.5">
-                  {s.flags?.length ? <span className="text-[#B91C1C] flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{s.flags.join(", ")}</span> : <CheckCircle className="w-3 h-3 text-[#15803D]" />}
+                  {s.flags?.length ? <span className="text-[#B00005] flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{s.flags.join(", ")}</span> : <CheckCircle className="w-3 h-3 text-[#1E4480]" />}
                 </td>
               </tr>
             ))}
@@ -333,7 +333,7 @@ function Field({ label, children, className }: { label: string; children: React.
 }
 
 function Big({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "neutral" }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-2.5 ${c}`}>
       <div className="text-[9px] font-bold uppercase tracking-wide">{label}</div>

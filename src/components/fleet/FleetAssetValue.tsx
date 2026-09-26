@@ -169,26 +169,26 @@ export default function FleetAssetValue({
             <Truck className="w-4 h-4" /> Fleet Asset Value <span className="text-[#9CA3AF] font-normal text-sm">· ٹرکوں کی مالیت</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Har truck ki market value — naya lein to add karein, bech dein ya kharab ho jaye to hata dein.
+            The market value of every truck — add a new purchase, remove a truck when sold or written off. · ہر ٹرک کی مارکیٹ ویلیو — نیا خریدیں تو شامل کریں، بیچ دیں یا خراب ہو جائے تو ہٹا دیں۔
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ModuleDataIO entityKey="vehicles" label="Vehicles" onImported={load} />
-          <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0FAF4]">
+          <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
         </div>
       </div>
 
       {/* headline total */}
-      <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-4">
-        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#15803D]">
+      <div className="rounded-xl border border-[#C9D7EC] bg-[#F2F5FA] p-4">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#1E4480]">
           <Wallet className="w-3.5 h-3.5" /> Total Fleet Worth (Owned trucks)
         </div>
-        <div className="text-2xl font-extrabold mt-1 tabular-nums text-[#15803D]">{PKR(groups.owned.total)}</div>
-        <div className="text-[12px] text-[#166534] mt-0.5">across {groups.owned.list.length} owned truck{groups.owned.list.length === 1 ? "" : "s"}</div>
+        <div className="text-2xl font-extrabold mt-1 tabular-nums text-[#1E4480]">{PKR(groups.owned.total)}</div>
+        <div className="text-[12px] text-[#173563] mt-0.5">across {groups.owned.list.length} owned truck{groups.owned.list.length === 1 ? "" : "s"}</div>
         {groups.owned.unvalued > 0 && (
-          <div className="text-[11px] text-[#B45309] mt-1.5 bg-[#FFFBEB] border border-[#FDE68A] rounded px-2 py-1 inline-block">
+          <div className="text-[11px] text-[#4B5563] mt-1.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded px-2 py-1 inline-block">
             {groups.owned.unvalued} owned truck{groups.owned.unvalued === 1 ? "" : "s"} still {groups.owned.unvalued === 1 ? "has" : "have"} no value entered — click "Set value" below.
           </div>
         )}
@@ -218,7 +218,7 @@ export default function FleetAssetValue({
           {!adding ? (
             <button
               onClick={() => setAdding(true)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-[#15803D] hover:underline"
+              className="flex items-center gap-1.5 text-sm font-semibold text-[#1E4480] hover:underline"
             >
               <Plus className="w-4 h-4" /> Add a truck · نیا ٹرک شامل کریں
             </button>
@@ -266,7 +266,7 @@ export default function FleetAssetValue({
                 <button
                   onClick={addTruck}
                   disabled={saving}
-                  className="flex items-center gap-1.5 bg-[#16A34A] text-white text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60"
+                  className="flex items-center gap-1.5 bg-[#24539B] text-white text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add truck
                 </button>
@@ -310,7 +310,7 @@ export default function FleetAssetValue({
                   </td>
                   <td className="px-3 py-2">
                     <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
-                      r.ownershipStatus === "Owned" ? "bg-[#DCFCE7] text-[#15803D]" : "bg-[#F3F4F6] text-[#6B7280]"
+                      r.ownershipStatus === "Owned" ? "bg-[#E6ECF6] text-[#1E4480]" : "bg-[#F3F4F6] text-[#6B7280]"
                     }`}>{r.ownershipStatus}</span>
                   </td>
                   <td className="px-3 py-2 text-[#6B7280]">{r.currentStatus}</td>
@@ -330,7 +330,7 @@ export default function FleetAssetValue({
                           className="w-28 border border-[#E5E7EB] rounded px-1.5 py-1 text-right text-sm font-mono"
                           dir="ltr"
                         />
-                        <button onClick={() => saveEdit(r)} disabled={busyId === r.id} className="text-[#15803D] p-1">
+                        <button onClick={() => saveEdit(r)} disabled={busyId === r.id} className="text-[#1E4480] p-1">
                           {busyId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                         </button>
                         <button onClick={cancelEdit} className="text-[#9CA3AF] p-1">
@@ -341,7 +341,7 @@ export default function FleetAssetValue({
                       <button
                         onClick={() => canWrite && startEdit(r)}
                         disabled={!canWrite}
-                        className={`font-semibold flex items-center gap-1 justify-end ml-auto ${r.currentAssetValue == null ? "text-[#B45309]" : ""} ${canWrite ? "hover:underline" : ""}`}
+                        className={`font-semibold flex items-center gap-1 justify-end ml-auto ${r.currentAssetValue == null ? "text-[#4B5563]" : ""} ${canWrite ? "hover:underline" : ""}`}
                         title={canWrite ? "Click to set market value" : ""}
                       >
                         {r.currentAssetValue != null ? PKR(r.currentAssetValue) : "Set value"}
@@ -355,7 +355,7 @@ export default function FleetAssetValue({
                         onClick={() => removeTruck(r)}
                         disabled={busyId === r.id}
                         title="Remove — sold / written off"
-                        className="text-[#B91C1C] hover:bg-[#FEF2F2] rounded p-1.5 disabled:opacity-40"
+                        className="text-[#B00005] hover:bg-[#FFF1F1] rounded p-1.5 disabled:opacity-40"
                       >
                         {busyId === r.id && editingId !== r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </button>

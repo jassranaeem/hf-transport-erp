@@ -43,7 +43,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    if (!Number(form.amount)) { showFeedback("error", "Amount daalein · رقم درج کریں"); return; }
+    if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setSaving(true);
     try {
       await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...form, entryDate: `${date}T${new Date().toTimeString().slice(0, 8)}` }) });
@@ -138,7 +138,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
             <Wallet className="w-4 h-4" /> Daily Cash Book <span className="text-[#9CA3AF] font-normal text-sm">· روزانہ کیش بک</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Aaj jo aya aur jisko jitna diya, wo yahan log karein — balance khud update hota rahega. · جو آیا اور جسے
+            Log what came in and what went out today — the balance updates automatically. · جو آیا اور جسے
             دیا وہ یہاں درج کریں، بیلنس خود بخود اپڈیٹ ہوگا۔
           </p>
         </div>
@@ -155,16 +155,16 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
           <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Import daily-work Excel
           {showImport ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </button>
-        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> Add entry · نئی اندراج
         </button>
       </div>
 
       {showImport && (
-        <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3 space-y-3">
+        <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 space-y-3">
           <p className="text-[12px] text-[#374151]" dir="auto">
-            Dual cash-book format ke liye (Date/Truck/Jama/Description/Credit ‖ Date/Truck/Banam/Description/Debit,
-            jaise "Daliy work.xlsx") — har row ke dono taraf ek "In" aur ek "Out" entry ban jati hai.
+            For the dual cash-book format (Date / Truck / Received / Description / Credit ‖ Date / Truck / Paid / Description / Debit,
+            e.g. "Daliy work.xlsx") — every row creates one "In" and one "Out" entry. · ہر قطار سے ایک "In" اور ایک "Out" اندراج بنتا ہے۔
           </p>
           <button onClick={() => importRef.current?.click()} disabled={importBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
             {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Choose .xlsx file
@@ -174,8 +174,8 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
             <div className="rounded-lg border border-emerald-300 bg-white p-3 text-[12px] space-y-2">
               <div className="flex flex-wrap gap-4">
                 <span>Rows found: <b>{importPreview.rowCount}</b></span>
-                <span className="text-[#15803D]">Total In: <b>{PKR(importPreview.totalIn)}</b></span>
-                <span className="text-[#B91C1C]">Total Out: <b>{PKR(importPreview.totalOut)}</b></span>
+                <span className="text-[#1E4480]">Total In: <b>{PKR(importPreview.totalIn)}</b></span>
+                <span className="text-[#B00005]">Total Out: <b>{PKR(importPreview.totalOut)}</b></span>
               </div>
               {importPreview.skippedSheets?.length > 0 && (
                 <div className="text-[11px] text-amber-700">Skipped sheets (no recognizable data): {importPreview.skippedSheets.join(", ")}</div>
@@ -202,7 +202,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
       )}
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">{date} — Entries ({withRunning.length})</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">{date} — Entries ({withRunning.length})</div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-[#F9FAFB] text-[#6B7280]">
@@ -223,14 +223,14 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                     <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                     <td className="px-2 py-1.5">
                       {r.direction === "In" ? (
-                        <span className="flex items-center gap-1 text-[#15803D] font-semibold"><ArrowDownCircle className="w-3.5 h-3.5" /> In</span>
+                        <span className="flex items-center gap-1 text-[#1E4480] font-semibold"><ArrowDownCircle className="w-3.5 h-3.5" /> In</span>
                       ) : (
-                        <span className="flex items-center gap-1 text-[#B91C1C] font-semibold"><ArrowUpCircle className="w-3.5 h-3.5" /> Out</span>
+                        <span className="flex items-center gap-1 text-[#B00005] font-semibold"><ArrowUpCircle className="w-3.5 h-3.5" /> Out</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5" dir="auto">{r.person || "—"}</td>
                     <td className="px-2 py-1.5 max-w-[260px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "In" ? "text-[#15803D]" : "text-[#B91C1C]"}`}>{PKR(r.amount)}</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "In" ? "text-[#1E4480]" : "text-[#B00005]"}`}>{PKR(r.amount)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#1F2937]">{PKR(r.runningAfter)}</td>
                     <td className="px-1 whitespace-nowrap">
                       <button onClick={() => startEdit(r)} title="Edit" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
@@ -238,7 +238,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                     </td>
                   </tr>
                   {editId === r.id && (
-                    <tr className="bg-[#F0FDF4]">
+                    <tr className="bg-[#F2F5FA]">
                       <td colSpan={7} className="px-3 py-3">
                         <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact />
                       </td>
@@ -262,12 +262,12 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   return (
-    <div className={`rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3 ${compact ? "" : "shadow-sm"}`}>
+    <div className={`rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 ${compact ? "" : "shadow-sm"}`}>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <label className="flex flex-col text-[10px] text-slate-500">In / Out
           <select value={value.direction} onChange={(e) => set("direction", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
-            <option value="Out">Out (diya)</option>
-            <option value="In">In (aya)</option>
+            <option value="Out">Out (paid) · ادا</option>
+            <option value="In">In (received) · وصول</option>
           </select>
         </label>
         <label className="flex flex-col text-[10px] text-slate-500">Amount (PKR) · رقم
@@ -284,7 +284,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         </label>
       </div>
       <div className="flex items-center gap-2 mt-3">
-        <button onClick={onSubmit} disabled={saving} className="bg-[#16A34A] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+        <button onClick={onSubmit} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} {submitLabel}
         </button>
         <button onClick={onCancel} className="border border-slate-300 rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -294,7 +294,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
 }
 
 function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
