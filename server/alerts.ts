@@ -16,6 +16,7 @@ import { and, eq, sql, desc, asc, inArray, isNotNull, ne } from "drizzle-orm";
 import { requireAuth, requireApproved, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
+import { gpsDistanceKm } from "./gps_distance.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -240,7 +241,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
   }
   const N = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
-  for (const [, list] of byVeh) {
+  for (const [vehicleId, list] of byVeh) {
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
       if (!txnIds.includes(f.id)) continue;
@@ -251,7 +252,16 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
       // odometer is a required field on every fuel row, so a truck no one has entered a real
       // reading for stores 0 there — that's "unknown", not "hasn't moved". Treating it as a real
       // reading made every such fill look like "0 km since the last one, so all of it is over-draw".
-      const legKm = next && next.odometer && f.odometer ? next.odometer - f.odometer : null;
+      let legKm: number | null = next && next.odometer && f.odometer ? next.odometer - f.odometer : null;
+      let legSource: "odometer" | "gps" | null = legKm != null ? "odometer" : null;
+      if (legKm == null && next) {
+        // no usable odometer on this leg — fall back to the truck's own GPS trail between the two fills
+        const gps = await gpsDistanceKm(vehicleId, new Date(f.date), new Date(next.date));
+        if (gps != null) {
+          legKm = gps;
+          legSource = "gps";
+        }
+      }
       let expectedLitres: number | null = null;
       let overdrawLitres: number | null = null;
       let overdrawPct: number | null = null;
@@ -269,6 +279,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
         odometerAtFill: f.odometer,
         nextOdometer: next?.odometer ?? null,
         legKm,
+        legSource,
         benchmarkKmpl: BENCHMARK_KMPL,
         expectedLitres,
         overdrawLitres,

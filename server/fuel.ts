@@ -6,6 +6,7 @@ import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { createBalancedJournalEntry } from "./finance_engine.ts";
 import { Resource, Action } from "../src/lib/rbac.ts";
+import { gpsDistanceKm } from "./gps_distance.ts";
 
 const router = Router();
 
@@ -1216,6 +1217,9 @@ router.get("/integrity-audit", requireAuth, async (req: AuthRequest, res: Respon
         let legKm: number | null = null;
         if (next && next.odometer && f.odometer) {
           legKm = next.odometer - f.odometer;
+        } else if (next) {
+          // no usable odometer — fall back to the truck's own GPS trail between the two fills
+          legKm = await gpsDistanceKm(vehicleId, new Date(f.date), new Date(next.date));
         }
         let legKmpl: number | null = null;
         let expectedLitresForLeg: number | null = null;

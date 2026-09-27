@@ -23,7 +23,7 @@
  * are computed views with nothing to post into).
  *
  *   GET    /api/cash-book/day?date=YYYY-MM-DD   one day's opening/entries/closing
- *   GET    /api/cash-book/link-options           truck ledgers + parties, for the "link to" picker
+ *   GET    /api/cash-book/link-options           trucks + parties, for the "link to" picker
  *   POST   /api/cash-book                       add an in/out entry
  *   PUT    /api/cash-book/:id                   edit an entry
  *   DELETE /api/cash-book/:id                   soft-delete an entry
@@ -34,7 +34,7 @@
  */
 import { Router, Response } from "express";
 import multer from "multer";
-import { and, asc, eq, lt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
@@ -93,6 +93,24 @@ function dayBounds(dateStr: string) {
   return { start, end };
 }
 
+// the one ledger Trip Desk (and now Cash Book) ever writes to for a truck: hand-entered,
+// never tied to a specific old Excel sheet. Created on first use.
+async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
+  const [existing] = await db
+    .select()
+    .from(schema.truckLedgers)
+    .where(and(eq(schema.truckLedgers.isDeleted, false), isNull(schema.truckLedgers.sourceSheet), eq(schema.truckLedgers.vehicleId, vehicleId)))
+    .limit(1);
+  if (existing) return existing.id;
+  const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
+  if (!veh) throw new Error("Truck not found");
+  const [created] = await db
+    .insert(schema.truckLedgers)
+    .values({ vehicleId, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: userId })
+    .returning();
+  return created.id;
+}
+
 // ---- create / update / remove the linked truck-ledger or party-ledger entry that
 // mirrors a cash-book row, so the two stay in step with a single edit here. ----------
 async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) {
@@ -104,8 +122,14 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
 
   const description = row.description || row.person || (row.direction === "In" ? "Cash book income" : "Cash book expense");
   if (row.linkType === "truck") {
-    const ledgerId = row.linkTargetId!;
+    // linkTargetId is the TRUCK (vehicleId), never a specific truck_ledgers row: a truck can have many
+    // legacy ledgers (one per old Excel sheet it was ever imported from), all showing the same plate, so
+    // picking one of those by id from a list would silently post into whichever old sheet happened to be
+    // chosen. Always resolve to that truck's own hand-entered ledger — the same one Trip Desk posts to —
+    // creating it if the truck doesn't have one yet.
     if (row.derivedEntryId) {
+      const [existing] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, row.derivedEntryId)).limit(1);
+      if (!existing) return;
       await db
         .update(schema.truckLedgerEntries)
         .set({
@@ -118,8 +142,9 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
           updatedAt: new Date(),
         })
         .where(eq(schema.truckLedgerEntries.id, row.derivedEntryId));
-      await recomputeTruckLedger(ledgerId);
+      await recomputeTruckLedger(existing.ledgerId);
     } else {
+      const ledgerId = await resolveManualLedgerId(row.linkTargetId!, userId);
       const [entry] = await db
         .insert(schema.truckLedgerEntries)
         .values({
@@ -234,11 +259,12 @@ async function unlinkDerivedEntry(oldLinkType: string | null, derivedEntryId: nu
 
 router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
+    // one row per truck (not per legacy Excel ledger) — see resolveManualLedgerId for why
     const trucks = await db
-      .select({ id: schema.truckLedgers.id, registration: schema.truckLedgers.registration })
-      .from(schema.truckLedgers)
-      .where(eq(schema.truckLedgers.isDeleted, false))
-      .orderBy(asc(schema.truckLedgers.registration));
+      .select({ id: schema.vehicles.id, registration: schema.vehicles.vehicleNumber })
+      .from(schema.vehicles)
+      .where(eq(schema.vehicles.isDeleted, false))
+      .orderBy(asc(schema.vehicles.vehicleNumber));
     const parties = await db
       .select({ id: schema.parties.id, name: schema.parties.name })
       .from(schema.parties)
