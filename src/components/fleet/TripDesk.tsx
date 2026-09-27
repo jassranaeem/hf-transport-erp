@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
-import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil } from "lucide-react";
+import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
 const nowLocal = () => {
@@ -68,6 +68,7 @@ export default function TripDesk({
   const [addingStop, setAddingStop] = useState(false);
   const [entries, setEntries] = useState<any[]>([]);
   const [editLegId, setEditLegId] = useState<number | null>(null);
+  const [attachLegId, setAttachLegId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string } | null>(null);
@@ -88,6 +89,7 @@ export default function TripDesk({
   useEffect(load, [load]);
   useEffect(() => {
     setEditLegId(null);
+    setAttachLegId(null);
     setEntryEdit(null);
     if (openId != null) loadEntries(openId);
   }, [openId, loadEntries]);
@@ -452,7 +454,7 @@ export default function TripDesk({
                           <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
                             <table className="w-full text-xs">
                               <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
-                                <tr><th className="text-left px-2 py-1.5">Stop · پڑاؤ</th><th className="text-left px-2">Route</th><th className="text-left px-2">Load</th><th className="text-left px-2">Customer</th><th className="text-right px-2">Freight</th><th className="text-left px-2">Departure</th><th className="w-10" /></tr>
+                                <tr><th className="text-left px-2 py-1.5">Stop · پڑاؤ</th><th className="text-left px-2">Route</th><th className="text-left px-2">Load</th><th className="text-left px-2">Customer</th><th className="text-right px-2">Freight</th><th className="text-left px-2">Departure</th><th className="w-16" /></tr>
                               </thead>
                               <tbody>
                                 {j.legs.map((l) => (
@@ -463,7 +465,10 @@ export default function TripDesk({
                                     <td className="px-2">{l.company}</td>
                                     <td className="px-2 text-right tabular-nums">{l.revenue ? fmt(l.revenue) : "—"}</td>
                                     <td className="px-2 whitespace-nowrap">{new Date(l.departureTime).toLocaleString()}</td>
-                                    <td className="px-2"><button onClick={() => startEditLeg(l)} className="text-slate-500 hover:text-emerald-700" title="Edit"><Pencil className="w-3.5 h-3.5" /></button></td>
+                                    <td className="px-2 whitespace-nowrap">
+                                      <button onClick={() => startEditLeg(l)} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                                      <button onClick={() => setAttachLegId(attachLegId === l.id ? null : l.id)} className="text-slate-500 hover:text-emerald-700" title="Attach file · فائل لگائیں"><Paperclip className="w-3.5 h-3.5" /></button>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -494,7 +499,12 @@ export default function TripDesk({
                                 <button onClick={saveEditLeg} disabled={savingEdit} className={btn}>Save · محفوظ کریں</button>
                                 <button onClick={() => setEditLegId(null)} className="text-sm rounded-lg border border-slate-300 bg-white px-4 py-1.5">Cancel</button>
                               </div>
+                              <AttachmentPanel entityType="trip" entityId={editLegId} title={`Stop ${j.legs.find((l) => l.id === editLegId)?.legNo || 1} receipts · اس پڑاؤ کی رسیدیں`} />
                             </div>
+                          )}
+
+                          {attachLegId != null && editLegId !== attachLegId && j.legs.some((l) => l.id === attachLegId) && (
+                            <AttachmentPanel entityType="trip" entityId={attachLegId} title={`Stop ${j.legs.find((l) => l.id === attachLegId)?.legNo || 1} receipts · اس پڑاؤ کی رسیدیں`} />
                           )}
 
                           <div className="rounded-lg border border-slate-200 bg-white p-3">

@@ -170,6 +170,18 @@ export default function AlertsCenter({
                   <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "#fff", stroke: "#fff" }} />
                 )}
               </button>
+              {!a.ack && (
+                <div className="px-3 py-1.5 bg-white border-t border-[#B00005] flex justify-end">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); act(a, "resolved"); }}
+                    disabled={busy === a.key}
+                    title="Clear this alert · یہ الرٹ صاف کریں"
+                    className="flex items-center gap-1 text-[11px] font-semibold text-[#4B5563] hover:text-[#B00005] disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" /> Clear · صاف کریں
+                  </button>
+                </div>
+              )}
 
               {isOpen && (
                 <div className="bg-white p-3 text-xs space-y-3 border-t border-[#B00005]">
