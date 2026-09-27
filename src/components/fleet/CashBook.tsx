@@ -135,6 +135,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
     return { ...e, runningAfter: running };
   });
 
+  const LINK_LABEL: Record<string, string> = { truck: "Truck", party: "Party", personal: "Personal & Household", zakat: "Zakat" };
   const linkNote = (r: any) => {
     if (r.linkType === "truck") return linkOptions.trucks.find((t) => t.id === r.linkTargetId)?.registration;
     if (r.linkType === "party") return linkOptions.parties.find((p) => p.id === r.linkTargetId)?.name;
@@ -242,7 +243,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                     <td className="px-2 py-1.5" dir="auto">
                       {r.person || "—"}
                       {r.linkType && (
-                        <div className="text-[10px] text-emerald-700">↔ {r.linkType === "truck" ? "Truck" : "Party"}: {linkNote(r) || `#${r.linkTargetId}`}</div>
+                        <div className="text-[10px] text-emerald-700">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}</div>
                       )}
                     </td>
                     <td className="px-2 py-1.5 max-w-[260px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
@@ -303,6 +304,8 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
             <option value="">Just Cash Book · صرف کیش بک</option>
             <option value="truck">Truck Ledger · ٹرک کھاتہ</option>
             <option value="party">Party Ledger · پارٹی کھاتہ</option>
+            <option value="personal">Personal &amp; Household · ذاتی کھاتہ</option>
+            <option value="zakat">Zakat · زکوٰۃ</option>
           </select>
         </label>
         {value.linkType === "truck" && (

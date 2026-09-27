@@ -6,11 +6,21 @@
  * out, to whom, and the running balance (and each day's close) fall out of
  * that automatically.
  *
- * An entry can also be linked to a truck's ledger or a party's ledger
- * (linkType + linkTargetId): posting it here also posts a matching entry
- * there (via derivedEntryId), so cash paid to/from a truck or a party only
- * has to be typed once. Editing or deleting the cash-book entry keeps the
- * linked one in sync; the running balance over there is recomputed too.
+ * An entry can also be linked to a truck's ledger, a party's ledger, the
+ * Personal & Household book, or Zakat (linkType [+ linkTargetId for truck/
+ * party]): posting it here also posts a matching entry there (via
+ * derivedEntryId), so the same cash movement only has to be typed once.
+ * Editing or deleting the cash-book entry keeps the linked one in sync
+ * (running balance recomputed too, for truck/party).
+ *
+ * Deliberately NOT linkable this way: Bills/Payments/Expenses (a Finance
+ * expense posts a balanced double-entry to the General Ledger — auto-firing
+ * that from a two-field cash row risks an unbalanced or wrong GL posting),
+ * Invoices/Quotations (structured documents with line items and tax; an
+ * invoice payment already has its own correct flow in Invoices → paidAmount/
+ * outstandingBalance), and Partners/Partner P&L/Monthly Report (a partner's
+ * cash already flows through their linked Party; P&L and the monthly report
+ * are computed views with nothing to post into).
  *
  *   GET    /api/cash-book/day?date=YYYY-MM-DD   one day's opening/entries/closing
  *   GET    /api/cash-book/link-options           truck ledgers + parties, for the "link to" picker
@@ -39,7 +49,14 @@ router.use(requireAuth, requireApproved);
 const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Auditor"];
 const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
 const DIRECTIONS = ["In", "Out"];
-const LINK_TYPES = ["truck", "party"];
+// truck/party need a target id (which truck / which party); personal/zakat
+// are single global books, so there's nothing to pick.
+const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
+  truck: { needsTarget: true },
+  party: { needsTarget: true },
+  personal: { needsTarget: false },
+  zakat: { needsTarget: false },
+};
 
 const workbookUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -65,7 +82,7 @@ function coerce(b: any): Record<string, unknown> {
   if (b.person !== undefined) patch.person = b.person ? String(b.person).trim() : null;
   if (b.description !== undefined) patch.description = b.description ? String(b.description) : null;
   if (b.notes !== undefined) patch.notes = b.notes ? String(b.notes) : null;
-  if (b.linkType !== undefined) patch.linkType = LINK_TYPES.includes(b.linkType) ? b.linkType : null;
+  if (b.linkType !== undefined) patch.linkType = b.linkType in LINK_TYPES ? b.linkType : null;
   if (b.linkTargetId !== undefined) patch.linkTargetId = b.linkTargetId ? parseInt(b.linkTargetId) : null;
   return patch;
 }
@@ -81,7 +98,9 @@ function dayBounds(dateStr: string) {
 async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) {
   // removing a link is handled by the caller (unlinkDerivedEntry), which still has the
   // OLD linkType/derivedEntryId to soft-delete the right row; nothing to do here for that case.
-  if (!row.linkType || !row.linkTargetId) return;
+  if (!row.linkType) return;
+  const cfg = LINK_TYPES[row.linkType];
+  if (!cfg || (cfg.needsTarget && !row.linkTargetId)) return;
 
   const description = row.description || row.person || (row.direction === "In" ? "Cash book income" : "Cash book expense");
   if (row.linkType === "truck") {
@@ -150,6 +169,45 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
       await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
       await recomputePartyLedger(partyId);
     }
+  } else if (row.linkType === "personal") {
+    // Household direction (income/expense) mirrors the cash-book direction; no running
+    // balance to recompute here, it's a plain dated list like the cash book itself.
+    if (row.derivedEntryId) {
+      await db
+        .update(schema.personalExpenses)
+        .set({ entryDate: row.entryDate, direction: row.direction === "In" ? "income" : "expense", amount: row.amount, person: row.person, payee: row.person, description, updatedAt: new Date() })
+        .where(eq(schema.personalExpenses.id, row.derivedEntryId));
+    } else {
+      const [entry] = await db
+        .insert(schema.personalExpenses)
+        .values({
+          entryDate: row.entryDate,
+          direction: row.direction === "In" ? "income" : "expense",
+          category: "Other",
+          person: row.person,
+          payee: row.person,
+          description,
+          amount: row.amount,
+          method: "Cash",
+          createdBy: userId,
+        })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+    }
+  } else if (row.linkType === "zakat") {
+    // Zakat given is always an outflow, whatever direction was picked on the cash-book row.
+    if (row.derivedEntryId) {
+      await db
+        .update(schema.zakatPayments)
+        .set({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, updatedAt: new Date() })
+        .where(eq(schema.zakatPayments.id, row.derivedEntryId));
+    } else {
+      const [entry] = await db
+        .insert(schema.zakatPayments)
+        .values({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, method: "Cash", createdBy: userId })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+    }
   }
 }
 
@@ -167,6 +225,10 @@ async function unlinkDerivedEntry(oldLinkType: string | null, derivedEntryId: nu
       await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.partyLedgerEntries.id, derivedEntryId));
       await recomputePartyLedger(old.partyId);
     }
+  } else if (oldLinkType === "personal") {
+    await db.update(schema.personalExpenses).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.personalExpenses.id, derivedEntryId));
+  } else if (oldLinkType === "zakat") {
+    await db.update(schema.zakatPayments).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.zakatPayments.id, derivedEntryId));
   }
 }
 
@@ -232,7 +294,9 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     if (!patch.amount) return res.status(400).json({ error: "Amount is required" });
     if (patch.direction === undefined) patch.direction = "Out";
     if (patch.entryDate === undefined) patch.entryDate = new Date();
-    if (patch.linkType && !patch.linkTargetId) return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
+    if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
+      return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
+    }
     const [row] = await db.insert(T).values({ ...patch, createdBy: req.user?.id } as any).returning();
     await syncLink(row, req.user?.id);
     const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
@@ -249,7 +313,9 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     if (!old) return res.status(404).json({ error: "Entry not found" });
     const patch = coerce(req.body || {});
-    if (patch.linkType && !("linkTargetId" in patch ? patch.linkTargetId : old.linkTargetId)) {
+    const effectiveLinkType = "linkType" in patch ? (patch.linkType as string | null) : old.linkType;
+    const effectiveTargetId = "linkTargetId" in patch ? patch.linkTargetId : old.linkTargetId;
+    if (effectiveLinkType && LINK_TYPES[effectiveLinkType]?.needsTarget && !effectiveTargetId) {
       return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
     }
 
