@@ -22,7 +22,7 @@ import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/m
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
-import { distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
+import { applyLatestGpsToTrip, distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -458,7 +458,10 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     }
     if (cash > 0 || diesel > 0) await recompute(led.id);
 
-    res.json({ tripId: trip.id, tripNumber: trip.tripNumber, ledgerId: led.id, created });
+    // read the truck's GPS right now instead of waiting for its next ping
+    const gps = await applyLatestGpsToTrip(trip.id).catch(() => null);
+
+    res.json({ tripId: trip.id, tripNumber: trip.tripNumber, ledgerId: led.id, created, gps });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -526,7 +529,8 @@ router.post("/:id/next-leg", requireRole(WRITE), async (req: AuthRequest, res: R
     await db.update(schema.vehicles).set({ currentStatus: "Active" }).where(eq(schema.vehicles.id, parent.vehicleId));
     await db.update(schema.drivers).set({ status: "On Trip", assignedVehicleId: parent.vehicleId }).where(eq(schema.drivers.id, parent.driverId));
     await audit(req, "CREATE", "trips", leg.id, null, leg);
-    res.json({ tripId: leg.id, tripNumber: leg.tripNumber, legNo: leg.legNo });
+    const gps = await applyLatestGpsToTrip(leg.id).catch(() => null);
+    res.json({ tripId: leg.id, tripNumber: leg.tripNumber, legNo: leg.legNo, gps });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

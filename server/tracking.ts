@@ -275,7 +275,7 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
         .where(eq(schema.trips.id, tripId));
       // a real fix means the truck is verifiably moving/parked somewhere — let that drive
       // Scheduled -> In Transit -> Arrived instead of waiting on someone to click the status dropdown
-      await updateTripStatusFromGps(tripId, newest.lat, newest.lng).catch((err) => console.error("[tracking] trip status from GPS failed:", err?.message));
+      await updateTripStatusFromGps(tripId, newest.lat, newest.lng, newest.speed).catch((err) => console.error("[tracking] trip status from GPS failed:", err?.message));
     }
 
     SocketServer.emit("tracking:update", {

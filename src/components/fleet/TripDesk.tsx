@@ -117,7 +117,7 @@ export default function TripDesk({
         method: "POST",
         body: JSON.stringify({ ...form, departure: new Date(form.departure).toISOString() }),
       });
-      showFeedback("success", `Trip created (${r.tripNumber})${r.created.length ? " · new: " + r.created.join(", ") : ""} · ٹرپ بن گئی`);
+      showFeedback("success", `Trip created (${r.tripNumber})${r.created.length ? " · new: " + r.created.join(", ") : ""} · ٹرپ بن گئی${gpsNote(r.gps)}`);
       setForm(emptyForm());
       load();
     } catch (e: any) {
@@ -211,7 +211,7 @@ export default function TripDesk({
         method: "POST",
         body: JSON.stringify({ ...stop, departure: new Date(stop.departure).toISOString() }),
       });
-      showFeedback("success", `Stop ${r.legNo} added to the trip · اگلا پڑاؤ شامل ہو گیا`);
+      showFeedback("success", `Stop ${r.legNo} added to the trip · اگلا پڑاؤ شامل ہو گیا${gpsNote(r.gps)}`);
       setStop({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
       load();
     } catch (e: any) {
@@ -608,6 +608,16 @@ function ago(iso: string | null): string {
   const h = Math.floor(min / 60);
   if (h < 24) return `${h} h ago`;
   return `${Math.floor(h / 24)} d ago`;
+}
+
+/** What the truck's GPS said the moment the trip was created — appended to the success message. */
+function gpsNote(gps: any): string {
+  if (!gps) return "";
+  if (!gps.found) return " · No GPS tracker for this truck · اس ٹرک کا ٹریکر نہیں";
+  if (!gps.fresh) return ` · GPS last seen ${ago(gps.lastSeenAt)} (signal lost) — status not changed · جی پی ایس سگنل نہیں`;
+  const where = gps.address ? ` near ${String(gps.address).split(",").slice(0, 2).join(",")}` : "";
+  const left = gps.kmToDestination != null ? ` · ${gps.kmToDestination} km to go` : "";
+  return ` · GPS: ${gps.speed || 0} km/h${where}${left} → ${gps.status} · جی پی ایس سے اسٹیٹس`;
 }
 
 /** One line under a trip's status: is this truck actually being tracked, and how close is it? */

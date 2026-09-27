@@ -5,6 +5,7 @@ import { eq, desc, and, isNull, sql, ilike, or, asc, inArray, gte, lte } from "d
 import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { LoggerService } from "../src/logger/logger.ts";
+import { applyLatestGpsToTrip } from "./trip_progress.ts";
 
 const router = Router();
 
@@ -1044,7 +1045,9 @@ router.post("/dispatch/execute", requireAuth, requirePermission("dispatch", "cre
       req.user?.id
     );
 
-    res.json(tripCreated);
+    // replace the placeholder position with the truck's real GPS fix, and let it set the status now
+    const gps = await applyLatestGpsToTrip(tripCreated.id).catch(() => null);
+    res.json({ ...tripCreated, gps });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1103,7 +1106,8 @@ router.post("/trips/dispatch", requireAuth, requirePermission("dispatch", "creat
 
     await audit(req, "CREATE", "trips", tripCreated.id, null, tripCreated);
 
-    res.json(tripCreated);
+    const gps = await applyLatestGpsToTrip(tripCreated.id).catch(() => null);
+    res.json({ ...tripCreated, gps });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

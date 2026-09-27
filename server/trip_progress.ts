@@ -83,23 +83,104 @@ export function distanceToDestinationKm(destination: string, lat: number, lng: n
   return place ? Math.round(haversineKm(lat, lng, place.lat, place.lng)) : null;
 }
 
-/** Called from GPS ingest with a fresh, real fix for a vehicle's active trip. */
-export async function updateTripStatusFromGps(tripId: number, lat: number, lng: number): Promise<void> {
+/**
+ * Called from GPS ingest (and right after a trip is created) with a real fix for the trip's truck.
+ * Returns the status the trip ended up with.
+ *
+ * Scheduled -> In Transit only when the truck is actually moving, or is outside its origin city:
+ * a truck parked in the Quetta yard with tomorrow's trip booked must stay Scheduled.
+ */
+export async function updateTripStatusFromGps(tripId: number, lat: number, lng: number, speedKmh?: number | null): Promise<string | null> {
   const [trip] = await db.select().from(schema.trips).where(eq(schema.trips.id, tripId)).limit(1);
-  if (!trip || trip.isDeleted || trip.status === "Completed" || trip.status === "Arrived") return;
-
-  if (trip.status === "Scheduled") {
-    await db.update(schema.trips).set({ status: "In Transit", actualDepartureTime: trip.actualDepartureTime || new Date() }).where(eq(schema.trips.id, tripId));
-    trip.status = "In Transit";
-  }
+  if (!trip || trip.isDeleted) return null;
+  if (trip.status === "Completed" || trip.status === "Arrived") return trip.status;
 
   const [route] = await db.select().from(schema.routes).where(eq(schema.routes.id, trip.routeId)).limit(1);
-  if (!route) return;
-  const place = findKnownPlace(route.destination);
-  if (!place) return; // no known coordinates for this destination — nothing more we can safely check
+  const dest = route ? findKnownPlace(route.destination) : null;
+  const atDestination = !!dest && haversineKm(lat, lng, dest.lat, dest.lng) <= dest.radiusKm;
+  // a trip booked for later whose truck merely happens to be parked in the destination city hasn't arrived
+  const departed = trip.status !== "Scheduled" || (trip.departureTime && new Date(trip.departureTime).getTime() <= Date.now());
 
-  const distanceKm = haversineKm(lat, lng, place.lat, place.lng);
-  if (distanceKm <= place.radiusKm) {
-    await db.update(schema.trips).set({ status: "Arrived", remainingDistance: 0 }).where(eq(schema.trips.id, tripId));
+  if (atDestination && departed) {
+    await db
+      .update(schema.trips)
+      .set({ status: "Arrived", remainingDistance: 0, actualDepartureTime: trip.actualDepartureTime || trip.departureTime || new Date() })
+      .where(eq(schema.trips.id, tripId));
+    return "Arrived";
   }
+
+  if (trip.status === "Scheduled") {
+    const origin = route ? findKnownPlace(route.origin) : null;
+    const moving = (speedKmh ?? 0) > 5;
+    const leftOrigin = !!origin && haversineKm(lat, lng, origin.lat, origin.lng) > origin.radiusKm;
+    if (moving || leftOrigin) {
+      await db.update(schema.trips).set({ status: "In Transit", actualDepartureTime: trip.actualDepartureTime || new Date() }).where(eq(schema.trips.id, tripId));
+      return "In Transit";
+    }
+  }
+  return trip.status;
+}
+
+/** A fix older than this doesn't say where the truck is now, so it can't change a status. */
+const FRESH_FIX_MS = 60 * 60_000;
+
+/**
+ * Right after a trip is created: find the truck's tracker (by plate — linked vehicle row, a
+ * near-duplicate row, or just the tracker's own name) and apply its latest fix straight away,
+ * instead of waiting for the next GPS ping. Returns what was found, for the UI to tell the user.
+ */
+export async function applyLatestGpsToTrip(tripId: number) {
+  const [row] = await db
+    .select({ trip: schema.trips, vehicleNumber: schema.vehicles.vehicleNumber, destination: schema.routes.destination })
+    .from(schema.trips)
+    .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+    .innerJoin(schema.routes, eq(schema.trips.routeId, schema.routes.id))
+    .where(eq(schema.trips.id, tripId))
+    .limit(1);
+  if (!row) return null;
+  const plate = normPlate(row.vehicleNumber);
+  if (!plate) return null;
+
+  const trackers = await db
+    .select({ tracker: schema.trackerDevices, vehicleNumber: schema.vehicles.vehicleNumber })
+    .from(schema.trackerDevices)
+    .leftJoin(schema.vehicles, eq(schema.trackerDevices.vehicleId, schema.vehicles.id))
+    .where(eq(schema.trackerDevices.isDeleted, false))
+    .orderBy(desc(schema.trackerDevices.lastSeenAt));
+  const hit = trackers.find(
+    (t) => t.tracker.lastLat != null && t.tracker.lastLng != null && matchPlate(normPlate(t.vehicleNumber || t.tracker.label || ""), [plate]) === plate,
+  );
+  if (!hit) return { found: false as const, status: row.trip.status };
+
+  const d = hit.tracker;
+  const lat = Number(d.lastLat);
+  const lng = Number(d.lastLng);
+  const fresh = !!d.lastSeenAt && Date.now() - new Date(d.lastSeenAt).getTime() <= FRESH_FIX_MS;
+  await db
+    .update(schema.trips)
+    .set({ currentLat: String(lat), currentLng: String(lng), currentSpeed: d.lastSpeed ?? 0, ...(d.lastAddress ? { currentAddress: d.lastAddress } : {}) })
+    .where(eq(schema.trips.id, tripId));
+  let status: string | null = row.trip.status;
+  if (fresh) {
+    // created as "In Transit" only because its departure time is now — but the truck is standing
+    // still inside its origin city, so it hasn't left yet. The next GPS ping moves it on once it does.
+    const [route] = await db.select().from(schema.routes).where(eq(schema.routes.id, row.trip.routeId)).limit(1);
+    const origin = route ? findKnownPlace(route.origin) : null;
+    const parkedAtOrigin = !!origin && (d.lastSpeed ?? 0) <= 5 && haversineKm(lat, lng, origin.lat, origin.lng) <= origin.radiusKm;
+    if (row.trip.status === "In Transit" && parkedAtOrigin) {
+      await db.update(schema.trips).set({ status: "Scheduled", actualDepartureTime: null }).where(eq(schema.trips.id, tripId));
+      status = "Scheduled";
+    } else {
+      status = await updateTripStatusFromGps(tripId, lat, lng, d.lastSpeed);
+    }
+  }
+  return {
+    found: true as const,
+    fresh,
+    status,
+    lastSeenAt: d.lastSeenAt,
+    speed: d.lastSpeed,
+    address: d.lastAddress,
+    kmToDestination: distanceToDestinationKm(row.destination, lat, lng),
+  };
 }
