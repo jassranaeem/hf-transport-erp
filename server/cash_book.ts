@@ -95,15 +95,34 @@ function dayBounds(dateStr: string) {
 
 // the one ledger Trip Desk (and now Cash Book) ever writes to for a truck: hand-entered,
 // never tied to a specific old Excel sheet. Created on first use.
+//
+// Matched by NORMALIZED PLATE, not by vehicleId: the fleet has more than one `vehicles` row
+// for the same physical truck in places (old imports spelled the same plate "TLD 918" in one
+// batch and "TLD-918" in another, so they never matched as "the same vehicle"). Trusting
+// vehicleId alone would let a truck accumulate a second manual ledger just because the picker
+// happened to list its other near-duplicate vehicle row — the exact "now there are two TLD 918
+// ledgers" bug this replaced. Matching on the plate itself (same normalization used everywhere
+// else a truck is looked up) makes ledger resolution correct even while that vehicle-row
+// duplication still exists.
 async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
+  const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
+  if (!veh) throw new Error("Truck not found");
+  const plate = veh.vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const [existing] = await db
     .select()
     .from(schema.truckLedgers)
-    .where(and(eq(schema.truckLedgers.isDeleted, false), isNull(schema.truckLedgers.sourceSheet), eq(schema.truckLedgers.vehicleId, vehicleId)))
+    .where(
+      and(
+        eq(schema.truckLedgers.isDeleted, false),
+        isNull(schema.truckLedgers.sourceSheet),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
     .limit(1);
-  if (existing) return existing.id;
-  const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
-  if (!veh) throw new Error("Truck not found");
+  if (existing) {
+    if (!existing.vehicleId) await db.update(schema.truckLedgers).set({ vehicleId }).where(eq(schema.truckLedgers.id, existing.id));
+    return existing.id;
+  }
   const [created] = await db
     .insert(schema.truckLedgers)
     .values({ vehicleId, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: userId })
@@ -259,12 +278,22 @@ async function unlinkDerivedEntry(oldLinkType: string | null, derivedEntryId: nu
 
 router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
-    // one row per truck (not per legacy Excel ledger) — see resolveManualLedgerId for why
-    const trucks = await db
+    // one row per truck (not per legacy Excel ledger) — see resolveManualLedgerId for why.
+    // Also collapse near-duplicate vehicle rows for the same plate ("TLD 918" vs "TLD-918" from
+    // different old imports) to one option, so the picker itself doesn't offer the same truck twice.
+    const vehicleRows = await db
       .select({ id: schema.vehicles.id, registration: schema.vehicles.vehicleNumber })
       .from(schema.vehicles)
       .where(eq(schema.vehicles.isDeleted, false))
-      .orderBy(asc(schema.vehicles.vehicleNumber));
+      .orderBy(asc(schema.vehicles.id));
+    const seenPlate = new Set<string>();
+    const trucks = vehicleRows.filter((v) => {
+      const plate = v.registration.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (seenPlate.has(plate)) return false;
+      seenPlate.add(plate);
+      return true;
+    });
+    trucks.sort((a, b) => a.registration.localeCompare(b.registration));
     const parties = await db
       .select({ id: schema.parties.id, name: schema.parties.name })
       .from(schema.parties)
