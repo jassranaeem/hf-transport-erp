@@ -16,12 +16,13 @@
  * Mounted at /api/trip-desk.
  */
 import { Router, Response } from "express";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
+import { distanceToDestinationKm } from "./trip_progress.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -165,11 +166,46 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
       }),
     );
 
+    // live GPS per truck (matched by plate — a tracker may sit on a near-duplicate vehicle row)
+    const trackers = await db
+      .select({
+        vehicleNumber: schema.vehicles.vehicleNumber,
+        lastSeenAt: schema.trackerDevices.lastSeenAt,
+        lastLat: schema.trackerDevices.lastLat,
+        lastLng: schema.trackerDevices.lastLng,
+        lastSpeed: schema.trackerDevices.lastSpeed,
+        status: schema.trackerDevices.status,
+      })
+      .from(schema.trackerDevices)
+      .innerJoin(schema.vehicles, eq(schema.trackerDevices.vehicleId, schema.vehicles.id))
+      .where(eq(schema.trackerDevices.isDeleted, false));
+    const trackerByPlate = new Map<string, (typeof trackers)[number]>();
+    for (const t of trackers) {
+      const k = normPlate(t.vehicleNumber);
+      const cur = trackerByPlate.get(k);
+      if (!cur || (t.lastSeenAt && (!cur.lastSeenAt || t.lastSeenAt > cur.lastSeenAt))) trackerByPlate.set(k, t);
+    }
+    const gpsFor = (vehicleNumber: string | null, destination: string | null) => {
+      const t = vehicleNumber ? trackerByPlate.get(normPlate(vehicleNumber)) : undefined;
+      if (!t) return null;
+      const lat = t.lastLat != null ? Number(t.lastLat) : null;
+      const lng = t.lastLng != null ? Number(t.lastLng) : null;
+      return {
+        lastSeenAt: t.lastSeenAt,
+        status: t.status,
+        speed: t.lastSpeed,
+        lat,
+        lng,
+        kmToDestination: lat != null && lng != null && destination ? distanceToDestinationKm(destination, lat, lng) : null,
+      };
+    };
+
     res.json(
       rows.map((r) => {
         const m = byTrip.get(r.trip.id) || {};
         const total = Object.values(m).reduce((s, n) => s + n, 0);
         return {
+          gps: gpsFor(r.vehicleNumber, r.destination),
           id: r.trip.id,
           tripNumber: r.trip.tripNumber,
           status: r.trip.status,
@@ -224,6 +260,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
       .select()
       .from(schema.vehicles)
       .where(and(eq(schema.vehicles.isDeleted, false), sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}`))
+      .orderBy(asc(schema.vehicles.id))
       .limit(1);
     if (!veh) {
       [veh] = await db

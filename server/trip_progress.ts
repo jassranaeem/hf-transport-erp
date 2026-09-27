@@ -49,6 +49,12 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Straight-line km from a fix to the destination, or null when the destination isn't a known place. */
+export function distanceToDestinationKm(destination: string, lat: number, lng: number): number | null {
+  const place = findKnownPlace(destination);
+  return place ? Math.round(haversineKm(lat, lng, place.lat, place.lng)) : null;
+}
+
 /** Called from GPS ingest with a fresh, real fix for a vehicle's active trip. */
 export async function updateTripStatusFromGps(tripId: number, lat: number, lng: number): Promise<void> {
   const [trip] = await db.select().from(schema.trips).where(eq(schema.trips.id, tripId)).limit(1);

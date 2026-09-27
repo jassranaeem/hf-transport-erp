@@ -164,14 +164,23 @@ async function resolveDevice(
 }
 
 /** Newest-first active trip for a vehicle. */
+// The same physical truck can exist as more than one `vehicles` row (old imports spelled the
+// plate "TLD 918" in one batch and "TLD-918" in another). The tracker may be linked to one of
+// those rows and the trip created against the other — matching on the exact vehicle id meant
+// such a trip never received a single GPS update. Match on the normalized plate instead.
 async function activeTripIdForVehicle(vehicleId: number | null): Promise<number | null> {
   if (!vehicleId) return null;
+  const [v] = await db.select({ vn: schema.vehicles.vehicleNumber }).from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
+  const plate = v ? normPlate(v.vn) : "";
   const [t] = await db
     .select({ id: schema.trips.id })
     .from(schema.trips)
+    .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
     .where(
       and(
-        eq(schema.trips.vehicleId, vehicleId),
+        plate
+          ? sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}`
+          : eq(schema.trips.vehicleId, vehicleId),
         eq(schema.trips.isDeleted, false),
         ne(schema.trips.status, "Completed")
       )
@@ -436,8 +445,11 @@ export async function syncGpsProvider(): Promise<typeof lastGpsSync> {
     const veh = await db
       .select({ id: schema.vehicles.id, vn: schema.vehicles.vehicleNumber })
       .from(schema.vehicles)
-      .where(eq(schema.vehicles.isDeleted, false));
-    const vehById = new Map(veh.map((v) => [normPlate(v.vn), v.id]));
+      .where(eq(schema.vehicles.isDeleted, false))
+      .orderBy(asc(schema.vehicles.id));
+    // near-duplicate rows for one plate: keep the oldest, so the link never flips between them
+    const vehById = new Map<string, number>();
+    for (const v of veh) if (!vehById.has(normPlate(v.vn))) vehById.set(normPlate(v.vn), v.id);
 
     let matched = 0;
     let accepted = 0;
@@ -655,6 +667,7 @@ export async function getLiveVehicles() {
     ? await db
         .select({
           vehicleId: schema.trips.vehicleId,
+          vehicleNumber: schema.vehicles.vehicleNumber,
           tripNumber: schema.trips.tripNumber,
           status: schema.trips.status,
           distance: schema.trips.distance,
@@ -669,18 +682,17 @@ export async function getLiveVehicles() {
         })
         .from(schema.trips)
         .innerJoin(schema.routes, eq(schema.trips.routeId, schema.routes.id))
-        .where(
-          and(
-            eq(schema.trips.isDeleted, false),
-            ne(schema.trips.status, "Completed"),
-            inArray(schema.trips.vehicleId, vehicleIds)
-          )
-        )
+        .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+        .where(and(eq(schema.trips.isDeleted, false), ne(schema.trips.status, "Completed")))
         .orderBy(desc(schema.trips.departureTime))
     : [];
 
-  const tripByVehicle = new Map<number, (typeof tripRows)[number]>();
-  for (const t of tripRows) if (t.vehicleId != null && !tripByVehicle.has(t.vehicleId)) tripByVehicle.set(t.vehicleId, t);
+  // keyed by plate, not vehicle id — see activeTripIdForVehicle
+  const tripByPlate = new Map<string, (typeof tripRows)[number]>();
+  for (const t of tripRows) {
+    const k = normPlate(t.vehicleNumber || "");
+    if (k && !tripByPlate.has(k)) tripByPlate.set(k, t);
+  }
 
   const vehicles = devices.map((d) => {
     const lastSeen = d.lastSeenAt ? new Date(d.lastSeenAt) : null;
@@ -689,7 +701,7 @@ export async function getLiveVehicles() {
     const stale = !lastSeen || now - lastSeen.getTime() > staleMs;
     const status = !hasFix ? "Unknown" : stale ? "SignalLost" : d.status;
 
-    const trip = d.vehicleId != null ? tripByVehicle.get(d.vehicleId) : undefined;
+    const trip = d.vehicleNumber ? tripByPlate.get(normPlate(d.vehicleNumber)) : undefined;
     const path = trip ? routePathFor(trip) : null;
 
     let projected:

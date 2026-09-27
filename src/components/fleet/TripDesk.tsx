@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
-import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip } from "lucide-react";
+import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip, MapPin } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
 const nowLocal = () => {
@@ -87,6 +87,13 @@ export default function TripDesk({
       .finally(() => setLoading(false));
   }, [showFeedback]);
   useEffect(load, [load]);
+  // trip status now follows the truck's GPS on the server; re-read quietly every minute so it shows here
+  useEffect(() => {
+    const t = setInterval(() => {
+      enterpriseFetch("/api/trip-desk").then(setTrips).catch(() => {});
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     setEditLegId(null);
     setAttachLegId(null);
@@ -441,6 +448,7 @@ export default function TripDesk({
                         >
                           {[...new Set([j.last.status, ...STATUSES])].map((s) => <option key={s}>{s}</option>)}
                         </select>
+                        <GpsLine gps={j.last.gps} destination={j.last.destination} />
                       </td>
                     </tr>
                     {open && (
@@ -588,6 +596,32 @@ export default function TripDesk({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ago(iso: string | null): string {
+  if (!iso) return "never";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.floor(h / 24)} d ago`;
+}
+
+/** One line under a trip's status: is this truck actually being tracked, and how close is it? */
+function GpsLine({ gps, destination }: { gps: any; destination: string | null }) {
+  if (!gps) {
+    return <div className="text-[10px] text-slate-400 mt-0.5 whitespace-nowrap">No GPS tracker · ٹریکر نہیں</div>;
+  }
+  const minutes = gps.lastSeenAt ? (Date.now() - new Date(gps.lastSeenAt).getTime()) / 60000 : Infinity;
+  const live = minutes <= 15;
+  return (
+    <div className={`text-[10px] mt-0.5 whitespace-nowrap flex items-center gap-1 ${live ? "text-emerald-700" : "text-red-600"}`}>
+      <MapPin className="w-3 h-3" />
+      {live ? `GPS live · ${gps.speed || 0} km/h` : "GPS signal lost"} · {ago(gps.lastSeenAt)}
+      {gps.kmToDestination != null && destination ? ` · ${gps.kmToDestination} km to ${destination}` : ""}
     </div>
   );
 }
