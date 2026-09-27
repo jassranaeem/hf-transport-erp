@@ -301,7 +301,10 @@ function AlertProof({ alert }: { alert: AlertRow }) {
               <tbody>
                 <CalcRow k="Fuel drawn · ڈلوایا" v={`${cc.litres} L`} />
                 <CalcRow k="Rate · ریٹ" v={`${pkr(cc.ratePerL)} / L  →  ${pkr(cc.valuePKR)}`} />
-                <CalcRow k="Distance to next fill (odometer) · اگلے فِل تک سفر" v={`${cc.legKm} km`} />
+                <CalcRow
+                  k={cc.legSource === "gps" ? "Distance to next fill (GPS trail) · اگلے فِل تک سفر" : "Distance to next fill (odometer) · اگلے فِل تک سفر"}
+                  v={`${cc.legKm} km${cc.legSource === "gps" ? " · from GPS, no odometer on file" : ""}`}
+                />
                 <CalcRow k="Benchmark (loaded truck) · معیار" v={`${cc.benchmarkKmpl} km / litre`} />
                 <CalcRow k="Expected fuel = km ÷ benchmark" v={`${cc.legKm} ÷ ${cc.benchmarkKmpl} = ${cc.expectedLitres} L`} />
                 <CalcRow
