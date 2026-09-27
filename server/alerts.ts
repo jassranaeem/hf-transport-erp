@@ -248,7 +248,10 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
       const rate = N(f.rate) || (f.total && litres ? f.total / litres : 0);
       const valuePKR = f.total || Math.round(litres * rate);
       const next = list[i + 1];
-      const legKm = next && next.odometer != null && f.odometer != null ? next.odometer - f.odometer : null;
+      // odometer is a required field on every fuel row, so a truck no one has entered a real
+      // reading for stores 0 there — that's "unknown", not "hasn't moved". Treating it as a real
+      // reading made every such fill look like "0 km since the last one, so all of it is over-draw".
+      const legKm = next && next.odometer && f.odometer ? next.odometer - f.odometer : null;
       let expectedLitres: number | null = null;
       let overdrawLitres: number | null = null;
       let overdrawPct: number | null = null;
