@@ -24,7 +24,7 @@ import { db, schema } from "../src/db/index.ts";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { deadReckon, num } from "../src/lib/tracking/geo.ts";
-import { updateTripStatusFromGps } from "./trip_progress.ts";
+import { updateTripStatusFromGps, normPlate, matchPlate } from "./trip_progress.ts";
 
 const router = Router();
 
@@ -163,31 +163,29 @@ async function resolveDevice(
   return { device: created };
 }
 
-/** Newest-first active trip for a vehicle. */
+/** Newest-first active trip for a tracker. */
 // The same physical truck can exist as more than one `vehicles` row (old imports spelled the
-// plate "TLD 918" in one batch and "TLD-918" in another). The tracker may be linked to one of
-// those rows and the trip created against the other — matching on the exact vehicle id meant
-// such a trip never received a single GPS update. Match on the normalized plate instead.
-async function activeTripIdForVehicle(vehicleId: number | null): Promise<number | null> {
-  if (!vehicleId) return null;
-  const [v] = await db.select({ vn: schema.vehicles.vehicleNumber }).from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
-  const plate = v ? normPlate(v.vn) : "";
-  const [t] = await db
-    .select({ id: schema.trips.id })
+// plate "TLD 918" in one batch and "TLD-918" in another), and a provider tracker may not be
+// linked to any vehicle row at all — only its name says which truck it is. Matching on the
+// exact vehicle id meant such a trip never received a single GPS update. Match on the
+// normalized plate of the linked vehicle, or failing that, on the tracker's own name.
+async function activeTripIdForDevice(device: DeviceRow): Promise<number | null> {
+  let key = "";
+  if (device.vehicleId) {
+    const [v] = await db.select({ vn: schema.vehicles.vehicleNumber }).from(schema.vehicles).where(eq(schema.vehicles.id, device.vehicleId)).limit(1);
+    key = v ? normPlate(v.vn) : "";
+  }
+  if (!key) key = normPlate(device.label || "");
+  if (!key) return null;
+  const active = await db
+    .select({ id: schema.trips.id, vn: schema.vehicles.vehicleNumber })
     .from(schema.trips)
     .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
-    .where(
-      and(
-        plate
-          ? sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}`
-          : eq(schema.trips.vehicleId, vehicleId),
-        eq(schema.trips.isDeleted, false),
-        ne(schema.trips.status, "Completed")
-      )
-    )
-    .orderBy(desc(schema.trips.departureTime))
-    .limit(1);
-  return t?.id ?? null;
+    .where(and(eq(schema.trips.isDeleted, false), ne(schema.trips.status, "Completed")))
+    .orderBy(desc(schema.trips.departureTime));
+  const plate = matchPlate(key, new Set(active.map((t) => normPlate(t.vn))));
+  if (!plate) return null;
+  return active.find((t) => normPlate(t.vn) === plate)?.id ?? null;
 }
 
 function movementStatus(speed: number, ignition: boolean | null): string {
@@ -213,7 +211,7 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
   }
 
   clean.sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
-  const tripId = await activeTripIdForVehicle(device.vehicleId);
+  const tripId = await activeTripIdForDevice(device);
 
   const rows = clean.map((p) => ({
     deviceId: device.id,
@@ -264,7 +262,8 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
       })
       .where(eq(schema.trackerDevices.id, device.id));
 
-    if (device.vehicleId && tripId) {
+    // tripId is already matched by plate (linked vehicle or the tracker's own name)
+    if (tripId) {
       await db
         .update(schema.trips)
         .set({
@@ -405,12 +404,12 @@ async function gpswoxLogin(cfg: GpsProviderConfig): Promise<string> {
   return json.user_api_hash;
 }
 
-const normPlate = (s: string) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-
 async function gpswoxUpsertDevice(gw: any, vehById: Map<string, number>): Promise<DeviceRow> {
   const imei = `EAGLE-${gw.id}`;
   const [existing] = await db.select().from(schema.trackerDevices).where(eq(schema.trackerDevices.imei, imei)).limit(1);
-  const vehicleId = vehById.get(normPlate(gw.name)) ?? null;
+  // the provider's name is often more than the bare plate ("TLD 918 Bhagwan") — still link it
+  const plate = matchPlate(normPlate(gw.name), vehById.keys());
+  const vehicleId = plate ? vehById.get(plate) ?? null : null;
   if (existing) {
     if (vehicleId && existing.vehicleId !== vehicleId) {
       await db.update(schema.trackerDevices).set({ vehicleId, label: gw.name, updatedAt: new Date() }).where(eq(schema.trackerDevices.id, existing.id));
@@ -701,7 +700,8 @@ export async function getLiveVehicles() {
     const stale = !lastSeen || now - lastSeen.getTime() > staleMs;
     const status = !hasFix ? "Unknown" : stale ? "SignalLost" : d.status;
 
-    const trip = d.vehicleNumber ? tripByPlate.get(normPlate(d.vehicleNumber)) : undefined;
+    const tripPlate = matchPlate(normPlate(d.vehicleNumber || d.label || ""), tripByPlate.keys());
+    const trip = tripPlate ? tripByPlate.get(tripPlate) : undefined;
     const path = trip ? routePathFor(trip) : null;
 
     let projected:

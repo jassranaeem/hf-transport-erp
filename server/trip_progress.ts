@@ -49,6 +49,34 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+export const normPlate = (s: string | null | undefined) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * Which of `plates` (already normalized) does a tracker belong to? A tracker's name comes from
+ * the GPS provider and is often more than the bare plate ("TLD 918 Bhagwan", "HINO TLD-918"),
+ * and it may not be linked to any vehicle row at all. Exact match first, then the longest plate
+ * contained in the name — plates shorter than 5 characters are never matched by containment
+ * (a bare "918" would hit too many things), and a digit right next to the match rules it out
+ * ("TLD 9180" is not "TLD 918").
+ */
+export function matchPlate(nameKey: string, plates: Iterable<string>): string | null {
+  if (!nameKey) return null;
+  const isDigit = (c: string | undefined) => !!c && c >= "0" && c <= "9";
+  let best: string | null = null;
+  for (const p of plates) {
+    if (!p) continue;
+    if (p === nameKey) return p;
+    if (p.length < 5 || (best && p.length <= best.length)) continue;
+    for (let i = nameKey.indexOf(p); i !== -1; i = nameKey.indexOf(p, i + 1)) {
+      if (!isDigit(nameKey[i - 1]) && !isDigit(nameKey[i + p.length])) {
+        best = p;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
 /** Straight-line km from a fix to the destination, or null when the destination isn't a known place. */
 export function distanceToDestinationKm(destination: string, lat: number, lng: number): number | null {
   const place = findKnownPlace(destination);

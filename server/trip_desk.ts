@@ -22,7 +22,7 @@ import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/m
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
-import { distanceToDestinationKm } from "./trip_progress.ts";
+import { distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -166,10 +166,12 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
       }),
     );
 
-    // live GPS per truck (matched by plate — a tracker may sit on a near-duplicate vehicle row)
+    // live GPS per truck, matched by plate: a tracker may sit on a near-duplicate vehicle row, or
+    // on no vehicle row at all (a provider tracker known only by its name, e.g. "TLD 918")
     const trackers = await db
       .select({
         vehicleNumber: schema.vehicles.vehicleNumber,
+        label: schema.trackerDevices.label,
         lastSeenAt: schema.trackerDevices.lastSeenAt,
         lastLat: schema.trackerDevices.lastLat,
         lastLng: schema.trackerDevices.lastLng,
@@ -177,11 +179,13 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
         status: schema.trackerDevices.status,
       })
       .from(schema.trackerDevices)
-      .innerJoin(schema.vehicles, eq(schema.trackerDevices.vehicleId, schema.vehicles.id))
+      .leftJoin(schema.vehicles, eq(schema.trackerDevices.vehicleId, schema.vehicles.id))
       .where(eq(schema.trackerDevices.isDeleted, false));
+    const tripPlates = new Set(rows.map((r) => normPlate(r.vehicleNumber || "")).filter(Boolean));
     const trackerByPlate = new Map<string, (typeof trackers)[number]>();
     for (const t of trackers) {
-      const k = normPlate(t.vehicleNumber);
+      const k = matchPlate(normPlate(t.vehicleNumber || t.label || ""), tripPlates);
+      if (!k) continue;
       const cur = trackerByPlate.get(k);
       if (!cur || (t.lastSeenAt && (!cur.lastSeenAt || t.lastSeenAt > cur.lastSeenAt))) trackerByPlate.set(k, t);
     }
