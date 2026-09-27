@@ -130,6 +130,27 @@ async function resolveManualLedgerId(vehicleId: number, userId: number | undefin
   return created.id;
 }
 
+// Parties have the exact same "one sheet, one new row" import history as trucks (see
+// server/parties.ts's import: matched by sourceSheet first, exact name only as a fallback) — so the
+// same real party can exist as more than one `parties` row if it was ever typed with different
+// spacing/case across sheets. Unlike a truck plate we won't aggressively strip everything and risk
+// merging two genuinely different companies — only whitespace/case, which is never meaningful in a
+// name. Among rows that are identical once trimmed, always resolve to the lowest id (first created),
+// so every link for "the same name" converges on one party regardless of which near-duplicate a
+// stale picker happened to have selected.
+async function resolveCanonicalPartyId(partyId: number): Promise<number> {
+  const [p] = await db.select().from(schema.parties).where(eq(schema.parties.id, partyId)).limit(1);
+  if (!p) throw new Error("Party not found");
+  const norm = p.name.trim().toLowerCase().replace(/\s+/g, " ");
+  const [canonical] = await db
+    .select({ id: schema.parties.id })
+    .from(schema.parties)
+    .where(and(eq(schema.parties.isDeleted, false), sql`lower(trim(regexp_replace(${schema.parties.name}, '\\s+', ' ', 'g'))) = ${norm}`))
+    .orderBy(asc(schema.parties.id))
+    .limit(1);
+  return canonical ? canonical.id : partyId;
+}
+
 // ---- create / update / remove the linked truck-ledger or party-ledger entry that
 // mirrors a cash-book row, so the two stay in step with a single edit here. ----------
 async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) {
@@ -184,17 +205,19 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
       await recomputeTruckLedger(ledgerId);
     }
   } else if (row.linkType === "party") {
-    const partyId = row.linkTargetId!;
     // cash IN (office received) = party paid us = credit; cash OUT (office paid) = debit
     const debit = row.direction === "Out" ? row.amount : 0;
     const credit = row.direction === "In" ? row.amount : 0;
     if (row.derivedEntryId) {
+      const [existing] = await db.select().from(schema.partyLedgerEntries).where(eq(schema.partyLedgerEntries.id, row.derivedEntryId)).limit(1);
+      if (!existing) return;
       await db
         .update(schema.partyLedgerEntries)
         .set({ entryDate: row.entryDate, rawDate: row.entryDate.toISOString().slice(0, 10), debit, credit, description, updatedAt: new Date() })
         .where(eq(schema.partyLedgerEntries.id, row.derivedEntryId));
-      await recomputePartyLedger(partyId);
+      await recomputePartyLedger(existing.partyId);
     } else {
+      const partyId = await resolveCanonicalPartyId(row.linkTargetId!);
       const [entry] = await db
         .insert(schema.partyLedgerEntries)
         .values({
@@ -294,11 +317,24 @@ router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Re
       return true;
     });
     trucks.sort((a, b) => a.registration.localeCompare(b.registration));
-    const parties = await db
+
+    // same de-duplication for parties, but conservative: only whitespace/case are folded, never
+    // parts of the name — collapsing "Dawood" into "Muhammad Dawood Mercedes Autos" needs a human,
+    // not a guess (see resolveCanonicalPartyId for the write-time half of this).
+    const partyRows = await db
       .select({ id: schema.parties.id, name: schema.parties.name })
       .from(schema.parties)
       .where(eq(schema.parties.isDeleted, false))
-      .orderBy(asc(schema.parties.name));
+      .orderBy(asc(schema.parties.id));
+    const seenName = new Set<string>();
+    const parties = partyRows.filter((p) => {
+      const norm = p.name.trim().toLowerCase().replace(/\s+/g, " ");
+      if (seenName.has(norm)) return false;
+      seenName.add(norm);
+      return true;
+    });
+    parties.sort((a, b) => a.name.localeCompare(b.name));
+
     res.json({ trucks, parties });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
