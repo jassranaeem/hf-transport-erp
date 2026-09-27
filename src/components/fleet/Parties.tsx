@@ -36,9 +36,11 @@ interface Entry {
 export default function Parties({
   showFeedback,
   focusPartyId,
+  focusEntryId,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
   focusPartyId?: number;
+  focusEntryId?: number;
 }) {
   const [rows, setRows] = useState<Party[]>([]);
   const [total, setTotal] = useState(0);
@@ -97,8 +99,28 @@ export default function Parties({
 
   // deep-link: open a specific party's ledger (from an alert / dues link)
   useEffect(() => {
-    if (focusPartyId) { setSelId(focusPartyId); setExpanded(null); }
-  }, [focusPartyId]);
+    if (focusPartyId) {
+      setSelId(focusPartyId);
+      setExpanded(null);
+      if (focusEntryId) setShowLedger(true); // the full ledger is collapsed by default — force it open to reach the row
+    }
+  }, [focusPartyId, focusEntryId]);
+
+  // once that party's entries are loaded, scroll to and briefly highlight the exact row
+  // (e.g. jumped here from a Daily Cash Book entry's "opened this entry" link)
+  const [highlightEntryId, setHighlightEntryId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focusEntryId || !detail || detail.party.id !== focusPartyId) return;
+    setHighlightEntryId(focusEntryId);
+    const t1 = setTimeout(() => {
+      document.getElementById(`party-entry-${focusEntryId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    const t2 = setTimeout(() => setHighlightEntryId(null), 4000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [focusEntryId, focusPartyId, detail]);
 
   const saveParty = async () => {
     if (!editParty) return;
@@ -516,7 +538,7 @@ export default function Parties({
                     <tbody>
                       {detail.entries.map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr className={`border-t border-slate-50 ${e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600">{e.rawDate || "—"}</span>}</td>
                             <td className="px-2 py-1.5 max-w-[260px]">
                               <div className="truncate" dir="auto" title={e.description || ""}>{e.description || "—"}{e.refNo ? ` · ${e.refNo}` : ""}</div>

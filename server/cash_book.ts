@@ -34,7 +34,7 @@
  */
 import { Router, Response } from "express";
 import multer from "multer";
-import { and, asc, eq, isNull, lt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
@@ -366,10 +366,31 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const totalIn = entries.filter((e) => e.direction === "In").reduce((s, e) => s + e.amount, 0);
     const totalOut = entries.filter((e) => e.direction === "Out").reduce((s, e) => s + e.amount, 0);
 
+    // resolve where a linked entry ACTUALLY landed (its real ledgerId / partyId), not the
+    // possibly-stale linkTargetId that was picked at the time — so "open this entry" always
+    // lands on the right ledger even if the picker's vehicle/party row has since changed.
+    const truckDerivedIds = entries.filter((e) => e.linkType === "truck" && e.derivedEntryId).map((e) => e.derivedEntryId!);
+    const partyDerivedIds = entries.filter((e) => e.linkType === "party" && e.derivedEntryId).map((e) => e.derivedEntryId!);
+    const [truckTargets, partyTargets] = await Promise.all([
+      truckDerivedIds.length
+        ? db.select({ id: schema.truckLedgerEntries.id, ledgerId: schema.truckLedgerEntries.ledgerId }).from(schema.truckLedgerEntries).where(inArray(schema.truckLedgerEntries.id, truckDerivedIds))
+        : Promise.resolve([]),
+      partyDerivedIds.length
+        ? db.select({ id: schema.partyLedgerEntries.id, partyId: schema.partyLedgerEntries.partyId }).from(schema.partyLedgerEntries).where(inArray(schema.partyLedgerEntries.id, partyDerivedIds))
+        : Promise.resolve([]),
+    ]);
+    const truckLedgerById = new Map(truckTargets.map((t) => [t.id, t.ledgerId]));
+    const partyIdById = new Map(partyTargets.map((t) => [t.id, t.partyId]));
+    const entriesWithTargets = entries.map((e) => ({
+      ...e,
+      resolvedLedgerId: e.linkType === "truck" && e.derivedEntryId ? truckLedgerById.get(e.derivedEntryId) ?? null : null,
+      resolvedPartyId: e.linkType === "party" && e.derivedEntryId ? partyIdById.get(e.derivedEntryId) ?? null : null,
+    }));
+
     res.json({
       date: dateStr,
       openingBalance,
-      entries,
+      entries: entriesWithTargets,
       totalIn,
       totalOut,
       closingBalance: openingBalance + totalIn - totalOut,

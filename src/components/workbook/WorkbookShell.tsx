@@ -124,15 +124,16 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number } | null => {
+  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number } | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
-    if (l) return { ledgerId: l };
-    if (p) return { partyId: p };
+    const e = Number(u.get("focusEntry")) || undefined;
+    if (l) return { ledgerId: l, entryId: e };
+    if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number } | null>(readFocus);
+  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number } | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -170,8 +171,10 @@ export default function WorkbookShell({
     url.searchParams.set("sheet", nav.sheet);
     url.searchParams.delete("focusLedger");
     url.searchParams.delete("focusParty");
+    url.searchParams.delete("focusEntry");
     if (focus?.ledgerId) url.searchParams.set("focusLedger", String(focus.ledgerId));
     if (focus?.partyId) url.searchParams.set("focusParty", String(focus.partyId));
+    if (focus?.entryId) url.searchParams.set("focusEntry", String(focus.entryId));
     window.history.replaceState(null, "", url.toString());
   }, [nav, focus]);
 
@@ -180,7 +183,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number } | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -199,9 +202,9 @@ export default function WorkbookShell({
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
       case "TruckLedgers":
-        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} />;
+        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} />;
       case "Parties":
-        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} />;
+        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} focusEntryId={focus?.entryId} />;
       case "DuesAlerts":
         return <DuesAlerts showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "ReceiptSearch":
@@ -264,7 +267,7 @@ export default function WorkbookShell({
       case "Zakat":
         return <Zakat showFeedback={showFeedback} />;
       case "CashBook":
-        return <CashBook showFeedback={showFeedback} />;
+        return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":

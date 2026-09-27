@@ -69,9 +69,11 @@ const catClass = (c: string) => CAT_COLORS[c] || "bg-slate-100 text-slate-600";
 export default function TruckLedgers({
   showFeedback,
   focusLedgerId,
+  focusEntryId,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
   focusLedgerId?: number;
+  focusEntryId?: number;
 }) {
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -197,6 +199,22 @@ export default function TruckLedgers({
       setExpanded(null);
     }
   }, [focusLedgerId]);
+
+  // once that ledger's entries are loaded, scroll to and briefly highlight the exact row
+  // (e.g. jumped here from a Daily Cash Book entry's "opened this entry" link)
+  const [highlightEntryId, setHighlightEntryId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focusEntryId || !detail || detail.ledger.id !== focusLedgerId) return;
+    setHighlightEntryId(focusEntryId);
+    const t1 = setTimeout(() => {
+      document.getElementById(`truck-entry-${focusEntryId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    const t2 = setTimeout(() => setHighlightEntryId(null), 4000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [focusEntryId, focusLedgerId, detail]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -745,7 +763,7 @@ export default function TruckLedgers({
                     <tbody>
                       {detail.entries.map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr className={`border-t border-slate-50 ${e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr id={`truck-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">
                               {e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600" title={e.rawDate || ""}>{e.rawDate || "—"}</span>}
                             </td>

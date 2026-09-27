@@ -19,7 +19,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "" };
 interface LinkOptions { trucks: { id: number; registration: string }[]; parties: { id: number; name: string }[] }
 
-export default function CashBook({ showFeedback }: { showFeedback: (t: "success" | "error", m: string) => void }) {
+export default function CashBook({
+  showFeedback,
+  onNavigate,
+}: {
+  showFeedback: (t: "success" | "error", m: string) => void;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
   const [date, setDate] = useState(today());
   const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
   const [data, setData] = useState<any>(null);
@@ -231,7 +237,11 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
             <tbody>
               {withRunning.map((r: any) => (
                 <React.Fragment key={r.id}>
-                  <tr className="border-t border-[#F3F4F6]">
+                  <tr
+                    onClick={() => startEdit(r)}
+                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${editId === r.id ? "bg-[#F2F5FA]" : ""}`}
+                    title="Click to open this entry's full detail · مکمل تفصیل کے لیے کلک کریں"
+                  >
                     <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                     <td className="px-2 py-1.5">
                       {r.direction === "In" ? (
@@ -242,16 +252,28 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                     </td>
                     <td className="px-2 py-1.5" dir="auto">
                       {r.person || "—"}
-                      {r.linkType && (
+                      {r.linkType && (r.resolvedLedgerId || r.resolvedPartyId) ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (r.resolvedLedgerId) onNavigate?.("khata", "truck_ledgers", { ledgerId: r.resolvedLedgerId, entryId: r.derivedEntryId });
+                            else if (r.resolvedPartyId) onNavigate?.("khata", "parties", { partyId: r.resolvedPartyId, entryId: r.derivedEntryId });
+                          }}
+                          title="Open this entry in its ledger · اس اندراج کو اس کے کھاتے میں کھولیں"
+                          className="block text-[10px] text-emerald-700 underline decoration-dotted hover:text-emerald-900"
+                        >
+                          ↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""} · open →
+                        </button>
+                      ) : r.linkType ? (
                         <div className="text-[10px] text-emerald-700">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}</div>
-                      )}
+                      ) : null}
                     </td>
                     <td className="px-2 py-1.5 max-w-[260px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
                     <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "In" ? "text-[#1E4480]" : "text-[#B00005]"}`}>{PKR(r.amount)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#1F2937]">{PKR(r.runningAfter)}</td>
                     <td className="px-1 whitespace-nowrap">
-                      <button onClick={() => startEdit(r)} title="Edit" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => del(r.id)} title="Delete" className="text-slate-400 hover:text-red-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); startEdit(r); }} title="Edit" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); del(r.id); }} title="Delete" className="text-slate-400 hover:text-red-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>
                   {editId === r.id && (
