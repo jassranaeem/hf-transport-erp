@@ -299,7 +299,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
           <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
         </label>
         <label className="flex flex-col text-[10px] text-slate-500 col-span-2">Also add to · بھی شامل کریں
-          <select value={value.linkType} onChange={(e) => { set("linkType", e.target.value); set("linkTargetId", ""); }} className="border rounded px-2 py-1 text-slate-800">
+          <select value={value.linkType} onChange={(e) => onChange({ ...value, linkType: e.target.value, linkTargetId: "" })} className="border rounded px-2 py-1 text-slate-800">
             <option value="">Just Cash Book · صرف کیش بک</option>
             <option value="truck">Truck Ledger · ٹرک کھاتہ</option>
             <option value="party">Party Ledger · پارٹی کھاتہ</option>
