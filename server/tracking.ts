@@ -24,6 +24,7 @@ import { db, schema } from "../src/db/index.ts";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { deadReckon, num } from "../src/lib/tracking/geo.ts";
+import { updateTripStatusFromGps } from "./trip_progress.ts";
 
 const router = Router();
 
@@ -264,6 +265,9 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
           updatedAt: new Date(),
         })
         .where(eq(schema.trips.id, tripId));
+      // a real fix means the truck is verifiably moving/parked somewhere — let that drive
+      // Scheduled -> In Transit -> Arrived instead of waiting on someone to click the status dropdown
+      await updateTripStatusFromGps(tripId, newest.lat, newest.lng).catch((err) => console.error("[tracking] trip status from GPS failed:", err?.message));
     }
 
     SocketServer.emit("tracking:update", {
