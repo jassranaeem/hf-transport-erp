@@ -2386,6 +2386,9 @@ export const cashTransactions = pgTable("cash_transactions", {
   notes: text("notes"),
   sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
   sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
+  linkType: text("link_type"), // "truck" | "party" | null - which ledger this entry also posts to
+  linkTargetId: integer("link_target_id"), // truck_ledgers.id or parties.id, depending on linkType
+  derivedEntryId: integer("derived_entry_id"), // the truck_ledger_entries/party_ledger_entries row this created
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

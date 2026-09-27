@@ -16,10 +16,12 @@ import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, Arrow
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "" };
+const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "" };
+interface LinkOptions { trucks: { id: number; registration: string }[]; parties: { id: number; name: string }[] }
 
 export default function CashBook({ showFeedback }: { showFeedback: (t: "success" | "error", m: string) => void }) {
   const [date, setDate] = useState(today());
+  const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -41,6 +43,9 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
       .finally(() => setLoading(false));
   }, [date, showFeedback]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    enterpriseFetch("/api/cash-book/link-options").then(setLinkOptions).catch(() => {});
+  }, []);
 
   const add = async () => {
     if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
@@ -60,7 +65,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
 
   const startEdit = (r: any) => {
     setEditId(r.id);
-    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "" });
+    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "" });
   };
   const saveEdit = async () => {
     if (!editId) return;
@@ -130,6 +135,12 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
     return { ...e, runningAfter: running };
   });
 
+  const linkNote = (r: any) => {
+    if (r.linkType === "truck") return linkOptions.trucks.find((t) => t.id === r.linkTargetId)?.registration;
+    if (r.linkType === "party") return linkOptions.parties.find((p) => p.id === r.linkTargetId)?.name;
+    return null;
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -189,7 +200,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
       )}
 
       {showAdd && (
-        <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" />
+        <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" linkOptions={linkOptions} />
       )}
 
       {data && (
@@ -228,7 +239,12 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                         <span className="flex items-center gap-1 text-[#B00005] font-semibold"><ArrowUpCircle className="w-3.5 h-3.5" /> Out</span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5" dir="auto">{r.person || "—"}</td>
+                    <td className="px-2 py-1.5" dir="auto">
+                      {r.person || "—"}
+                      {r.linkType && (
+                        <div className="text-[10px] text-emerald-700">↔ {r.linkType === "truck" ? "Truck" : "Party"}: {linkNote(r) || `#${r.linkTargetId}`}</div>
+                      )}
+                    </td>
                     <td className="px-2 py-1.5 max-w-[260px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
                     <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "In" ? "text-[#1E4480]" : "text-[#B00005]"}`}>{PKR(r.amount)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#1F2937]">{PKR(r.runningAfter)}</td>
@@ -240,7 +256,7 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
                   {editId === r.id && (
                     <tr className="bg-[#F2F5FA]">
                       <td colSpan={7} className="px-3 py-3">
-                        <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact />
+                        <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} />
                       </td>
                     </tr>
                   )}
@@ -257,8 +273,8 @@ export default function CashBook({ showFeedback }: { showFeedback: (t: "success"
   );
 }
 
-function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact }: {
-  value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean;
+function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions }: {
+  value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions;
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   return (
@@ -282,6 +298,29 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         <label className="flex flex-col text-[10px] text-slate-500">Notes
           <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
         </label>
+        <label className="flex flex-col text-[10px] text-slate-500 col-span-2">Also add to · بھی شامل کریں
+          <select value={value.linkType} onChange={(e) => { set("linkType", e.target.value); set("linkTargetId", ""); }} className="border rounded px-2 py-1 text-slate-800">
+            <option value="">Just Cash Book · صرف کیش بک</option>
+            <option value="truck">Truck Ledger · ٹرک کھاتہ</option>
+            <option value="party">Party Ledger · پارٹی کھاتہ</option>
+          </select>
+        </label>
+        {value.linkType === "truck" && (
+          <label className="flex flex-col text-[10px] text-slate-500 col-span-2">Which truck · کونسا ٹرک
+            <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
+              <option value="">— choose —</option>
+              {linkOptions.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration}</option>)}
+            </select>
+          </label>
+        )}
+        {value.linkType === "party" && (
+          <label className="flex flex-col text-[10px] text-slate-500 col-span-2">Which party · کونسی پارٹی
+            <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
+              <option value="">— choose —</option>
+              {linkOptions.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       <div className="flex items-center gap-2 mt-3">
         <button onClick={onSubmit} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
