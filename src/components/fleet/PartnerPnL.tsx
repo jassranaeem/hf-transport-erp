@@ -881,8 +881,21 @@ function NewPartnership({
   const set = (k: string) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
   const trucks = useMemo(() => {
     const q = truckQ.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    return (opts?.ledgers || []).filter((l) => !l.accountId && (!q || `${l.registration}${l.title}`.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q)));
+    return (opts?.ledgers || [])
+      .filter((l) => !l.accountId && (!q || `${l.registration}${l.title}`.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q)))
+      .sort((x, y) => (q ? y.entries - x.entries : 0)); // the truck's main khata (most rows) first
   }, [opts, truckQ]);
+  // typing a truck number picks its main khata straight away (it can still be changed in the list)
+  useEffect(() => {
+    if (truckQ.trim() && trucks.length && !trucks.some((l) => String(l.id) === f.truckLedgerId)) {
+      setF((x) => ({ ...x, truckLedgerId: String(trucks[0].id) }));
+    }
+  }, [trucks, truckQ]);
+  const missing = [
+    !f.truckLedgerId && "the truck's khata (1)",
+    !f.partnerName.trim() && "the partner's name (2)",
+    !f.hfkName.trim() && "the HFK side (3)",
+  ].filter(Boolean);
 
   const save = async () => {
     setSaving(true);
@@ -905,11 +918,19 @@ function NewPartnership({
         <label className="flex flex-col gap-1">
           <span className="text-[#6B7280]">1. Truck khata · ٹرک کا کھاتہ *</span>
           <input id="ppl-new-truck-q" value={truckQ} onChange={(e) => setTruckQ(e.target.value)} placeholder="Type the truck number… (TLE 730)" className={inp} />
-          <select id="ppl-new-truck" value={f.truckLedgerId} onChange={set("truckLedgerId")} size={5} className={inp}>
-            {trucks.slice(0, 200).map((l) => (
-              <option key={l.id} value={l.id}>{l.title} · {l.entries} rows</option>
-            ))}
-          </select>
+          {!opts ? (
+            <span className="text-[#6B7280] flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading trucks…</span>
+          ) : trucks.length ? (
+            <select id="ppl-new-truck" value={f.truckLedgerId} onChange={set("truckLedgerId")} size={5} className={inp}>
+              {trucks.slice(0, 200).map((l) => (
+                <option key={l.id} value={l.id}>{l.title} · {l.entries} rows</option>
+              ))}
+            </select>
+          ) : (
+            <div className="rounded border border-[#FCA5A5] bg-[#FEF2F2] px-2 py-2 text-[#B91C1C]" dir="auto">
+              No truck khata matches “{truckQ}”. Check the number, or make its khata first in Ledgers → Truck Ledgers. · اس نمبر کا کوئی کھاتہ نہیں ملا۔
+            </div>
+          )}
           <span className="text-[#6B7280]" dir="auto">The open cycle starts after this khata's last صافی بچت / “حساب نیل” line.</span>
         </label>
         <div className="flex flex-col gap-2">
@@ -948,6 +969,7 @@ function NewPartnership({
           {saving ? "Saving…" : "Create · بنائیں"}
         </button>
         <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
+        {missing.length > 0 && <span className="text-[#B91C1C]" dir="auto">Still needed: {missing.join(", ")} · یہ ابھی باقی ہے</span>}
       </div>
     </div>
   );

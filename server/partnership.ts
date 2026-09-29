@@ -148,6 +148,9 @@ const CARRY_RE = /قرضدار|qarz\s*d[ae]r|qarzder|بچت|bach?at|bacht/i;
  *  carry — a carried-forward line (see CARRY_RE)
  *  marker— a صافی بچت / "hisab nil" close line
  */
+// NOTE: correlated sub-queries below name the outer table literally ("truck_ledger_entries"."id").
+// On a single-table select drizzle renders ${col} as a bare "id", which inside the sub-query
+// binds to the sub-query's own table — every count came out wrong.
 async function khataRows(ledgerId: number, ...extra: any[]) {
   const rows = await db
     .select({
@@ -164,7 +167,7 @@ async function khataRows(ledgerId: number, ...extra: any[]) {
       sheetBalance: schema.truckLedgerEntries.sheetBalance,
       sourceRow: schema.truckLedgerEntries.sourceRow,
       isReset: schema.truckLedgerEntries.isReset,
-      files: sql<number>`(select count(*)::int from attachments a where a.entity_type = 'truck_ledger_entry' and a.entity_id = ${schema.truckLedgerEntries.id} and not a.is_deleted)`,
+      files: sql<number>`(select count(*)::int from attachments a where a.entity_type = 'truck_ledger_entry' and a.entity_id = "truck_ledger_entries"."id" and not a.is_deleted)`,
     })
     .from(schema.truckLedgerEntries)
     .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), ...extra))
@@ -261,9 +264,9 @@ router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Respons
         registration: schema.truckLedgers.registration,
         title: schema.truckLedgers.title,
         sourceSheet: schema.truckLedgers.sourceSheet,
-        entries: sql<number>`(select count(*)::int from truck_ledger_entries e where e.ledger_id = ${schema.truckLedgers.id} and not e.is_deleted)`,
+        entries: sql<number>`(select count(*)::int from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
         // the paper's last close line: the newest صافی بچت / "hisab nil" row
-        lastCloseId: sql<number>`(select max(e.id) from truck_ledger_entries e where e.ledger_id = ${schema.truckLedgers.id} and not e.is_deleted and (e.category = 'SafiBachat' or e.is_reset))`,
+        lastCloseId: sql<number>`(select max(e.id) from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted and (e.category = 'SafiBachat' or e.is_reset))`,
       })
       .from(schema.truckLedgers)
       .where(eq(schema.truckLedgers.isDeleted, false))
@@ -490,7 +493,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         credit: schema.partyLedgerEntries.credit,
         label: schema.partyLedgerEntries.sectionLabel,
         sourceRow: schema.partyLedgerEntries.sourceRow,
-        files: sql<number>`(select count(*)::int from attachments x where x.entity_type = 'party_ledger_entry' and x.entity_id = ${schema.partyLedgerEntries.id} and not x.is_deleted)`,
+        files: sql<number>`(select count(*)::int from attachments x where x.entity_type = 'party_ledger_entry' and x.entity_id = "party_ledger_entries"."id" and not x.is_deleted)`,
       })
       .from(schema.partyLedgerEntries)
       .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
