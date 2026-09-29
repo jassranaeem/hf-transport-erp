@@ -46,6 +46,8 @@ type Detail =
 
 export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback: Feedback; onNavigate?: Nav }) {
   const [list, setList] = useState<any[] | null>(null);
+  const [deleted, setDeleted] = useState<any[]>([]);
+  const [setupPreset, setSetupPreset] = useState<{ partnerName?: string; hfkName?: string; partnerPercent?: number } | null>(null);
   const [opts, setOpts] = useState<{ ledgers: any[]; parties: any[] } | null>(null);
   const [ledgerId, setLedgerId] = useState<number | null>(null);
   const [tab, setTab] = useState<"cycle" | "history" | "report">("cycle");
@@ -95,6 +97,7 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
       })
       .catch((e) => fb.current("error", e.message));
     enterpriseFetch("/api/partnership/options").then(setOpts).catch(() => {});
+    enterpriseFetch("/api/partnership/deleted").then(setDeleted).catch(() => setDeleted([]));
   }, []);
   useEffect(loadList, [loadList]);
 
@@ -156,9 +159,14 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
         <NewPartnership
           opts={opts}
           presetLedgerId={typeof showNew === "number" ? showNew : null}
-          onCancel={() => setShowNew(null)}
+          preset={setupPreset}
+          onCancel={() => {
+            setShowNew(null);
+            setSetupPreset(null);
+          }}
           onCreated={(lid) => {
             setShowNew(null);
+            setSetupPreset(null);
             setLedgerId(lid);
             setTab("cycle");
             refresh();
@@ -242,6 +250,65 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
         )}
       </div>
 
+      {deleted.length > 0 && (
+        <div className="rounded-xl border border-[#E5E7EB] bg-white">
+          <div className="px-3 py-2 text-xs font-bold bg-[#F9FAFB] rounded-t-xl">
+            Deleted partnerships · حذف شدہ شراکتی حساب{" "}
+            <span className="font-normal text-[#6B7280]">— the truck's khata is still in Truck Ledgers; bring the partnership back as it was, or start it again</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <tbody>
+                {deleted.map((dl) => (
+                  <tr key={dl.id} className="border-t border-[#F3F4F6]">
+                    <td className="px-3 py-2 font-semibold">{dl.truck}</td>
+                    <td className="px-3 py-2" dir="auto">{dl.partnerName} · {dl.partnerPercent}% / {dl.hfkName}</td>
+                    <td className="px-3 py-2 text-[#6B7280] whitespace-nowrap">deleted {fmtDate(dl.deletedAt)}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {dl.active ? (
+                        <span className="text-[#6B7280]">set up again already</span>
+                      ) : dl.khataDeleted ? (
+                        <span className="text-[#B45309]">its khata was deleted</span>
+                      ) : (
+                        <div className="inline-flex gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Bring back ${dl.truck}'s partnership with ${dl.partnerName} exactly as it was when deleted? · پہلے جیسا واپس لائیں؟`)) return;
+                              try {
+                                const r = await enterpriseFetch(`/api/partnership/${dl.id}/restore`, { method: "POST" });
+                                showFeedback("success", `Restored with ${r.entriesRestored} entries · واپس آ گیا`);
+                                setLedgerId(r.truckLedgerId);
+                                setTab("cycle");
+                                refresh();
+                              } catch (e: any) {
+                                showFeedback("error", e.message);
+                              }
+                            }}
+                            className="border border-[#24539B] text-[#24539B] rounded-lg px-2.5 py-1 hover:bg-[#F2F5FA]"
+                          >
+                            Restore · واپس لائیں
+                          </button>
+                          <button
+                            onClick={() => {
+                              setLedgerId(dl.truckLedgerId);
+                              setSetupPreset({ partnerName: dl.partnerName, hfkName: dl.hfkName, partnerPercent: dl.partnerPercent });
+                              setShowNew(dl.truckLedgerId);
+                            }}
+                            className="border border-[#E5E7EB] rounded-lg px-2.5 py-1 hover:bg-[#F2F5FA]"
+                          >
+                            Set up again · دوبارہ بنائیں
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* step 2: the chosen truck */}
       {ledgerId && (
         <div className="space-y-3">
@@ -270,7 +337,7 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
                       return;
                     try {
                       const r = await enterpriseFetch(`/api/partnership/${account.id}`, { method: "DELETE" });
-                      showFeedback("success", `Partnership deleted — ${r.entriesRemoved} ledger entries removed · حذف ہو گیا`);
+                      showFeedback("success", `Partnership deleted — ${r.entriesRemoved} ledger entries removed. It is listed under “Deleted partnerships” to restore or set up again · حذف ہو گیا`);
                       setEditingAcc(false);
                       setTab("report");
                       refresh();
@@ -1353,23 +1420,27 @@ function PartyPicker({
 function NewPartnership({
   opts,
   presetLedgerId,
+  preset,
   onCancel,
   onCreated,
   showFeedback,
 }: {
   opts: { ledgers: any[]; parties: any[] } | null;
   presetLedgerId: number | null;
+  preset?: { partnerName?: string; hfkName?: string; partnerPercent?: number } | null;
   onCancel: () => void;
   onCreated: (ledgerId: number) => void;
   showFeedback: Feedback;
 }) {
   const [f, setF] = useState({
     truckLedgerId: presetLedgerId ? String(presetLedgerId) : "",
-    partnerName: "",
+    // "Set up again" after a delete starts from the previous partner / HFK / % (their ledgers
+    // are matched by name when saved)
+    partnerName: preset?.partnerName || "",
     partnerPartyId: null as number | null,
-    hfkName: "",
+    hfkName: preset?.hfkName || "",
     hfkPartyId: null as number | null,
-    partnerPercent: "50",
+    partnerPercent: String(preset?.partnerPercent ?? 50),
     openingPool: "",
     openingDate: today(),
     openingDebt: "",

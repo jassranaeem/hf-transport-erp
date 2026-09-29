@@ -32,6 +32,8 @@
  *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
  *   PUT    /api/partnership/:id                edit: partner / HFK ledger (entries move along), %, note
  *   DELETE /api/partnership/:id                delete the partnership and its party-ledger entries
+ *   GET    /api/partnership/deleted            deleted partnerships (restore / set up again)
+ *   POST   /api/partnership/:id/restore        bring a deleted partnership back as it was
  *   PUT    /api/partnership/:id/event/:entryId edit an entry (a home-money pair changes together)
  *   DELETE /api/partnership/:id/event/:entryId (a home-money pair goes together)
  *   POST   /api/partnership/:id/adopt         move the truck's other app-made khatas into this one
@@ -615,6 +617,77 @@ router.get("/ledger/:ledgerId/rows", requireRole(READ), async (req: AuthRequest,
   }
 });
 
+/** Deleted partnerships (newest first) — each can be restored as it was, or set up again. */
+router.get("/deleted", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: schema.partnershipAccounts.id,
+        truckLedgerId: schema.partnershipAccounts.truckLedgerId,
+        partnerPercent: schema.partnershipAccounts.partnerPercent,
+        deletedAt: schema.partnershipAccounts.deletedAt,
+        truck: schema.truckLedgers.registration,
+        truckTitle: schema.truckLedgers.title,
+        khataDeleted: schema.truckLedgers.isDeleted,
+        partnerName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.partnerPartyId})`,
+        hfkName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.hfkPartyId})`,
+        active: sql<boolean>`exists (select 1 from partnership_accounts x where x.truck_ledger_id = ${schema.partnershipAccounts.truckLedgerId} and not x.is_deleted)`,
+      })
+      .from(schema.partnershipAccounts)
+      .innerJoin(schema.truckLedgers, eq(schema.partnershipAccounts.truckLedgerId, schema.truckLedgers.id))
+      .where(eq(schema.partnershipAccounts.isDeleted, true))
+      .orderBy(desc(schema.partnershipAccounts.deletedAt))
+      .limit(20);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Bring a deleted partnership back as it was: the account and the entries deleted with it. */
+router.post("/:id/restore", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const [a] = await db.select().from(schema.partnershipAccounts).where(eq(schema.partnershipAccounts.id, Number(req.params.id))).limit(1);
+    if (!a || !a.isDeleted) return res.status(404).json({ error: "No deleted partnership to restore" });
+    const [busy] = await db
+      .select({ id: schema.partnershipAccounts.id })
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, a.truckLedgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    if (busy) return res.status(400).json({ error: "This truck already has a partnership again — delete that one first to restore this · اس ٹرک کا نیا حساب موجود ہے" });
+    const [led] = await db.select({ isDeleted: schema.truckLedgers.isDeleted }).from(schema.truckLedgers).where(eq(schema.truckLedgers.id, a.truckLedgerId)).limit(1);
+    if (!led || led.isDeleted) return res.status(400).json({ error: "The truck's khata was deleted — restore or import the khata first · پہلے ٹرک کا کھاتہ واپس لائیں" });
+
+    // the entries deleted together with the account (same stamp; a few seconds' leeway for
+    // partnerships deleted before the stamp was shared)
+    const at = a.deletedAt ? new Date(a.deletedAt).getTime() : 0;
+    const back = await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: false, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(
+        and(
+          eq(schema.partyLedgerEntries.refNo, tag(a.id)),
+          eq(schema.partyLedgerEntries.isDeleted, true),
+          // (ISO strings cast to timestamp: the column has no time zone and stores UTC, while a raw
+          // Date parameter would be sent in the server's local time — 5 hours off in Pakistan)
+          sql`${schema.partyLedgerEntries.deletedAt} between ${new Date(at - 5000).toISOString()}::timestamp and ${new Date(at + 5000).toISOString()}::timestamp`,
+        ),
+      )
+      .returning({ id: schema.partyLedgerEntries.id });
+    await db
+      .update(schema.partnershipAccounts)
+      .set({ isDeleted: false, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(eq(schema.partnershipAccounts.id, a.id));
+    await db.update(schema.truckLedgers).set({ isPartnership: true }).where(eq(schema.truckLedgers.id, a.truckLedgerId));
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "UPDATE", "partnership_accounts", a.id, { isDeleted: true }, { restored: true, entriesRestored: back.length });
+    res.json({ ok: true, entriesRestored: back.length, truckLedgerId: a.truckLedgerId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
     const accs = await db.select().from(schema.partnershipAccounts).where(eq(schema.partnershipAccounts.isDeleted, false)).orderBy(asc(schema.partnershipAccounts.id));
@@ -1026,14 +1099,15 @@ router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response
     const full = await loadAccount(Number(req.params.id));
     if (!full) return res.status(404).json({ error: "Partnership account not found" });
     const a = full.acc;
+    const at = new Date(); // the account and its entries share this stamp — "Restore" brings back exactly them
     const removed = await db
       .update(schema.partyLedgerEntries)
-      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .set({ isDeleted: true, deletedAt: at, deletedBy: req.user?.id })
       .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
       .returning({ id: schema.partyLedgerEntries.id });
     await db
       .update(schema.partnershipAccounts)
-      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .set({ isDeleted: true, deletedAt: at, deletedBy: req.user?.id })
       .where(eq(schema.partnershipAccounts.id, a.id));
     const [other] = await db
       .select({ id: schema.partnershipAccounts.id })
