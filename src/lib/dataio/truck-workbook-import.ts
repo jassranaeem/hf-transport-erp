@@ -403,7 +403,9 @@ export async function importParsedWorkbook(
       let [existingLedger] = await db
         .select()
         .from(schema.truckLedgers)
-        .where(eq(schema.truckLedgers.sourceSheet, L.sourceSheet))
+        // a khata the user deleted stays deleted: its sheet is treated as new (and can join
+        // the truck's khata) instead of the import bringing the deleted khata back
+        .where(and(eq(schema.truckLedgers.sourceSheet, L.sourceSheet), eq(schema.truckLedgers.isDeleted, false)))
         .limit(1);
 
       // ---- a sheet with no khata of its own yet: add it INTO the truck's khata? ----

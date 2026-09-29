@@ -58,7 +58,12 @@ router.post("/import-workbook/preview", requireRole(WRITE), workbookUpload.singl
     const trucks = [];
     for (const l of ledgers) {
       const plate = l.registration.toUpperCase().replace(/[^A-Z0-9]/g, "");
-      const [own] = await db.select({ id: schema.truckLedgers.id }).from(schema.truckLedgers).where(eq(schema.truckLedgers.sourceSheet, l.sourceSheet)).limit(1);
+      // a khata the user deleted is not "imported before" — it must not come back
+      const [own] = await db
+        .select({ id: schema.truckLedgers.id, title: schema.truckLedgers.title })
+        .from(schema.truckLedgers)
+        .where(and(eq(schema.truckLedgers.sourceSheet, l.sourceSheet), eq(schema.truckLedgers.isDeleted, false)))
+        .limit(1);
       const candidates = l.looksLikeVehicle ? await khataCandidates(l.registration) : [];
       const main = candidates.find((k) => !k.derived || k.partnership) ?? null;
       let plan: { already: number; add: number; unclear: number; unclearSample: string[] } | null = null;
@@ -74,6 +79,7 @@ router.post("/import-workbook/preview", requireRole(WRITE), workbookUpload.singl
         entries: l.entries.length,
         looksLikeVehicle: l.looksLikeVehicle,
         ownKhataId: own?.id ?? null, // this very sheet was imported before: it just updates
+        ownKhataTitle: own?.title ?? null,
         candidates: candidates.map((k) => ({ id: k.id, title: k.title, entries: k.entries, partnership: k.partnership, derived: k.derived })),
         defaultTarget: own ? own.id : main ? main.id : "new",
         joinsSheet, // no khata yet, but an earlier sheet of this file starts one: joins it

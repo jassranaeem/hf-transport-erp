@@ -101,7 +101,11 @@ export default function TruckSheetImport({
                         <td className="px-3 py-2 text-right tabular-nums">{t.entries}</td>
                         <td className="px-3 py-2">
                           {t.ownKhataId ? (
-                            <span className="text-[#4B5563]">This sheet was imported before — its own khata is updated</span>
+                            <span className="text-[#B45309]" dir="auto">
+                              Already has its own khata “{String(t.ownKhataTitle || "").replace(/\s+/g, " ").slice(0, 50)}” from an earlier import — that khata is updated, not {t.registration}'s main
+                              khata. To put these rows into the main khata instead, delete that khata in Truck Ledgers first, then import again.
+                              · اس کا الگ کھاتہ پہلے سے ہے — پہلے اسے حذف کریں
+                            </span>
                           ) : !t.looksLikeVehicle ? (
                             <span className="text-[#4B5563]">Not a truck number — its own khata</span>
                           ) : (
