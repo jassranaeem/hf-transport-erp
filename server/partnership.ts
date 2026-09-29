@@ -22,6 +22,7 @@
  *   GET    /api/partnership/options           trucks (khatas) + parties for the setup form
  *   GET    /api/partnership                   all partnership accounts with their balances
  *   POST   /api/partnership                   set one up
+ *   GET    /api/partnership/suggest?ledgerId   what the setup form can fill in from a picked truck khata
  *   GET    /api/partnership/report?ledgerId&from&to   any-dates report for one truck khata
  *   GET    /api/partnership/ledger/:id/pages   the khata's paper pages (one per paper cycle)
  *   GET    /api/partnership/ledger/:id/rows    rows of a page (?page=) or an id range (?after=&upto=)
@@ -337,6 +338,136 @@ router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Respons
     res.json({
       ledgers: ledgers.filter((l) => l.entries > 0 || !l.sourceSheet).map((l) => ({ ...l, accountId: accByLedger.get(l.id) ?? null })),
       parties,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Everything the "New partnership" form can fill in from a truck khata the user just picked:
+ *  - who the partner probably is: the name in the sheet's title, the partner agreement the
+ *    import made, the khata's driver, the truck's trip drivers, and the party ledgers whose
+ *    entries mention this truck — each matched to an existing Party Ledger where one exists
+ *  - who holds HFK's half: party ledgers named HFK / Haji Mahboob
+ *  - where the open cycle would start and what it stands at now
+ */
+router.get("/suggest", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const ledgerId = Number(req.query.ledgerId);
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+    if (!led) return res.status(404).json({ error: "Khata not found" });
+    const plate = String(led.registration || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const normName = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    // a title fragment like "صافی بچت", "Nill" or the plate itself is not a person
+    const notAName = (s: string) =>
+      !s.trim() || /بچت|nill?|safi|bach|khata|ledger|hisab|حساب|page|gadi|kimat|qeemat|total|^zz\b/i.test(s) || s.toUpperCase().replace(/[^A-Z0-9]/g, "") === plate;
+
+    const parties = await db
+      .select({ id: schema.parties.id, name: schema.parties.name })
+      .from(schema.parties)
+      .where(eq(schema.parties.isDeleted, false))
+      .orderBy(asc(schema.parties.id));
+    const partyByName = new Map<string, number>();
+    for (const p of parties) if (!partyByName.has(normName(p.name))) partyByName.set(normName(p.name), p.id);
+
+    const found: { name: string; partyId: number | null; why: string }[] = [];
+    const add = (name: string | null | undefined, why: string) => {
+      const n = String(name || "").trim();
+      if (!n || notAName(n)) return;
+      const cur = found.find((f) => normName(f.name) === normName(n));
+      if (cur) cur.why += ` · ${why}`;
+      else found.push({ name: n, partyId: partyByName.get(normName(n)) ?? null, why });
+    };
+
+    // the same truck's khatas (the picked one first) — sheet title owner, driver
+    const khatas = await db
+      .select({ id: schema.truckLedgers.id, ownerName: schema.truckLedgers.ownerName, driverName: schema.truckLedgers.driverName, agreementId: schema.truckLedgers.partnerAgreementId })
+      .from(schema.truckLedgers)
+      .where(and(eq(schema.truckLedgers.isDeleted, false), sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`));
+    khatas.sort((a, b) => (a.id === ledgerId ? -1 : b.id === ledgerId ? 1 : 0));
+    for (const k of khatas) add(k.ownerName, "name on the sheet");
+    const agreementIds = khatas.map((k) => k.agreementId).filter((x): x is number => x != null);
+    if (agreementIds.length) {
+      const agr = await db
+        .select({ name: schema.partners.name })
+        .from(schema.partnerAgreements)
+        .innerJoin(schema.partners, eq(schema.partnerAgreements.partnerId, schema.partners.id))
+        .where(inArray(schema.partnerAgreements.id, agreementIds));
+      for (const a of agr) add(a.name, "partner agreement");
+    }
+    // whoever the khata's own rows keep naming — "Dawood Online Gadi Kharcha Qudrat Ullah TO …",
+    // "babt diesel qudratullah ko" — matched against Party Ledger and driver names (spacing ignored)
+    {
+      const key = (x: string) => x.toLowerCase().replace(/[^a-z؀-ۿ]/g, ""); // Latin + Urdu letters only
+      const rowKeys = (
+        await db
+          .select({ d: schema.truckLedgerEntries.description })
+          .from(schema.truckLedgerEntries)
+          .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false)))
+      ).map((r) => key(r.d || ""));
+      const driverNames = await db.select({ name: schema.drivers.driverName }).from(schema.drivers).where(eq(schema.drivers.isDeleted, false));
+      const names = new Map<string, string>();
+      for (const n of [...parties.map((p) => p.name), ...driverNames.map((d) => d.name)]) {
+        const k = key(n || "");
+        if (k.length >= 6 && !notAName(n) && !names.has(k)) names.set(k, n);
+      }
+      const counted = [...names.entries()]
+        .map(([k, n]) => ({ n, c: rowKeys.filter((r) => r.includes(k)).length }))
+        .filter((x) => x.c >= 3)
+        .sort((x, y) => y.c - x.c)
+        .slice(0, 3);
+      for (const x of counted) add(x.n, `named in ${x.c} rows of this khata`);
+    }
+    for (const k of khatas) add(k.driverName, "driver on the khata");
+    const drivers = await db
+      .select({ name: schema.drivers.driverName })
+      .from(schema.trips)
+      .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+      .innerJoin(schema.drivers, eq(schema.trips.driverId, schema.drivers.id))
+      .where(and(eq(schema.trips.isDeleted, false), sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}`))
+      .orderBy(desc(schema.trips.departureTime))
+      .limit(5);
+    for (const d of drivers) add(d.name, "drives this truck (trips)");
+    // party ledgers that keep writing this truck's number
+    const mentions = plate.length >= 4
+      ? await db
+          .select({ partyId: schema.partyLedgerEntries.partyId, n: sql<number>`count(*)::int` })
+          .from(schema.partyLedgerEntries)
+          .where(and(eq(schema.partyLedgerEntries.isDeleted, false), sql`regexp_replace(upper(coalesce(${schema.partyLedgerEntries.description}, '')), '[^A-Z0-9]', '', 'g') like ${"%" + plate + "%"}`))
+          .groupBy(schema.partyLedgerEntries.partyId)
+          .orderBy(desc(sql`count(*)`))
+          .limit(4)
+      : [];
+    for (const m of mentions.filter((x) => x.n >= 3)) {
+      const p = parties.find((x) => x.id === m.partyId);
+      if (p) add(p.name, `${m.n} entries in his ledger mention ${led.registration}`);
+    }
+
+    const hfk = parties
+      .filter((p) => /hfk|mahboob|محبوب/i.test(p.name))
+      .sort((x, y) => Number(/hfk/i.test(y.name)) - Number(/hfk/i.test(x.name)))
+      .map((p) => ({ name: p.name, partyId: p.id, why: "HFK ledger" }));
+
+    // where the open cycle would start (same rule the create uses)
+    const [lc] = await db
+      .select({ id: sql<number>`max(${schema.truckLedgerEntries.id})` })
+      .from(schema.truckLedgerEntries)
+      .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), sql`(${schema.truckLedgerEntries.category} = 'SafiBachat' or ${schema.truckLedgerEntries.isReset})`));
+    const after = Number(lc?.id || 0);
+    const [closeRow] = after ? await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, after)).limit(1) : [];
+    const cyc = await openCycle(ledgerId, after);
+
+    res.json({
+      partner: found,
+      hfk,
+      cycle: {
+        startsAfter: closeRow ? { date: closeRow.rawDate || closeRow.entryDate, description: closeRow.description } : null,
+        rows: cyc.lines.length,
+        received: cyc.received,
+        paid: cyc.paid,
+        net: cyc.net,
+      },
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

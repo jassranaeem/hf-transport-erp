@@ -12,8 +12,8 @@
  * exact row in Truck Ledgers / Party Ledgers.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { enterpriseFetch } from "../../../client/api.ts";
-import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search, Upload } from "lucide-react";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 
 type Nav = (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
@@ -52,6 +52,50 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
   const [truckQ, setTruckQ] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [nonce, setNonce] = useState(0); // bump to re-read the open truck
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // the truck's sheet goes where it belongs — Truck Ledgers (same importer as there) — and its
+  // khata is then picked here, ready to set up (or opened, if it already is a partnership)
+  const importSheet = async (file: File) => {
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await uploadFile("/api/ledgers/import-workbook", fd);
+      showFeedback("success", `${r.message || "Imported"} · Truck Ledgers میں آ گیا`);
+      const o = await enterpriseFetch("/api/partnership/options");
+      setOpts(o);
+      loadList();
+      const sheets: any[] = r.report?.ledgers || [];
+      const norm = (x: string) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const all = o.ledgers as any[];
+      // the khatas this import made / updated (their sheet name is the import's own)
+      const mine = all.filter((l) => l.sourceSheet && sheets.some((sh) => l.sourceSheet === sh.sheet)).sort((x, y) => y.entries - x.entries);
+      const plates = new Set(sheets.map((sh) => norm(sh.registration)));
+      const others = all.filter((l) => plates.has(norm(l.registration)) && !mine.includes(l));
+      const shared = [...mine, ...others].find((l) => l.accountId);
+      const big = others.filter((l) => l.entries >= 10);
+      if (big.length) {
+        showFeedback(
+          "error",
+          `Note: ${[...plates].join(", ")} already had ${big.map((l) => `“${l.title}” (${l.entries} rows)`).join(", ")}. If this is the same sheet, its rows are now in Truck Ledgers twice — delete the extra khata there. · یہ ٹرک پہلے سے موجود تھا — ایک ہی شیٹ دو بار نہ ہو۔`,
+        );
+      }
+      if (shared) {
+        setLedgerId(shared.id); // the truck already is a partnership: open it
+        setTab("cycle");
+      } else if (mine[0]) {
+        setLedgerId(mine[0].id);
+        setShowNew(mine[0].id); // set it up, starting from the khata just imported
+      }
+    } catch (e: any) {
+      showFeedback("error", e.message || "Import failed");
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
   const fb = useRef(showFeedback);
   fb.current = showFeedback;
 
@@ -99,7 +143,16 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
             کسی بھی لائن پر کلک کریں — تفصیل اور رسیدیں کھلیں گی۔
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => e.target.files?.[0] && importSheet(e.target.files[0])} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            title="The sheet is saved in Truck Ledgers (same as importing it there), then picked here"
+            className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA] disabled:opacity-60"
+          >
+            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Import truck sheet (.xlsx) · ٹرک شیٹ امپورٹ
+          </button>
           <button onClick={() => setShowNew("blank")} className="flex items-center gap-1.5 text-xs border border-[#24539B] text-[#24539B] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
             <Plus className="w-3.5 h-3.5" /> New partnership · نیا شراکتی حساب
           </button>
@@ -110,6 +163,7 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
       </div>
 
       {showNew !== null && (
+        <React.Fragment key={String(showNew)}>
         <NewPartnership
           opts={opts}
           presetLedgerId={typeof showNew === "number" ? showNew : null}
@@ -122,6 +176,7 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
           }}
           showFeedback={showFeedback}
         />
+        </React.Fragment>
       )}
 
       {/* step 1: which truck */}
@@ -882,6 +937,78 @@ function DetailDrawer({ d, onClose, onNavigate, onFilesChanged }: { d: Detail; o
 
 // ---------------------------------------------------------------- setup
 
+/** A party picker that always shows the Party Ledgers list; typing narrows it or names a new one. */
+function PartyPicker({
+  id,
+  label,
+  parties,
+  name,
+  partyId,
+  suggestions,
+  placeholder,
+  onPick,
+}: {
+  id: string;
+  label: string;
+  parties: any[];
+  name: string;
+  partyId: number | null;
+  suggestions: { name: string; partyId: number | null; why: string }[];
+  placeholder: string;
+  onPick: (name: string, partyId: number | null) => void;
+}) {
+  const q = name.trim().toLowerCase();
+  const list = useMemo(() => {
+    const all = [...parties].sort((a, b) => a.name.localeCompare(b.name));
+    return q ? all.filter((p) => p.name.toLowerCase().includes(q)) : all;
+  }, [parties, q]);
+  const exact = parties.some((p) => p.name.trim().toLowerCase() === q);
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5";
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[#6B7280]">{label}</span>
+      <input id={id} value={name} onChange={(e) => onPick(e.target.value, null)} placeholder={placeholder} dir="auto" className={inp} />
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {suggestions.map((sg) => (
+            <button
+              key={sg.name}
+              type="button"
+              title={sg.why}
+              onClick={() => onPick(sg.name, sg.partyId)}
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${partyId != null && partyId === sg.partyId ? "border-[#24539B] bg-[#EEF3FB] text-[#24539B]" : "border-[#E5E7EB] bg-white hover:bg-[#F2F5FA]"}`}
+              dir="auto"
+            >
+              {sg.name} <span className="text-[#9CA3AF]">· {sg.partyId ? "has a ledger" : "new ledger"} · {sg.why.split(" · ")[0]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <select
+        id={`${id}-list`}
+        size={5}
+        value={partyId ?? ""}
+        onChange={(e) => {
+          const p = parties.find((x) => x.id === Number(e.target.value));
+          if (p) onPick(p.name, p.id);
+        }}
+        className={inp}
+      >
+        {list.slice(0, 500).map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <span className="text-[11px] text-[#6B7280]" dir="auto">
+        {partyId
+          ? "Uses this Party Ledger · یہی پارٹی کھاتہ استعمال ہو گا"
+          : q && !exact
+          ? `No Party Ledger named “${name.trim()}” — a new one will be made · نیا کھاتہ بنے گا`
+          : `${parties.length} Party Ledgers — pick one or type a new name`}
+      </span>
+    </div>
+  );
+}
+
 function NewPartnership({
   opts,
   presetLedgerId,
@@ -895,15 +1022,33 @@ function NewPartnership({
   onCreated: (ledgerId: number) => void;
   showFeedback: Feedback;
 }) {
-  const [f, setF] = useState({ truckLedgerId: presetLedgerId ? String(presetLedgerId) : "", partnerName: "", hfkName: "", partnerPercent: "50", openingPool: "", openingDate: today(), openingDebt: "", debtNote: "" });
+  const [f, setF] = useState({
+    truckLedgerId: presetLedgerId ? String(presetLedgerId) : "",
+    partnerName: "",
+    partnerPartyId: null as number | null,
+    hfkName: "",
+    hfkPartyId: null as number | null,
+    partnerPercent: "50",
+    openingPool: "",
+    openingDate: today(),
+    openingDebt: "",
+    debtNote: "",
+  });
   const [truckQ, setTruckQ] = useState("");
   const [saving, setSaving] = useState(false);
+  const [sug, setSug] = useState<any>(null);
   const set = (k: string) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
   const trucks = useMemo(() => {
     const q = truckQ.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     return (opts?.ledgers || [])
       .filter((l) => !l.accountId && (!q || `${l.registration}${l.title}`.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q)))
-      .sort((x, y) => (q ? y.entries - x.entries : 0)); // the truck's main khata (most rows) first
+      .sort((x, y) => {
+        if (q) return y.entries - x.entries;
+        // real truck numbers (they have digits) first; odd sheet names like "OWNER:" last
+        const dx = /\d/.test(x.registration || "") ? 0 : 1;
+        const dy = /\d/.test(y.registration || "") ? 0 : 1;
+        return dx - dy || String(x.registration).localeCompare(String(y.registration)) || y.entries - x.entries;
+      });
   }, [opts, truckQ]);
   // typing a truck number picks its main khata straight away (it can still be changed in the list)
   useEffect(() => {
@@ -911,16 +1056,49 @@ function NewPartnership({
       setF((x) => ({ ...x, truckLedgerId: String(trucks[0].id) }));
     }
   }, [trucks, truckQ]);
+
+  // a picked truck fills in what its khata already knows: partner, HFK side, where the cycle starts
+  useEffect(() => {
+    setSug(null);
+    if (!f.truckLedgerId) return;
+    let live = true;
+    enterpriseFetch(`/api/partnership/suggest?ledgerId=${f.truckLedgerId}`)
+      .then((r) => {
+        if (!live) return;
+        setSug(r);
+        setF((x) => ({
+          ...x,
+          partnerName: x.partnerName || r.partner[0]?.name || "",
+          partnerPartyId: x.partnerName ? x.partnerPartyId : r.partner[0]?.partyId ?? null,
+          hfkName: x.hfkName || r.hfk[0]?.name || "",
+          hfkPartyId: x.hfkName ? x.hfkPartyId : r.hfk[0]?.partyId ?? null,
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [f.truckLedgerId]);
+
+  const picked = opts?.ledgers.find((l) => String(l.id) === f.truckLedgerId);
   const missing = [
     !f.truckLedgerId && "the truck's khata (1)",
-    !f.partnerName.trim() && "the partner's name (2)",
+    !f.partnerName.trim() && "the partner (2)",
     !f.hfkName.trim() && "the HFK side (3)",
   ].filter(Boolean);
 
   const save = async () => {
     setSaving(true);
     try {
-      await enterpriseFetch("/api/partnership", { method: "POST", body: JSON.stringify({ ...f, truckLedgerId: Number(f.truckLedgerId) }) });
+      await enterpriseFetch("/api/partnership", {
+        method: "POST",
+        body: JSON.stringify({
+          ...f,
+          truckLedgerId: Number(f.truckLedgerId),
+          partnerPartyId: f.partnerPartyId || undefined,
+          hfkPartyId: f.hfkPartyId || undefined,
+        }),
+      });
       showFeedback("success", "Partnership set up · شراکتی حساب بن گیا");
       onCreated(Number(f.truckLedgerId));
     } catch (e: any) {
@@ -935,57 +1113,95 @@ function NewPartnership({
     <div className="rounded-xl border border-[#24539B] bg-white p-3 space-y-3 text-xs">
       <div className="font-bold">New partnership · نیا شراکتی حساب</div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-[#6B7280]">1. Truck khata · ٹرک کا کھاتہ *</span>
-          <input id="ppl-new-truck-q" value={truckQ} onChange={(e) => setTruckQ(e.target.value)} placeholder="Type the truck number… (TLE 730)" className={inp} />
+        {/* 1. truck khata — every Truck Ledger is listed */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">1. Truck khata (from Truck Ledgers) · ٹرک کا کھاتہ *</span>
+          <input id="ppl-new-truck-q" value={truckQ} onChange={(e) => setTruckQ(e.target.value)} placeholder="Search a truck number…" className={inp} />
           {!opts ? (
-            <span className="text-[#6B7280] flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading trucks…</span>
+            <span className="text-[#6B7280] flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading Truck Ledgers…</span>
           ) : trucks.length ? (
-            <select id="ppl-new-truck" value={f.truckLedgerId} onChange={set("truckLedgerId")} size={5} className={inp}>
-              {trucks.slice(0, 200).map((l) => (
+            <select id="ppl-new-truck" value={f.truckLedgerId} onChange={set("truckLedgerId")} size={8} className={inp}>
+              {trucks.map((l) => (
                 <option key={l.id} value={l.id}>{l.title} · {l.entries} rows</option>
               ))}
             </select>
           ) : (
             <div className="rounded border border-[#FCA5A5] bg-[#FEF2F2] px-2 py-2 text-[#B91C1C]" dir="auto">
-              No truck khata matches “{truckQ}”. Check the number, or make its khata first in Ledgers → Truck Ledgers. · اس نمبر کا کوئی کھاتہ نہیں ملا۔
+              No truck khata matches “{truckQ}”. Import the truck's sheet with “Import truck sheet” above, or make its khata in Ledgers → Truck Ledgers. · اس نمبر کا کوئی کھاتہ نہیں ملا۔
             </div>
           )}
-          <span className="text-[#6B7280]" dir="auto">The open cycle starts after this khata's last صافی بچت / “حساب نیل” line.</span>
-        </label>
-        <div className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">2. Partner's name · شریک کا نام *</span>
-            <input id="ppl-new-partner" list="ppl-parties" value={f.partnerName} onChange={set("partnerName")} placeholder="Qudrat Ullah" dir="auto" className={inp} />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">3. HFK side (whose ledger holds HFK's half) · HFK کا کھاتہ *</span>
-            <input id="ppl-new-hfk" list="ppl-parties" value={f.hfkName} onChange={set("hfkName")} placeholder="Haji Mahboob (HFK)" dir="auto" className={inp} />
-          </label>
-          <datalist id="ppl-parties">{(opts?.parties || []).map((p) => <option key={p.id} value={p.name} />)}</datalist>
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">4. Partner's share % · شریک کا حصہ</span>
-            <input id="ppl-new-pct" inputMode="numeric" value={f.partnerPercent} onChange={set("partnerPercent")} className={inp} />
-          </label>
+          <span className="text-[11px] text-[#6B7280]">{trucks.length} of {(opts?.ledgers || []).filter((l) => !l.accountId).length} Truck Ledgers</span>
+          {picked && (
+            <div className="rounded-lg bg-[#F2F5FA] px-2 py-2 text-[11px] text-[#374151] space-y-0.5" dir="auto">
+              <div className="font-semibold">{picked.title} · {picked.entries} rows</div>
+              {!sug ? (
+                <div className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Reading this khata…</div>
+              ) : (
+                <>
+                  <div>
+                    Open cycle starts after:{" "}
+                    {sug.cycle.startsAfter
+                      ? `“${sug.cycle.startsAfter.description || "صافی بچت"}” (${String(sug.cycle.startsAfter.date || "").slice(0, 10)})`
+                      : "the first row (no صافی بچت line yet)"}
+                  </div>
+                  <div className="tabular-nums">
+                    {sug.cycle.rows} rows since then: in {PKR(sug.cycle.received)} − out {PKR(sug.cycle.paid)} ={" "}
+                    <b className={sug.cycle.net < 0 ? "text-[#B91C1C]" : "text-[#047857]"}>{PKR(sug.cycle.net)}</b>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">5. Joint pool already saved (optional) · بقایا مشترکہ جمع</span>
-            <input id="ppl-new-pool" inputMode="numeric" value={f.openingPool} onChange={set("openingPool")} placeholder="2029168" className={inp} />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">As of · تاریخ</span>
-            <input id="ppl-new-date" type="date" value={f.openingDate} onChange={set("openingDate")} className={inp} />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[#6B7280]">6. Partner's old debt (optional) · پرانا قرضہ</span>
-            <input id="ppl-new-debt" inputMode="numeric" value={f.openingDebt} onChange={set("openingDebt")} placeholder="5000000" className={inp} />
-            <input id="ppl-new-debt-note" value={f.debtNote} onChange={set("debtNote")} placeholder="what the debt is for · قرضہ کس بات کا" dir="auto" className={inp} />
-          </label>
-        </div>
+
+        {/* 2 + 3. the two sides — every Party Ledger is listed */}
+        <PartyPicker
+          id="ppl-new-partner"
+          label="2. Partner (his Party Ledger) · شریک کا کھاتہ *"
+          parties={opts?.parties || []}
+          name={f.partnerName}
+          partyId={f.partnerPartyId}
+          suggestions={sug?.partner || []}
+          placeholder="Search or type the partner's name"
+          onPick={(name, id) => setF((x) => ({ ...x, partnerName: name, partnerPartyId: id }))}
+        />
+        <PartyPicker
+          id="ppl-new-hfk"
+          label="3. HFK side (the ledger that holds HFK's half) · HFK کا کھاتہ *"
+          parties={opts?.parties || []}
+          name={f.hfkName}
+          partyId={f.hfkPartyId}
+          suggestions={sug?.hfk || []}
+          placeholder="Search or type, e.g. Haji Mahboob (HFK)"
+          onPick={(name, id) => setF((x) => ({ ...x, hfkName: name, hfkPartyId: id }))}
+        />
       </div>
-      <div className="flex items-center gap-2">
-        <button disabled={saving || !f.truckLedgerId || !f.partnerName.trim() || !f.hfkName.trim()} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">4. Partner's share % · شریک کا حصہ</span>
+          <input id="ppl-new-pct" inputMode="numeric" value={f.partnerPercent} onChange={set("partnerPercent")} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">5. Joint pool already saved · بقایا مشترکہ جمع</span>
+          <input id="ppl-new-pool" inputMode="numeric" value={f.openingPool} onChange={set("openingPool")} placeholder="leave empty if none" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">As of · تاریخ</span>
+          <input id="ppl-new-date" type="date" value={f.openingDate} onChange={set("openingDate")} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">6. Partner's old debt · پرانا قرضہ</span>
+          <input id="ppl-new-debt" inputMode="numeric" value={f.openingDebt} onChange={set("openingDebt")} placeholder="leave empty if none" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">What the debt is for · قرضہ کس بات کا</span>
+          <input id="ppl-new-debt-note" value={f.debtNote} onChange={set("debtNote")} dir="auto" className={inp} />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <button disabled={saving || missing.length > 0} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">
           {saving ? "Saving…" : "Create · بنائیں"}
         </button>
         <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
