@@ -1,338 +1,751 @@
 /**
- * Partner P&L — half-half (or any %) co-owned truck settlement.
+ * Partner P&L · شراکت کا حساب — everything about a truck shared with a partner, in one place,
+ * kept the way the paper book keeps it (server/partnership.ts):
  *
- * Pick the partnership truck + period → see revenue, every cost (fuel / tyre /
- * oil / maintenance / salary …), net profit or loss, and the split. Then post
- * the partner's share into his running account (Party Ledger / ledger), so you
- * always know how much is owed / paid.
+ *   1. This cycle  — both sides' positions, the open cycle of the truck's khata, close it as
+ *                    صافی بچت (or carry a قرضدار), money taken for home, old debt.
+ *   2. History     — every entry of the partner and HFK, cycles closed here, and the old
+ *                    paper pages of the khata with their results.
+ *   3. Profit report — any dates: money in − money out by category, split by %.
+ *
+ * Every row opens its full detail with its receipts (attach more there), and jumps to the
+ * exact row in Truck Ledgers / Party Ledgers.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
-import { Handshake, RefreshCw, Loader2, ArrowRight, Wallet, ChevronDown, ChevronRight } from "lucide-react";
-import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search } from "lucide-react";
+import AttachmentPanel from "../common/AttachmentPanel.tsx";
 
-const PKR = (n: number) => (n < 0 ? "-" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString();
+type Nav = (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+type Feedback = (t: "success" | "error", m: string) => void;
 
-export default function PartnerPnL({
-  showFeedback,
-  onOpenParty,
-}: {
-  showFeedback: (t: "success" | "error", m: string) => void;
-  onOpenParty?: (id: number) => void;
-}) {
-  const [meta, setMeta] = useState<{ vehicles: any[]; parties: any[] } | null>(null);
+const PKR = (n: number) => (n < 0 ? "-" : "") + Math.abs(Math.round(n || 0)).toLocaleString();
+const minus = (n: number) => (n ? "−" + PKR(n) : "0");
+const today = () => new Date().toISOString().slice(0, 10);
+const fmtDate = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
+const rowDate = (r: any) => r.rawDate || fmtDate(r.entryDate);
+
+const EVENT_TYPES = [
+  { kind: "shakhsi", label: "Money taken for home · شخصی برداشت" },
+  { kind: "debt", label: "Old debt (qarz) · پرانا قرضہ" },
+  { kind: "repayment", label: "Debt paid back · قرضہ واپسی" },
+  { kind: "payout", label: "Share paid out in cash · حصہ ادا" },
+];
+const LEFT_OUT_WHY: Record<string, string> = {
+  carry: "Carried from the previous page · پچھلے صفحے سے منتقل",
+  settle: "Page settled to zero · صفحہ برابر کیا",
+  box: "Figure from the side box, not a khata row · ساتھ والے خانے کا حساب",
+  safi: "صافی بچت line",
+};
+
+/** Clickable row detail: what it is, where it lives, and its receipts. */
+type Detail =
+  | { type: "khata"; ledgerId: number; row: any }
+  | { type: "party"; partyId: number; partyName: string; row: any };
+
+export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback: Feedback; onNavigate?: Nav }) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [opts, setOpts] = useState<{ ledgers: any[]; parties: any[] } | null>(null);
   const [ledgerId, setLedgerId] = useState<number | null>(null);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [pct, setPct] = useState(50);
-  const [truckFilter, setTruckFilter] = useState("");
-  const [partyId, setPartyId] = useState<number | null>(null);
-  const [stmt, setStmt] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [posted, setPosted] = useState<any>(null);
-  const [openCategory, setOpenCategory] = useState<string | null>(null);
-  const [categoryEntries, setCategoryEntries] = useState<any[] | null>(null);
-  const [categoryLoading, setCategoryLoading] = useState(false);
-
-  // keep the feedback callback stable so effects don't loop when App re-renders
+  const [tab, setTab] = useState<"cycle" | "history" | "report">("cycle");
+  const [showNew, setShowNew] = useState<number | "blank" | null>(null);
+  const [truckQ, setTruckQ] = useState("");
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [nonce, setNonce] = useState(0); // bump to re-read the open truck
   const fb = useRef(showFeedback);
   fb.current = showFeedback;
 
-  const loadMeta = useCallback(() => {
-    enterpriseFetch("/api/partner-pnl/vehicles")
+  const loadList = useCallback(() => {
+    enterpriseFetch("/api/partnership")
       .then((d) => {
-        setMeta(d);
-        setLedgerId((cur) => {
-          if (cur) return cur;
-          const first = d.vehicles?.find((v: any) => v.isPartnership) || d.vehicles?.[0];
-          if (first?.partnerSharePercent) setPct(first.partnerSharePercent);
-          return first?.ledgerId ?? null;
-        });
+        setList(d);
+        setLedgerId((cur) => cur ?? d[0]?.truckLedgerId ?? null);
       })
       .catch((e) => fb.current("error", e.message));
+    enterpriseFetch("/api/partnership/options").then(setOpts).catch(() => {});
   }, []);
-  useEffect(() => { loadMeta(); }, [loadMeta]);
+  useEffect(loadList, [loadList]);
 
-  const selectedVeh = useMemo(
-    () => meta?.vehicles.find((v) => v.ledgerId === ledgerId),
-    [meta, ledgerId],
-  );
+  const account = list?.find((a) => a.truckLedgerId === ledgerId) || null;
+  const ledger = opts?.ledgers.find((l) => l.id === ledgerId);
+  const truckName = account?.truck || ledger?.title || "";
+  // a truck without a partnership account only has the report
+  useEffect(() => {
+    if (ledgerId && list && !account && tab !== "report") setTab("report");
+  }, [ledgerId, list, account]);
 
-  const truckLabel = (v: any) =>
-    `${v.vehicleNumber}${v.ownerName || v.ledgerTitle ? ` — ${v.ownerName || v.ledgerTitle}` : ""}` +
-    (v.isPartnership ? ` · partner${v.partnerName ? ` (${v.partnerName} ${v.partnerSharePercent}%)` : ""}` : "");
-
-  const filteredTrucks = useMemo(() => {
-    const all = meta?.vehicles || [];
-    const q = truckFilter.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter((v: any) => truckLabel(v).toLowerCase().includes(q));
-  }, [meta, truckFilter]);
-
-  const toggleCategoryDetail = async (category: string) => {
-    if (openCategory === category) {
-      setOpenCategory(null);
-      return;
-    }
-    setOpenCategory(category);
-    setCategoryEntries(null);
-    if (!ledgerId) return;
-    setCategoryLoading(true);
-    try {
-      const r = await enterpriseFetch(`/api/ledgers/${ledgerId}?category=${encodeURIComponent(category)}&limit=2000`);
-      let entries = r.entries || [];
-      // the ledger endpoint returns every entry in this category, all dates —
-      // narrow to whatever from/to window is currently selected, same as the
-      // totals above were calculated from.
-      if (from) entries = entries.filter((e: any) => e.entryDate && e.entryDate.slice(0, 10) >= from);
-      if (to) entries = entries.filter((e: any) => e.entryDate && e.entryDate.slice(0, 10) <= to);
-      setCategoryEntries(entries);
-    } catch (e: any) {
-      fb.current("error", e.message);
-      setCategoryEntries([]);
-    } finally {
-      setCategoryLoading(false);
-    }
+  const refresh = () => {
+    loadList();
+    setNonce((n) => n + 1);
   };
 
-  const run = useCallback(() => {
-    if (!ledgerId) return;
-    setLoading(true);
-    setPosted(null);
-    setOpenCategory(null);
-    setCategoryEntries(null);
-    setStmt(null); // drop stale cards while the new calc runs
-    const p = new URLSearchParams({ ledgerId: String(ledgerId), partnerPercent: String(pct || 0) });
-    if (from) p.set("from", from);
-    if (to) p.set("to", to);
-    const hadDates = !!(from || to);
-    enterpriseFetch(`/api/partner-pnl/statement?${p.toString()}`)
-      .then((d) => {
-        setStmt(d);
-        if ((d.entriesInPeriod ?? 0) === 0 && hadDates) {
-          fb.current("error", "No ledger entries for this truck in this date range — clear the dates or widen the range. · اس تاریخ کی حد میں اس ٹرک کی کوئی کھاتہ انٹری نہیں — تاریخیں صاف کریں یا حد بڑھائیں۔");
-        }
-      })
-      .catch((e) => fb.current("error", e.message))
-      .finally(() => setLoading(false));
-  }, [ledgerId, pct, from, to]);
-  // auto-recalculate whenever the truck / dates / % change (button also re-runs)
-  useEffect(() => { if (ledgerId) run(); }, [run, ledgerId]);
-
-  const createPartyForPartner = async () => {
-    const name = selectedVeh?.partnerName || prompt("Partner name for the ledger?") || "";
-    if (!name) return;
-    try {
-      const r = await enterpriseFetch("/api/partner-pnl/partner-party", { method: "POST", body: JSON.stringify({ name }) });
-      showFeedback("success", `Party ${r.partyCode} created for ${name}`);
-      setPartyId(r.id);
-      loadMeta();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-
-  const postShare = async () => {
-    if (!ledgerId || !partyId) {
-      showFeedback("error", "Pick the truck and the partner's ledger (party) first");
-      return;
-    }
-    setPosting(true);
-    try {
-      const r = await enterpriseFetch("/api/partner-pnl/post-share", {
-        method: "POST",
-        body: JSON.stringify({ ledgerId, partyId, from: from || null, to: to || null, partnerPercent: pct }),
-      });
-      setPosted(r);
-      showFeedback("success", `Posted to partner ledger — ${r.balanceLabel}`);
-      loadMeta();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  const t = stmt?.totals;
+  const otherTrucks = useMemo(() => {
+    const q = truckQ.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!q) return [];
+    return (opts?.ledgers || []).filter((l) => `${l.registration}${l.title}`.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q)).slice(0, 12);
+  }, [opts, truckQ]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* header */}
+      <div className="flex items-start justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-base font-bold flex items-center gap-2">
-            <Handshake className="w-4 h-4" /> Partner P&amp;L <span className="text-[#9CA3AF] font-normal text-sm">· پارٹنر حساب</span>
+            <Handshake className="w-4 h-4" /> Partner P&amp;L <span className="text-[#9CA3AF] font-normal text-sm">· شراکت کا حساب</span>
           </h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Half-half truck: revenue − all costs = net, then split. Partner's share goes to his ledger. ·
-            آدھی آدھی گاڑی — منافع/نقصان کا حصہ پارٹنر کے کھاتے میں۔
+          <p className="text-[12px] text-[#6B7280] max-w-3xl" dir="auto">
+            Trucks shared with a partner, kept like the paper book. Each cycle's صافی بچت is split into the partner's ledger and HFK's ledger;
+            money taken for home is written for both; a partner's old debt is cut down by his share. Click any row to see its detail and receipts. ·
+            کسی بھی لائن پر کلک کریں — تفصیل اور رسیدیں کھلیں گی۔
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ModuleDataIO entityKey="partner_settlements" label="Settlements" onImported={loadMeta} />
-          <button onClick={loadMeta} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
+          <button onClick={() => setShowNew("blank")} className="flex items-center gap-1.5 text-xs border border-[#24539B] text-[#24539B] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
+            <Plus className="w-3.5 h-3.5" /> New partnership · نیا شراکتی حساب
+          </button>
+          <button onClick={refresh} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
       </div>
 
-      {/* controls */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
-        <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-[#6B7280]">
-            Truck (ledger) · {filteredTrucks.length} of {meta?.vehicles?.length || 0}
-          </span>
-          <input
-            value={truckFilter}
-            onChange={(e) => setTruckFilter(e.target.value)}
-            placeholder="Filter trucks… (number / owner / partner)"
-            className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm"
-            dir="auto"
-          />
-          <select
-            value={ledgerId ?? ""}
-            size={Math.min(8, Math.max(3, filteredTrucks.length))}
-            onChange={(e) => {
-              const v = meta?.vehicles.find((x) => x.ledgerId === Number(e.target.value));
-              setLedgerId(Number(e.target.value) || null);
-              if (v?.partnerSharePercent) setPct(v.partnerSharePercent);
-            }}
-            className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm"
-          >
-            {filteredTrucks.map((v: any) => (
-              <option key={v.ledgerId} value={v.ledgerId}>
-                {truckLabel(v)}
-              </option>
-            ))}
-            {filteredTrucks.length === 0 && <option disabled>no match</option>}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[#6B7280]">From</span>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[#6B7280]">To</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[#6B7280]">Partner share %</span>
-          <input type="number" min={0} max={100} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm" />
-        </label>
-        <div className="md:col-span-5 flex items-center gap-3 flex-wrap">
-          <button onClick={run} disabled={loading || !ledgerId} className="bg-[#24539B] text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-60">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />} Calculate
-          </button>
-          {selectedVeh && !selectedVeh.isPartnership && (
-            <span className="text-[11px] text-[#4B5563]" dir="auto">
-              This truck isn't marked as a partnership — set the partner share % and pick / create the partner's ledger below to run an ad-hoc split. · یہ ٹرک پارٹنرشپ میں نہیں — % سیٹ کریں۔
-            </span>
+      {showNew !== null && (
+        <NewPartnership
+          opts={opts}
+          presetLedgerId={typeof showNew === "number" ? showNew : null}
+          onCancel={() => setShowNew(null)}
+          onCreated={(lid) => {
+            setShowNew(null);
+            setLedgerId(lid);
+            setTab("cycle");
+            refresh();
+          }}
+          showFeedback={showFeedback}
+        />
+      )}
+
+      {/* step 1: which truck */}
+      <div className="rounded-xl border border-[#E5E7EB] bg-white">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] rounded-t-xl flex items-center justify-between flex-wrap gap-2">
+          <span>Partnership trucks · شراکتی ٹرک</span>
+          <label className="flex items-center gap-1.5 font-normal relative">
+            <Search className="w-3.5 h-3.5 text-[#6B7280]" />
+            <input
+              id="ppl-truck-search"
+              value={truckQ}
+              onChange={(e) => setTruckQ(e.target.value)}
+              placeholder="Any other truck… (report only)"
+              className="border border-[#E5E7EB] rounded px-2 py-1 text-xs w-56 bg-white"
+            />
+            {otherTrucks.length > 0 && (
+              <div className="absolute right-0 top-8 z-20 w-72 max-h-64 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
+                {otherTrucks.map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={() => {
+                      setLedgerId(l.id);
+                      setTruckQ("");
+                      setTab(l.accountId ? "cycle" : "report");
+                    }}
+                    className="block w-full text-left px-3 py-1.5 text-xs hover:bg-[#F2F5FA]"
+                  >
+                    {l.title} <span className="text-[#9CA3AF]">· {l.entries} rows{l.accountId ? " · partnership" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </label>
+        </div>
+        {list && list.length === 0 && (
+          <div className="px-3 py-3 text-xs text-[#4B5563]" dir="auto">
+            No partnership truck yet — press “New partnership” and pick the truck's khata. · ابھی کوئی شراکتی ٹرک نہیں۔
+          </div>
+        )}
+        {list && list.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-[#6B7280]">
+                <tr>
+                  <th className="text-left px-3 py-1.5">Truck · ٹرک</th>
+                  <th className="text-left px-3 py-1.5">Partner · شریک</th>
+                  <th className="text-right px-3 py-1.5">This cycle · موجودہ حساب</th>
+                  <th className="text-right px-3 py-1.5">Joint pool · مشترکہ جمع</th>
+                  <th className="text-right px-3 py-1.5">Partner stands · شریک کی حالت</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((a) => (
+                  <tr
+                    key={a.id}
+                    onClick={() => {
+                      setLedgerId(a.truckLedgerId);
+                      if (tab === "report" && !account) setTab("cycle");
+                    }}
+                    className={`border-t border-[#F3F4F6] cursor-pointer ${ledgerId === a.truckLedgerId ? "bg-[#EEF3FB]" : "hover:bg-[#F9FAFB]"}`}
+                  >
+                    <td className="px-3 py-2 font-semibold">{a.truck}</td>
+                    <td className="px-3 py-2" dir="auto">{a.partnerName} · {a.partnerPercent}%</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${a.cycleNet < 0 ? "text-[#B91C1C]" : ""}`}>{PKR(a.cycleNet)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{PKR(a.pool)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${a.partner.net < 0 ? "text-[#B91C1C] font-semibold" : "text-[#047857]"}`}>
+                      {a.partner.net < 0 ? `owes ${PKR(-a.partner.net)} · قرضدار` : `${PKR(a.partner.net)} in pool · جمع`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* step 2: the chosen truck */}
+      {ledgerId && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-1 border-b border-[#E5E7EB] flex-wrap">
+            <span className="text-sm font-bold mr-3">{truckName}</span>
+            {account && <TabBtn on={tab === "cycle"} onClick={() => setTab("cycle")}>This cycle · موجودہ حساب</TabBtn>}
+            {account && <TabBtn on={tab === "history"} onClick={() => setTab("history")}>History · تاریخچہ</TabBtn>}
+            <TabBtn on={tab === "report"} onClick={() => setTab("report")}>Profit report (any dates) · منافع رپورٹ</TabBtn>
+            {!account && ledger && (
+              <button onClick={() => setShowNew(ledger.id)} className="ml-auto mb-1 text-xs bg-[#24539B] text-white rounded-lg px-3 py-1.5">
+                Make this a partnership truck · شراکتی ٹرک بنائیں
+              </button>
+            )}
+          </div>
+          {account && tab === "cycle" && <React.Fragment key={`c${account.id}-${nonce}`}><CycleTab accountId={account.id} showFeedback={showFeedback} onChanged={refresh} onOpen={setDetail} onNavigate={onNavigate} /></React.Fragment>}
+          {account && tab === "history" && <React.Fragment key={`h${account.id}-${nonce}`}><HistoryTab accountId={account.id} ledgerId={ledgerId} showFeedback={showFeedback} onChanged={refresh} onOpen={setDetail} /></React.Fragment>}
+          {tab === "report" && <React.Fragment key={`r${ledgerId}-${nonce}`}><ReportTab ledgerId={ledgerId} showFeedback={showFeedback} onOpen={setDetail} /></React.Fragment>}
+        </div>
+      )}
+
+      {detail && <DetailDrawer d={detail} onClose={() => setDetail(null)} onNavigate={onNavigate} onFilesChanged={() => setNonce((n) => n + 1)} />}
+    </div>
+  );
+}
+
+function TabBtn({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className={`text-xs px-3 py-2 -mb-px border-b-2 ${on ? "border-[#24539B] text-[#24539B] font-semibold" : "border-transparent text-[#4B5563] hover:text-[#111827]"}`}>
+      {children}
+    </button>
+  );
+}
+
+function Clip({ n }: { n: number }) {
+  return n ? (
+    <span className="inline-flex items-center gap-0.5 text-[10px] text-[#24539B]" title={`${n} receipt(s)`}>
+      <Paperclip className="w-3 h-3" />
+      {n}
+    </span>
+  ) : null;
+}
+
+/** A khata table whose rows open their detail. */
+function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: any[]; ledgerId: number; onOpen: (d: Detail) => void; showBalance?: boolean }) {
+  return (
+    <table className="w-full text-xs">
+      <thead className="text-[#6B7280] sticky top-0 bg-white">
+        <tr>
+          <th className="text-left px-3 py-1.5">Date · تاریخ</th>
+          <th className="text-left px-3 py-1.5">Detail · تفصیل</th>
+          <th className="text-right px-3 py-1.5">In · وصول</th>
+          <th className="text-right px-3 py-1.5">Out · ادائیگی</th>
+          {showBalance && <th className="text-right px-3 py-1.5">Balance · بقایا</th>}
+          <th className="w-8" />
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((r: any) => (
+          <tr key={r.id} onClick={() => onOpen({ type: "khata", ledgerId, row: r })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+            <td className="px-3 py-1.5 whitespace-nowrap">{rowDate(r)}</td>
+            <td className="px-3 py-1.5" dir="auto">{r.description || <span className="text-[#9CA3AF]">—</span>}</td>
+            <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{r.received ? PKR(r.received) : ""}</td>
+            <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{r.paid ? PKR(r.paid) : ""}</td>
+            {showBalance && <td className={`px-3 py-1.5 text-right tabular-nums ${r.balance < 0 ? "text-[#B91C1C]" : ""}`}>{r.balance != null ? PKR(r.balance) : ""}</td>}
+            <td className="px-2 py-1.5 text-right"><Clip n={r.files} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ---------------------------------------------------------------- 1. this cycle
+
+function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { accountId: number; showFeedback: Feedback; onChanged: () => void; onOpen: (d: Detail) => void; onNavigate?: Nav }) {
+  const [d, setD] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    enterpriseFetch(`/api/partnership/${accountId}`).then(setD).catch((e) => showFeedback("error", e.message));
+  }, [accountId]);
+  useEffect(load, [load]);
+
+  const act = async (fn: () => Promise<any>, ok: (r: any) => string) => {
+    setBusy(true);
+    try {
+      const r = await fn();
+      showFeedback("success", ok(r));
+      onChanged();
+      return r;
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!d) return <div className="flex items-center gap-2 text-sm text-[#4B5563]"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
+  const cyc = d.cycle;
+  const pct = d.account.partnerPercent;
+  const openParty = (partyId: number) => onNavigate?.("khata", "parties", { partyId });
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-[#24539B] bg-[#EEF3FB] p-3">
+          <div className="text-[11px] text-[#4B5563]">Joint pool left · بقایا مشترکہ جمع</div>
+          <div className="text-xl font-bold tabular-nums">{PKR(d.pool)}</div>
+          <div className="text-[11px] text-[#6B7280]" dir="auto">
+            = shares of profit − money taken for home (both sides) · {pct}% / {100 - pct}%
+          </div>
+        </div>
+        <Side title={d.partnerName} role={`partner ${pct}%`} s={d.partner} onOpen={onNavigate ? () => openParty(d.account.partnerPartyId) : undefined} />
+        <Side title={d.hfkName} role={`HFK ${100 - pct}%`} s={d.hfk} onOpen={onNavigate ? () => openParty(d.account.hfkPartyId) : undefined} />
+      </div>
+
+      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="px-3 py-2 bg-[#F2F5FA] flex items-center justify-between flex-wrap gap-2">
+          <div className="text-xs font-bold">
+            Open cycle {cyc.cycleNo} · موجودہ حساب — {cyc.lines.length} khata rows since the last close
+            <span className="font-normal text-[#6B7280]"> (in the order written · click a row for detail and receipts)</span>
+          </div>
+          {d.account.cycleNo > 0 && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                window.confirm("Reopen the last closed cycle? Its صافی بچت entries are removed from both ledgers. · آخری بند حساب دوبارہ کھولیں؟") &&
+                act(() => enterpriseFetch(`/api/partnership/${accountId}/undo-close`, { method: "POST" }), () => "Last cycle reopened · حساب دوبارہ کھل گیا")
+              }
+              className="flex items-center gap-1 text-[11px] text-[#4B5563] underline"
+            >
+              <Undo2 className="w-3 h-3" /> Reopen last cycle
+            </button>
+          )}
+        </div>
+        <div className="max-h-80 overflow-auto">
+          {cyc.lines.length ? (
+            <KhataTable lines={cyc.lines} ledgerId={d.account.truckLedgerId} onOpen={onOpen} />
+          ) : (
+            <div className="px-3 py-3 text-center text-xs text-[#6B7280]">Nothing written in the khata since the last close · پچھلے حساب کے بعد کوئی انٹری نہیں</div>
+          )}
+        </div>
+        <div className="px-3 py-2 border-t border-[#E5E7EB] flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="tabular-nums">
+            In <b className="text-[#047857]">{PKR(cyc.received)}</b> − Out <b className="text-[#B91C1C]">{PKR(cyc.paid)}</b> ={" "}
+            <b className={cyc.net < 0 ? "text-[#B91C1C]" : "text-[#047857]"}>{PKR(cyc.net)}</b>
+            {cyc.net >= 0 ? " · صافی بچت" : " · قرضدار"}
+          </div>
+          {cyc.lines.length > 0 && cyc.net >= 0 && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                window.confirm(`Close cycle ${cyc.cycleNo}: صافی بچت ${PKR(cyc.net)} → ${d.partnerName} ${PKR(cyc.partnerShare)}, ${d.hfkName} ${PKR(cyc.hfkShare)}?`) &&
+                act(
+                  () => enterpriseFetch(`/api/partnership/${accountId}/close`, { method: "POST", body: JSON.stringify({ date: today() }) }),
+                  (r) => `Cycle ${r.cycleNo} closed — ${PKR(r.partnerShare)} to ${d.partnerName}, ${PKR(r.hfkShare)} to ${d.hfkName}`,
+                )
+              }
+              className="bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-60"
+            >
+              <Lock className="w-3.5 h-3.5" /> Close cycle · صافی بچت: {d.partnerName} {PKR(cyc.partnerShare)} + HFK {PKR(cyc.hfkShare)}
+            </button>
+          )}
+          {cyc.lines.length > 0 && cyc.net < 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[#4B5563]" dir="auto">Short — carries into the next trip (paper method) · اگلے حساب میں شامل ہو گا</span>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  window.confirm(`Split the loss ${PKR(-cyc.net)} now (${pct}/${100 - pct}) instead of carrying it? · نقصان ابھی تقسیم کریں؟`) &&
+                  act(() => enterpriseFetch(`/api/partnership/${accountId}/close`, { method: "POST", body: JSON.stringify({ date: today(), splitLoss: true }) }), () => "Loss split into both ledgers · نقصان تقسیم ہو گیا")
+                }
+                className="border border-[#B91C1C] text-[#B91C1C] rounded-lg px-2.5 py-1 disabled:opacity-60"
+              >
+                Split the loss now · نقصان ابھی تقسیم کریں
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      {loading && <div className="flex items-center gap-2 text-sm text-[#4B5563]"><Loader2 className="w-4 h-4 animate-spin" /> Calculating…</div>}
+      <AddEntry d={d} busy={busy} act={act} />
+    </div>
+  );
+}
 
-      {stmt && !loading && (
-        <div className="text-[11px] text-[#6B7280] flex flex-wrap items-center gap-x-3" dir="auto">
-          <span>
-            <b>{stmt.entriesInPeriod ?? 0}</b> ledger entries counted
-            {stmt.period.from || stmt.period.to
-              ? ` (${stmt.period.from ? stmt.period.from.slice(0, 10) : "start"} → ${stmt.period.to ? stmt.period.to.slice(0, 10) : "now"})`
-              : " (all dates)"}
-          </span>
-          {stmt.coverage?.minDate && (
-            <span>
-              · this truck's ledger has entries {String(stmt.coverage.minDate).slice(0, 10)} → {String(stmt.coverage.maxDate).slice(0, 10)}
-            </span>
-          )}
-          {stmt.coverage?.undatedEntries > 0 && (
-            <span className="text-[#4B5563]">· {stmt.coverage.undatedEntries} entries have no date (excluded when a date filter is set)</span>
-          )}
-          {(from || to) && (
-            <button onClick={() => { setFrom(""); setTo(""); }} className="underline text-[#24539B]">clear dates</button>
-          )}
+function Side({ title, role, s, onOpen }: { title: string; role: string; s: any; onOpen?: () => void }) {
+  const bad = s.net < 0;
+  const good = s.net > 0;
+  const tone = bad ? "border-[#FCA5A5] bg-[#FEF2F2]" : good ? "border-[#A7F3D0] bg-[#F0FDF4]" : "border-[#E5E7EB] bg-white";
+  return (
+    <div className={`rounded-xl border p-3 ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold text-[#374151]" dir="auto">{title} <span className="font-normal text-[#6B7280]">({role})</span></div>
+        {onOpen && (
+          <button onClick={onOpen} className="text-[11px] text-[#24539B] flex items-center gap-1 whitespace-nowrap">
+            ledger <ExternalLink className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+      <div className={`text-sm font-bold mt-1 ${bad ? "text-[#B91C1C]" : good ? "text-[#047857]" : ""}`} dir="auto">
+        {bad ? `Owes ${PKR(-s.net)} · قرضدار ہے` : good ? `${PKR(s.net)} is his in the pool · جمع ہے` : "Clear · حساب برابر"}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-2 text-[11px] tabular-nums text-[#4B5563]">
+        <span>Share of profit · منافع کا حصہ</span><span className="text-right">{PKR(s.share)}</span>
+        <span>Taken for home · شخصی برداشت</span><span className="text-right">{minus(s.withdrawn)}</span>
+        {s.paidOut ? (<><span>Paid out · ادا</span><span className="text-right">{minus(s.paidOut)}</span></>) : null}
+        {s.debt ? (<><span>Old debt left · باقی قرضہ</span><span className="text-right">{minus(s.debt)}</span></>) : null}
+      </div>
+    </div>
+  );
+}
+
+function AddEntry({ d, busy, act }: { d: any; busy: boolean; act: (fn: () => Promise<any>, ok: (r: any) => string) => Promise<any> }) {
+  const [kind, setKind] = useState("shakhsi");
+  const [who, setWho] = useState<"partner" | "hfk">("partner");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(today());
+  const [method, setMethod] = useState("Cash");
+  const [note, setNote] = useState("");
+  const [matchOther, setMatchOther] = useState(true);
+  const partnerOnly = kind === "debt" || kind === "repayment";
+  const whoNow = partnerOnly ? "partner" : who;
+  const partnerOwes = d.partner.net < 0;
+
+  const submit = async () => {
+    const r = await act(
+      () => enterpriseFetch(`/api/partnership/${d.account.id}/event`, { method: "POST", body: JSON.stringify({ kind, who: whoNow, amount, date, method, note, matchOther }) }),
+      (r) => r.warning || "Saved in the party ledger — attach the receipt from History · کھاتے میں درج ہو گیا",
+    );
+    if (r) {
+      setAmount("");
+      setNote("");
+    }
+  };
+
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5";
+  return (
+    <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
+      <div className="text-xs font-bold">Add an entry · نئی انٹری</div>
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+        <label className="flex flex-col gap-1 md:col-span-2">
+          <span className="text-[#6B7280]">Type · قسم</span>
+          <select id="ppl-kind" value={kind} onChange={(e) => setKind(e.target.value)} className={inp}>
+            {EVENT_TYPES.map((t) => <option key={t.kind} value={t.kind}>{t.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Whose · کس کا</span>
+          <select id="ppl-who" value={whoNow} disabled={partnerOnly} onChange={(e) => setWho(e.target.value as any)} className={inp}>
+            <option value="partner">{d.partnerName}</option>
+            <option value="hfk">{d.hfkName}</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Amount · رقم *</span>
+          <input id="ppl-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${inp} tabular-nums`} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Date · تاریخ</span>
+          <input id="ppl-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">How · طریقہ</span>
+          <select id="ppl-method" value={method} onChange={(e) => setMethod(e.target.value)} className={inp}>
+            <option>Cash</option>
+            <option>Online</option>
+            <option>Cheque</option>
+            <option>Adjustment</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 md:col-span-4">
+          <span className="text-[#6B7280]">Note · تفصیل</span>
+          <input id="ppl-note" value={note} onChange={(e) => setNote(e.target.value)} dir="auto" className={inp} />
+        </label>
+        <div className="md:col-span-2 flex items-end">
+          <button disabled={busy || !amount} onClick={submit} className="w-full bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60">
+            {busy ? "Saving…" : "Save · محفوظ کریں"}
+          </button>
+        </div>
+      </div>
+      {kind === "shakhsi" && (
+        <label className="flex items-center gap-2 text-[11px] text-[#374151]" dir="auto">
+          <input id="ppl-match" type="checkbox" checked={matchOther} onChange={(e) => setMatchOther(e.target.checked)} />
+          Write the same amount for {whoNow === "partner" ? d.hfkName : d.partnerName} too, so the 50/50 stays level (paper method) · برابر رقم دوسرے شریک کے نام بھی
+        </label>
+      )}
+      {whoNow === "partner" && (kind === "shakhsi" || kind === "payout") && partnerOwes && (
+        <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]" dir="auto">
+          {d.partnerName} already owes {PKR(-d.partner.net)}. Whatever he takes now is added to his debt. · یہ پہلے سے قرضدار ہے — جو رقم لے گا وہ قرضے میں جمع ہو گی۔
         </div>
       )}
+      <div className="text-[11px] text-[#6B7280]" dir="auto">
+        Record this here only — not again with the Daily Cash Book's “Also add to party”, or it is counted twice. · یہ انٹری صرف یہاں کریں۔
+      </div>
+    </div>
+  );
+}
 
-      {stmt && !loading && (stmt.entriesInPeriod ?? 0) === 0 && (
-        <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[12px] text-[#4B5563]" dir="auto">
-          No ledger entries were found for this truck in this date range. · اس تاریخ کی حد میں اس ٹرک کی کوئی کھاتہ انٹری نہیں ملی۔
-          {stmt.coverage?.minDate
-            ? ` This truck's data runs from ${String(stmt.coverage.minDate).slice(0, 10)} to ${String(stmt.coverage.maxDate).slice(0, 10)} — keep the dates inside that range or press "clear dates". · اس ٹرک کا ڈیٹا اس حد میں ہے — تاریخیں اسی حد میں رکھیں یا "تاریخیں صاف کریں" دبائیں۔`
-            : " This truck's entries have no dates — clear the dates to see the full statement. · اس ٹرک کی انٹریز پر تاریخ نہیں — تاریخیں صاف کر کے مکمل حساب دیکھیں۔"}
+// ---------------------------------------------------------------- 2. history
+
+function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { accountId: number; ledgerId: number; showFeedback: Feedback; onChanged: () => void; onOpen: (d: Detail) => void }) {
+  const [d, setD] = useState<any>(null);
+  const [pages, setPages] = useState<any[] | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [rows, setRows] = useState<{ lines: any[]; box: any[] } | null>(null);
+
+  useEffect(() => {
+    enterpriseFetch(`/api/partnership/${accountId}`).then(setD).catch((e) => showFeedback("error", e.message));
+    enterpriseFetch(`/api/partnership/ledger/${ledgerId}/pages`).then(setPages).catch(() => setPages([]));
+  }, [accountId, ledgerId]);
+
+  const toggle = (key: string, query: string) => {
+    if (openKey === key) return setOpenKey(null);
+    setOpenKey(key);
+    setRows(null);
+    enterpriseFetch(`/api/partnership/ledger/${ledgerId}/rows?${query}`).then(setRows).catch((e) => showFeedback("error", e.message));
+  };
+
+  const remove = async (id: number) => {
+    if (!window.confirm("Remove this entry from the party ledger? · یہ انٹری ہٹائیں؟")) return;
+    try {
+      await enterpriseFetch(`/api/partnership/${accountId}/event/${id}`, { method: "DELETE" });
+      showFeedback("success", "Entry removed · انٹری ہٹ گئی");
+      onChanged();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
+  if (!d) return <div className="flex items-center gap-2 text-sm text-[#4B5563]"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
+  const nameOf = (h: any) => (h.side === "partner" ? d.partnerName : d.hfkName);
+  const partyOf = (h: any) => (h.side === "partner" ? d.account.partnerPartyId : d.account.hfkPartyId);
+
+  const expander = (key: string) =>
+    openKey === key && (
+      <tr>
+        <td colSpan={6} className="bg-[#FAFBFD] p-0">
+          {!rows ? (
+            <div className="p-3 text-xs text-[#4B5563] flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading rows…</div>
+          ) : (
+            <div className="max-h-96 overflow-auto border-y border-[#E5E7EB]">
+              <KhataTable lines={rows.lines} ledgerId={ledgerId} onOpen={onOpen} />
+              {rows.box.length > 0 && (
+                <div className="px-3 py-2 text-[11px] text-[#6B7280]" dir="auto">
+                  Side-box figures on this page (not counted): {rows.box.map((b) => `${b.description || ""} ${PKR(b.received || b.paid)}`).join(" · ")}
+                </div>
+              )}
+            </div>
+          )}
+        </td>
+      </tr>
+    );
+
+  return (
+    <div className="space-y-3">
+      {/* partner + HFK entries */}
+      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+          Partner &amp; HFK entries · شریکوں کی انٹریاں <span className="font-normal text-[#6B7280]">(these lines are in the two party ledgers · click for receipts)</span>
         </div>
-      )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-[#6B7280]">
+              <tr>
+                <th className="text-left px-3 py-1.5">Date</th>
+                <th className="text-left px-3 py-1.5">Whose · کس کا</th>
+                <th className="text-left px-3 py-1.5">Type · قسم</th>
+                <th className="text-left px-3 py-1.5">Detail</th>
+                <th className="text-right px-3 py-1.5">Added · جمع</th>
+                <th className="text-right px-3 py-1.5">Taken · نام</th>
+                <th className="w-12" />
+              </tr>
+            </thead>
+            <tbody>
+              {d.history.map((h: any) => (
+                <tr key={h.id} onClick={() => onOpen({ type: "party", partyId: partyOf(h), partyName: nameOf(h), row: h })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                  <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(h.entryDate)}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{nameOf(h)}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{h.label}</td>
+                  <td className="px-3 py-1.5" dir="auto">{h.description}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{h.credit ? PKR(h.credit) : ""}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{h.debit ? PKR(h.debit) : ""}</td>
+                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                    <Clip n={h.files} />
+                    {h.kind !== "safi" && h.kind !== "loss" && (
+                      <button
+                        title="Remove this entry"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(h.id);
+                        }}
+                        className="ml-2 text-[#9CA3AF] hover:text-[#B91C1C] align-middle"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!d.history.length && <tr><td colSpan={7} className="px-3 py-3 text-center text-[#6B7280]">No entries yet · ابھی کوئی انٹری نہیں</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* cycles */}
+      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+          Cycles · حساب <span className="font-normal text-[#6B7280]">(click a cycle to see every khata row in it)</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-[#6B7280]">
+              <tr>
+                <th className="text-left px-3 py-1.5 w-6" />
+                <th className="text-left px-3 py-1.5">Cycle · حساب</th>
+                <th className="text-left px-3 py-1.5">Dates · تاریخیں</th>
+                <th className="text-right px-3 py-1.5">In − Out</th>
+                <th className="text-right px-3 py-1.5">Result · نتیجہ</th>
+                <th className="text-right px-3 py-1.5">Receipts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.closed.map((c: any) => (
+                <React.Fragment key={`c${c.no}`}>
+                  <tr onClick={() => toggle(`c${c.no}`, `after=${c.after}&upto=${c.upto}`)} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                    <td className="px-3 py-1.5">{openKey === `c${c.no}` ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
+                    <td className="px-3 py-1.5 font-semibold">Cycle {c.no} (closed here)</td>
+                    <td className="px-3 py-1.5">closed {fmtDate(c.date)}</td>
+                    <td className="px-3 py-1.5 text-right" />
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${c.net < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
+                      {PKR(c.net)} {c.net >= 0 ? "· صافی بچت" : "· نقصان"}
+                    </td>
+                    <td />
+                  </tr>
+                  {expander(`c${c.no}`)}
+                </React.Fragment>
+              ))}
+              {(pages || []).map((p: any) => (
+                <React.Fragment key={p.page}>
+                  <tr onClick={() => toggle(p.page, `page=${encodeURIComponent(p.page)}`)} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                    <td className="px-3 py-1.5">{openKey === p.page ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
+                    <td className="px-3 py-1.5">
+                      {p.page} <span className="text-[#9CA3AF]">· paper · {p.lines} rows</span>
+                    </td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{p.from} → {p.to}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-[#6B7280]">{PKR(p.received)} − {PKR(p.paid)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${p.result < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
+                      {PKR(p.result)} {p.result >= 0 ? "· صافی بچت" : "· قرضدار"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right"><Clip n={p.files} /></td>
+                  </tr>
+                  {expander(p.page)}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 3. report
+
+function ReportTab({ ledgerId, showFeedback, onOpen }: { ledgerId: number; showFeedback: Feedback; onOpen: (d: Detail) => void }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [pct, setPct] = useState(50);
+  const [r, setR] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [openCat, setOpenCat] = useState<string | null>(null);
+  const [showLeft, setShowLeft] = useState(false);
+
+  const run = useCallback(() => {
+    setLoading(true);
+    const q = new URLSearchParams({ ledgerId: String(ledgerId), pct: String(pct) });
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    enterpriseFetch(`/api/partnership/report?${q}`)
+      .then(setR)
+      .catch((e) => showFeedback("error", e.message))
+      .finally(() => setLoading(false));
+  }, [ledgerId, from, to, pct]);
+  useEffect(run, [run]);
+
+  const t = r?.totals;
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5 text-sm";
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 flex items-end gap-3 flex-wrap text-xs">
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">From · سے</span>
+          <input id="ppl-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">To · تک</span>
+          <input id="ppl-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Partner share % · شریک کا حصہ</span>
+          <input id="ppl-pct" type="number" min={0} max={100} value={r?.accountId ? r.pct : pct} disabled={!!r?.accountId} onChange={(e) => setPct(Number(e.target.value))} className={`${inp} w-24`} />
+        </label>
+        {(from || to) && <button onClick={() => { setFrom(""); setTo(""); }} className="underline text-[#24539B] pb-2">all dates · تمام تاریخیں</button>}
+        {loading && <Loader2 className="w-4 h-4 animate-spin mb-2" />}
+        {r?.coverage && (
+          <span className="text-[#6B7280] pb-2">this khata has entries {fmtDate(r.coverage.from)} → {fmtDate(r.coverage.to)}{r.undated ? ` · ${r.undated} rows have no date (left out when dates are set)` : ""}</span>
+        )}
+      </div>
 
       {t && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <Card label="Revenue · آمدنی" value={PKR(t.revenue)} tone="good" />
-            <Card label="All costs · اخراجات" value={PKR(t.cost)} tone="bad" />
-            <Card label={t.net >= 0 ? "NET PROFIT · منافع" : "NET LOSS · نقصان"} value={PKR(t.net)} tone={t.net >= 0 ? "good" : "bad"} big />
-            <Card label={`Partner ${stmt.partnerPercent}% · پارٹنر حصہ`} value={PKR(t.partnerShare)} tone={t.partnerShare >= 0 ? "good" : "bad"} />
-            <Card label={`HF ${100 - stmt.partnerPercent}% · کمپنی حصہ`} value={PKR(t.companyShare)} />
+            <Card label="Money in · آمدنی" value={PKR(t.revenue)} tone="good" />
+            <Card label="Money out · اخراجات" value={PKR(t.cost)} tone="bad" />
+            <Card label={t.net >= 0 ? "Profit · منافع" : "Loss · نقصان"} value={PKR(t.net)} tone={t.net >= 0 ? "good" : "bad"} big />
+            <Card label={`Partner ${r.pct}% · شریک`} value={PKR(t.partnerShare)} />
+            <Card label={`HFK ${100 - r.pct}% · HFK`} value={PKR(t.hfkShare)} />
           </div>
 
           <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Where the money went · تفصیل <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span></div>
+            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Where the money came from and went · تفصیل <span className="font-normal text-[#6B7280]">(click a line for its rows)</span></div>
             <table className="w-full text-xs">
-              <thead className="bg-[#F9FAFB] text-[#6B7280]">
+              <thead className="text-[#6B7280]">
                 <tr>
-                  <th className="text-left px-2 py-1.5"></th>
-                  <th className="text-left px-2 py-1.5">Category</th>
-                  <th className="text-right px-2 py-1.5">In (revenue)</th>
-                  <th className="text-right px-2 py-1.5">Out (cost)</th>
-                  <th className="text-right px-2 py-1.5">Entries</th>
-                  <th className="text-left px-2 py-1.5">Counted?</th>
+                  <th className="text-left px-3 py-1.5 w-6" />
+                  <th className="text-left px-3 py-1.5">Kind · قسم</th>
+                  <th className="text-right px-3 py-1.5">Rows</th>
+                  <th className="text-right px-3 py-1.5">In · وصول</th>
+                  <th className="text-right px-3 py-1.5">Out · ادائیگی</th>
                 </tr>
               </thead>
               <tbody>
-                {stmt.lines.map((l: any) => (
-                  <React.Fragment key={l.category}>
-                    <tr
-                      onClick={() => toggleCategoryDetail(l.category)}
-                      className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB] ${openCategory === l.category ? "bg-[#F2F5FA]" : ""}`}
-                    >
-                      <td className="px-2 py-1.5 w-5">{openCategory === l.category ? <ChevronDown className="w-3.5 h-3.5 text-[#6B7280]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#9CA3AF]" />}</td>
-                      <td className="px-2 py-1.5">{l.category}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{l.received ? l.received.toLocaleString() : ""}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{l.paid ? l.paid.toLocaleString() : ""}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{l.entries}</td>
-                      <td className="px-2 py-1.5 text-[10px]">
-                        {l.received > 0 && l.countedRevenue && <span className="text-[#1E4480]">counted as revenue</span>}
-                        {l.paid > 0 && l.countedCost && <span className="text-[#B00005]">counted as cost</span>}
-                        {((l.received > 0 && !l.countedRevenue) || (l.paid > 0 && !l.countedCost)) && (
-                          <span className="text-[#9CA3AF]">not counted (owner capital / transfer / profit marker)</span>
-                        )}
-                        {l.received === 0 && l.paid === 0 && <span className="text-[#9CA3AF]">—</span>}
-                      </td>
+                {r.categories.map((c: any) => (
+                  <React.Fragment key={c.category}>
+                    <tr onClick={() => setOpenCat(openCat === c.category ? null : c.category)} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                      <td className="px-3 py-1.5">{openCat === c.category ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
+                      <td className="px-3 py-1.5">{c.category}</td>
+                      <td className="px-3 py-1.5 text-right">{c.entries}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{c.received ? PKR(c.received) : ""}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{c.paid ? PKR(c.paid) : ""}</td>
                     </tr>
-                    {openCategory === l.category && (
+                    {openCat === c.category && (
                       <tr>
-                        <td colSpan={6} className="p-0 bg-[#FAFAFA]">
-                          {categoryLoading ? (
-                            <div className="py-4 text-center text-[#9CA3AF] flex items-center justify-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading entries…</div>
-                          ) : (
-                            <table className="w-full text-[11px]">
-                              <thead className="text-[#6B7280]">
-                                <tr><th className="text-left px-3 py-1.5">Date</th><th className="text-left px-3 py-1.5">Description</th><th className="text-right px-3 py-1.5">Received</th><th className="text-right px-3 py-1.5">Paid</th></tr>
-                              </thead>
-                              <tbody>
-                                {(categoryEntries || []).map((e: any) => (
-                                  <tr key={e.id} className="border-t border-[#F3F4F6]">
-                                    <td className="px-3 py-1.5 text-[#6B7280] whitespace-nowrap">{e.entryDate ? e.entryDate.slice(0, 10) : "—"}</td>
-                                    <td className="px-3 py-1.5 max-w-[320px] truncate" dir="auto" title={e.description || ""}>{e.description || "—"}</td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#1E4480]">{e.received ? e.received.toLocaleString() : ""}</td>
-                                    <td className="px-3 py-1.5 text-right tabular-nums text-[#B00005]">{e.paid ? e.paid.toLocaleString() : ""}</td>
-                                  </tr>
-                                ))}
-                                {(categoryEntries || []).length === 0 && (
-                                  <tr><td colSpan={4} className="px-3 py-4 text-center text-[#9CA3AF]">No entries in the selected date range for this category.</td></tr>
-                                )}
-                              </tbody>
-                            </table>
-                          )}
+                        <td colSpan={5} className="bg-[#FAFBFD] p-0">
+                          <div className="max-h-80 overflow-auto border-y border-[#E5E7EB]">
+                            <KhataTable lines={r.rows.filter((x: any) => x.category === c.category)} ledgerId={ledgerId} onOpen={onOpen} showBalance={false} />
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -342,36 +755,29 @@ export default function PartnerPnL({
             </table>
           </div>
 
-          {/* post to partner ledger */}
-          <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
-            <h3 className="text-sm font-semibold flex items-center gap-1.5"><Wallet className="w-4 h-4" /> Post partner's share to his ledger</h3>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <select value={partyId ?? ""} onChange={(e) => setPartyId(Number(e.target.value) || null)} className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm">
-                <option value="">— pick partner's party (ledger) —</option>
-                {(meta?.parties || []).map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.type}) · bal {PKR(p.balance)}</option>
-                ))}
-              </select>
-              <button onClick={createPartyForPartner} className="border border-[#E5E7EB] rounded px-2 py-1.5 hover:bg-[#F2F5FA]">
-                + New party for {selectedVeh?.partnerName || "partner"}
+          {r.leftOut.length > 0 && (
+            <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+              <button onClick={() => setShowLeft((v) => !v)} className="w-full px-3 py-2 text-xs font-bold bg-[#F9FAFB] flex items-center gap-2 text-left">
+                {showLeft ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                Not counted ({r.leftOut.length}) · شمار نہیں کیا
+                <span className="font-normal text-[#6B7280]" dir="auto">— carried lines, page-settling lines and side-box figures would count the same money twice</span>
               </button>
-              <button onClick={postShare} disabled={posting || !partyId} className="bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-60">
-                {posting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
-                Post {PKR(t.partnerShare)} {t.net >= 0 ? "(we owe partner)" : "(partner owes us)"}
-              </button>
+              {showLeft && (
+                <table className="w-full text-xs">
+                  <tbody>
+                    {r.leftOut.map((x: any) => (
+                      <tr key={x.id} onClick={() => onOpen({ type: "khata", ledgerId, row: x })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                        <td className="px-3 py-1.5 whitespace-nowrap">{rowDate(x)}</td>
+                        <td className="px-3 py-1.5" dir="auto">{x.description || "—"} <span className="text-[#9CA3AF]">· {x.page}</span></td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{PKR(x.received || x.paid)}</td>
+                        <td className="px-3 py-1.5 text-[#6B7280]" dir="auto">{LEFT_OUT_WHY[x.why]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-            {posted && (
-              <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-2 text-[12px] text-[#1E4480]">
-                Posted. <b>{posted.balanceLabel}</b>.{" "}
-                <button className="underline" onClick={() => onOpenParty?.(posted.partyId)}>Open the partner's ledger</button>
-              </div>
-            )}
-            <p className="text-[11px] text-[#9CA3AF]" dir="auto">
-              Profit → credited to the partner (we owe him). Loss → debited (he owes us). When you actually pay him,
-              add a debit entry in his ledger. Running balance = how much is owed to / by him. ·
-              جب پارٹنر کو ادائیگی کریں تو اس کے کھاتے میں debit اندراج کریں۔
-            </p>
-          </div>
+          )}
         </>
       )}
     </div>
@@ -379,11 +785,170 @@ export default function PartnerPnL({
 }
 
 function Card({ label, value, tone, big }: { label: string; value: string; tone?: "good" | "bad"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
-    <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-lg"} font-extrabold tabular-nums`}>{value}</div>
+    <div className={`rounded-xl border p-3 ${big ? "border-[#24539B] bg-[#EEF3FB]" : "border-[#E5E7EB] bg-white"}`}>
+      <div className="text-[11px] text-[#6B7280]">{label}</div>
+      <div className={`${big ? "text-xl" : "text-base"} font-bold tabular-nums ${tone === "good" ? "text-[#047857]" : tone === "bad" ? "text-[#B91C1C]" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- row detail
+
+function DetailDrawer({ d, onClose, onNavigate, onFilesChanged }: { d: Detail; onClose: () => void; onNavigate?: Nav; onFilesChanged: () => void }) {
+  const r = d.row;
+  const isKhata = d.type === "khata";
+  const facts: [string, React.ReactNode][] = isKhata
+    ? [
+        ["Date · تاریخ", rowDate(r) || "—"],
+        ["Page · صفحہ", r.page || "—"],
+        ["Sr #", r.srNo ?? "—"],
+        ["Kind · قسم", r.category],
+        ["How · طریقہ", r.method || "—"],
+        ["In · وصول", r.received ? PKR(r.received) : "—"],
+        ["Out · ادائیگی", r.paid ? PKR(r.paid) : "—"],
+        ["Balance on the paper · کاغذ پر بقایا", r.sheetBalance != null ? PKR(r.sheetBalance) : "—"],
+      ]
+    : [
+        ["Date · تاریخ", fmtDate(r.entryDate)],
+        ["Whose ledger · کس کا کھاتہ", d.partyName],
+        ["Type · قسم", r.label],
+        ["How · طریقہ", r.method || "—"],
+        ["Added · جمع", r.credit ? PKR(r.credit) : "—"],
+        ["Taken · نام", r.debit ? PKR(r.debit) : "—"],
+      ];
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-lg h-full bg-white shadow-xl overflow-auto p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-[11px] text-[#6B7280]">{isKhata ? "Truck khata row · ٹرک کھاتہ" : "Party ledger entry · پارٹی کھاتہ"}</div>
+            <div className="text-sm font-bold" dir="auto">{r.description || "—"}</div>
+          </div>
+          <button onClick={onClose} className="text-[#6B7280] hover:text-[#111827]"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs rounded-lg border border-[#E5E7EB] p-3">
+          {facts.map(([k, v]) => (
+            <React.Fragment key={k}>
+              <span className="text-[#6B7280]">{k}</span>
+              <span className="text-right tabular-nums" dir="auto">{v}</span>
+            </React.Fragment>
+          ))}
+        </div>
+        {isKhata && (r.box || r.carry) && (
+          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-[11px] text-[#4B5563]" dir="auto">
+            {r.box ? LEFT_OUT_WHY.box : LEFT_OUT_WHY.carry} — not counted in the profit report.
+          </div>
+        )}
+        {onNavigate && (
+          <button
+            onClick={() => {
+              if (d.type === "khata") onNavigate("khata", "truck_ledgers", { ledgerId: d.ledgerId, entryId: r.id });
+              else onNavigate("khata", "parties", { partyId: d.partyId, entryId: r.id });
+              onClose();
+            }}
+            className="w-full flex items-center justify-center gap-1.5 text-xs border border-[#24539B] text-[#24539B] rounded-lg px-3 py-2 hover:bg-[#F2F5FA]"
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> {isKhata ? "Open this row in Truck Ledgers · ٹرک کھاتے میں کھولیں" : "Open this entry in Party Ledgers · پارٹی کھاتے میں کھولیں"}
+          </button>
+        )}
+        <div onClick={onFilesChanged}>
+          <AttachmentPanel entityType={isKhata ? "truck_ledger_entry" : "party_ledger_entry"} entityId={r.id} title="Receipts & proof · رسیدیں" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- setup
+
+function NewPartnership({
+  opts,
+  presetLedgerId,
+  onCancel,
+  onCreated,
+  showFeedback,
+}: {
+  opts: { ledgers: any[]; parties: any[] } | null;
+  presetLedgerId: number | null;
+  onCancel: () => void;
+  onCreated: (ledgerId: number) => void;
+  showFeedback: Feedback;
+}) {
+  const [f, setF] = useState({ truckLedgerId: presetLedgerId ? String(presetLedgerId) : "", partnerName: "", hfkName: "", partnerPercent: "50", openingPool: "", openingDate: today(), openingDebt: "", debtNote: "" });
+  const [truckQ, setTruckQ] = useState("");
+  const [saving, setSaving] = useState(false);
+  const set = (k: string) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const trucks = useMemo(() => {
+    const q = truckQ.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return (opts?.ledgers || []).filter((l) => !l.accountId && (!q || `${l.registration}${l.title}`.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q)));
+  }, [opts, truckQ]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await enterpriseFetch("/api/partnership", { method: "POST", body: JSON.stringify({ ...f, truckLedgerId: Number(f.truckLedgerId) }) });
+      showFeedback("success", "Partnership set up · شراکتی حساب بن گیا");
+      onCreated(Number(f.truckLedgerId));
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5";
+  return (
+    <div className="rounded-xl border border-[#24539B] bg-white p-3 space-y-3 text-xs">
+      <div className="font-bold">New partnership · نیا شراکتی حساب</div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">1. Truck khata · ٹرک کا کھاتہ *</span>
+          <input id="ppl-new-truck-q" value={truckQ} onChange={(e) => setTruckQ(e.target.value)} placeholder="Type the truck number… (TLE 730)" className={inp} />
+          <select id="ppl-new-truck" value={f.truckLedgerId} onChange={set("truckLedgerId")} size={5} className={inp}>
+            {trucks.slice(0, 200).map((l) => (
+              <option key={l.id} value={l.id}>{l.title} · {l.entries} rows</option>
+            ))}
+          </select>
+          <span className="text-[#6B7280]" dir="auto">The open cycle starts after this khata's last صافی بچت / “حساب نیل” line.</span>
+        </label>
+        <div className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">2. Partner's name · شریک کا نام *</span>
+            <input id="ppl-new-partner" list="ppl-parties" value={f.partnerName} onChange={set("partnerName")} placeholder="Qudrat Ullah" dir="auto" className={inp} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">3. HFK side (whose ledger holds HFK's half) · HFK کا کھاتہ *</span>
+            <input id="ppl-new-hfk" list="ppl-parties" value={f.hfkName} onChange={set("hfkName")} placeholder="Haji Mahboob (HFK)" dir="auto" className={inp} />
+          </label>
+          <datalist id="ppl-parties">{(opts?.parties || []).map((p) => <option key={p.id} value={p.name} />)}</datalist>
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">4. Partner's share % · شریک کا حصہ</span>
+            <input id="ppl-new-pct" inputMode="numeric" value={f.partnerPercent} onChange={set("partnerPercent")} className={inp} />
+          </label>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">5. Joint pool already saved (optional) · بقایا مشترکہ جمع</span>
+            <input id="ppl-new-pool" inputMode="numeric" value={f.openingPool} onChange={set("openingPool")} placeholder="2029168" className={inp} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">As of · تاریخ</span>
+            <input id="ppl-new-date" type="date" value={f.openingDate} onChange={set("openingDate")} className={inp} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">6. Partner's old debt (optional) · پرانا قرضہ</span>
+            <input id="ppl-new-debt" inputMode="numeric" value={f.openingDebt} onChange={set("openingDebt")} placeholder="5000000" className={inp} />
+            <input id="ppl-new-debt-note" value={f.debtNote} onChange={set("debtNote")} placeholder="what the debt is for · قرضہ کس بات کا" dir="auto" className={inp} />
+          </label>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button disabled={saving || !f.truckLedgerId || !f.partnerName.trim() || !f.hfkName.trim()} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">
+          {saving ? "Saving…" : "Create · بنائیں"}
+        </button>
+        <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
+      </div>
     </div>
   );
 }

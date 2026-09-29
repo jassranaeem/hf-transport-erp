@@ -22,7 +22,10 @@
  *   GET    /api/partnership/options           trucks (khatas) + parties for the setup form
  *   GET    /api/partnership                   all partnership accounts with their balances
  *   POST   /api/partnership                   set one up
- *   GET    /api/partnership/:id               open cycle + balances + history
+ *   GET    /api/partnership/report?ledgerId&from&to   any-dates report for one truck khata
+ *   GET    /api/partnership/ledger/:id/pages   the khata's paper pages (one per paper cycle)
+ *   GET    /api/partnership/ledger/:id/rows    rows of a page (?page=) or an id range (?after=&upto=)
+ *   GET    /api/partnership/:id               open cycle + balances + history + closed cycles
  *   POST   /api/partnership/:id/close         close the open cycle
  *   POST   /api/partnership/:id/undo-close    reopen the last closed cycle
  *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
@@ -131,8 +134,21 @@ async function loadAccount(id: number) {
   return a || null;
 }
 
-/** The open cycle: every khata row written after the watermark, in writing order. */
-async function openCycle(ledgerId: number, afterId: number) {
+// A previous page's result written again at the top of the next page — a shortfall
+// ("قرضدار 705,475", "fura qarzder") or a saving ("bacht 129,460", "صافی بچت 677,280"). Part
+// of the paper's running balance, but not new money: a report that counted it would count
+// that result twice.
+const CARRY_RE = /قرضدار|qarz\s*d[ae]r|qarzder|بچت|bach?at|bacht/i;
+
+/**
+ * Truck khata rows in writing order, each flagged:
+ *  box   — a figure from the settlement box drawn beside the paper table ("Des 350,000",
+ *          "Total حساب ہوگئا ہے 405,000"): imported from the sheet, but it has no Sr# and no
+ *          balance of its own. Never money of the truck.
+ *  carry — a carried-forward line (see CARRY_RE)
+ *  marker— a صافی بچت / "hisab nil" close line
+ */
+async function khataRows(ledgerId: number, ...extra: any[]) {
   const rows = await db
     .select({
       id: schema.truckLedgerEntries.id,
@@ -143,24 +159,65 @@ async function openCycle(ledgerId: number, afterId: number) {
       received: schema.truckLedgerEntries.received,
       paid: schema.truckLedgerEntries.paid,
       category: schema.truckLedgerEntries.category,
+      method: schema.truckLedgerEntries.method,
+      page: schema.truckLedgerEntries.sectionLabel,
+      sheetBalance: schema.truckLedgerEntries.sheetBalance,
+      sourceRow: schema.truckLedgerEntries.sourceRow,
+      isReset: schema.truckLedgerEntries.isReset,
+      files: sql<number>`(select count(*)::int from attachments a where a.entity_type = 'truck_ledger_entry' and a.entity_id = ${schema.truckLedgerEntries.id} and not a.is_deleted)`,
     })
     .from(schema.truckLedgerEntries)
-    .where(
-      and(
-        eq(schema.truckLedgerEntries.ledgerId, ledgerId),
-        eq(schema.truckLedgerEntries.isDeleted, false),
-        gt(schema.truckLedgerEntries.id, afterId),
-        ne(schema.truckLedgerEntries.category, "SafiBachat"), // a صافی بچت line is the paper's close marker, not money
-      ),
-    )
+    .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), ...extra))
     .orderBy(asc(schema.truckLedgerEntries.id));
+  return rows.map((r) => {
+    const money = (r.received || 0) !== 0 || (r.paid || 0) !== 0;
+    return {
+      ...r,
+      money,
+      box: money && r.sourceRow != null && r.sheetBalance == null && r.srNo == null,
+      carry: CARRY_RE.test(r.description || ""),
+      marker: r.category === "SafiBachat" || !!r.isReset,
+    };
+  });
+}
+type KhataRow = Awaited<ReturnType<typeof khataRows>>[number];
+
+/**
+ * The paper settles a page by one unlabelled last line that brings its balance to exactly 0
+ * (page 2: "677,280 → 0", page 8: "265,965 → 0") — a transfer to / from the joint pool, not
+ * income or expense. Needs whole pages, so only used where all the khata's rows are loaded.
+ */
+function settleIds(rows: KhataRow[]): Set<number> {
+  const out = new Set<number>();
+  const byPage = new Map<string, KhataRow[]>();
+  for (const r of rows) if (r.page) byPage.set(r.page, [...(byPage.get(r.page) || []), r]);
+  for (const page of byPage.values()) {
+    const lines = page.filter((r) => r.money && !r.box);
+    if (lines.length < 2) continue;
+    const last = lines[lines.length - 1];
+    const before = lines.slice(0, -1).reduce((s, r) => s + (r.received || 0) - (r.paid || 0), 0);
+    const after = before + (last.received || 0) - (last.paid || 0);
+    if (before !== 0 && after === 0 && !(last.description || "").trim()) out.add(last.id);
+  }
+  return out;
+}
+
+/** Lines with a running balance from 0, the way a paper page reads (box figures left out). */
+function withBalance(rows: KhataRow[]) {
   let bal = 0;
-  const lines = rows
-    .filter((r) => (r.received || 0) !== 0 || (r.paid || 0) !== 0)
+  return rows
+    .filter((r) => r.money && !r.box)
     .map((r) => {
       bal += (r.received || 0) - (r.paid || 0);
       return { ...r, balance: bal };
     });
+}
+
+/** The open cycle: every khata row written after the watermark, in writing order. */
+async function openCycle(ledgerId: number, afterId: number) {
+  const rows = await khataRows(ledgerId, gt(schema.truckLedgerEntries.id, afterId));
+  // a صافی بچت line is the paper's close marker, not money
+  const lines = withBalance(rows.filter((r) => r.category !== "SafiBachat"));
   const received = lines.reduce((s, r) => s + (r.received || 0), 0);
   const paid = lines.reduce((s, r) => s + (r.paid || 0), 0);
   return { lines, received, paid, net: received - paid, lastId: rows.length ? rows[rows.length - 1].id : afterId };
@@ -216,7 +273,126 @@ router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Respons
       .from(schema.parties)
       .where(eq(schema.parties.isDeleted, false))
       .orderBy(asc(schema.parties.name));
-    res.json({ ledgers: ledgers.filter((l) => l.entries > 0 || !l.sourceSheet), parties });
+    const accs = await db
+      .select({ id: schema.partnershipAccounts.id, ledgerId: schema.partnershipAccounts.truckLedgerId })
+      .from(schema.partnershipAccounts)
+      .where(eq(schema.partnershipAccounts.isDeleted, false));
+    const accByLedger = new Map(accs.map((a) => [a.ledgerId, a.id]));
+    res.json({
+      ledgers: ledgers.filter((l) => l.entries > 0 || !l.sourceSheet).map((l) => ({ ...l, accountId: accByLedger.get(l.id) ?? null })),
+      parties,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Any-dates report for one truck khata: money in − money out, by category, split by %.
+ * Counts every real row (online payments and "kiraya jama" deposits included — they are the
+ * truck's money), and leaves out only what isn't new money: صافی بچت lines, carried-forward
+ * قرضدار lines and the settlement-box figures. Those are listed separately so nothing is hidden.
+ */
+router.get("/report", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const ledgerId = Number(req.query.ledgerId);
+    if (!ledgerId) return res.status(400).json({ error: "ledgerId is required" });
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(new Date(String(req.query.to)).getTime() + 24 * 3600_000 - 1) : null;
+    const [acc] = await db
+      .select()
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, ledgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    const pct = acc ? acc.partnerPercent : Math.max(0, Math.min(100, whole(req.query.pct ?? 50)));
+
+    const all = await khataRows(ledgerId);
+    const settled = settleIds(all);
+    const inRange = all.filter((r) => {
+      if (!from && !to) return true;
+      if (!r.entryDate) return false;
+      const t = new Date(r.entryDate).getTime();
+      return (!from || t >= from.getTime()) && (!to || t <= to.getTime());
+    });
+    const money = inRange.filter((r) => r.money);
+    const counted = money.filter((r) => !r.box && !r.carry && !settled.has(r.id) && r.category !== "SafiBachat");
+    const leftOut = money
+      .filter((r) => !counted.includes(r))
+      .map((r) => ({ ...r, why: r.box ? "box" : r.carry ? "carry" : settled.has(r.id) ? "settle" : "safi" }));
+
+    const byCat = new Map<string, { category: string; received: number; paid: number; entries: number }>();
+    for (const r of counted) {
+      const c = byCat.get(r.category) || { category: r.category, received: 0, paid: 0, entries: 0 };
+      c.received += r.received || 0;
+      c.paid += r.paid || 0;
+      c.entries++;
+      byCat.set(r.category, c);
+    }
+    const revenue = counted.reduce((s, r) => s + (r.received || 0), 0);
+    const cost = counted.reduce((s, r) => s + (r.paid || 0), 0);
+    const net = revenue - cost;
+    const partnerShare = Math.round((net * pct) / 100);
+    const dated = all.filter((r) => r.entryDate).map((r) => new Date(r.entryDate as any).getTime());
+    res.json({
+      pct,
+      accountId: acc?.id ?? null,
+      categories: [...byCat.values()].sort((a, b) => b.paid - a.paid || b.received - a.received),
+      rows: counted,
+      leftOut,
+      undated: all.filter((r) => r.money && !r.entryDate).length,
+      coverage: dated.length ? { from: new Date(Math.min(...dated)).toISOString(), to: new Date(Math.max(...dated)).toISOString() } : null,
+      totals: { revenue, cost, net, partnerShare, hfkShare: net - partnerShare },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The khata's paper pages — each SR# table on the paper is one cycle — newest first. */
+router.get("/ledger/:ledgerId/pages", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await khataRows(Number(req.params.ledgerId));
+    const groups: { page: string; rows: KhataRow[] }[] = [];
+    for (const r of rows) {
+      const page = r.page || "Entries";
+      if (!groups.length || groups[groups.length - 1].page !== page) groups.push({ page, rows: [] });
+      groups[groups.length - 1].rows.push(r);
+    }
+    const pages = groups.map((g) => {
+      const lines = withBalance(g.rows);
+      const real = g.rows.filter((r) => !r.box);
+      // what the paper itself wrote as the page's last balance (before any "nil" zeroing line)
+      // (numbered paper rows only — the settlement box beside the table has balances of its own)
+      const written = [...real].reverse().find((r) => r.srNo != null && r.sheetBalance != null && r.sheetBalance !== 0)?.sheetBalance;
+      const dates = lines.map((l) => l.rawDate).filter(Boolean);
+      return {
+        page: g.page,
+        firstId: g.rows[0].id,
+        lastId: g.rows[g.rows.length - 1].id,
+        from: dates[0] || null,
+        to: dates[dates.length - 1] || null,
+        lines: lines.length,
+        received: lines.reduce((s, l) => s + (l.received || 0), 0),
+        paid: lines.reduce((s, l) => s + (l.paid || 0), 0),
+        result: written ?? (lines.length ? lines[lines.length - 1].balance : 0),
+        files: g.rows.reduce((s, r) => s + (r.files || 0), 0),
+      };
+    });
+    res.json(pages.reverse());
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Rows of one paper page, or of an id range (a cycle closed on this screen). */
+router.get("/ledger/:ledgerId/rows", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const extra: any[] = [];
+    if (req.query.page) extra.push(eq(schema.truckLedgerEntries.sectionLabel, String(req.query.page)));
+    if (req.query.after) extra.push(gt(schema.truckLedgerEntries.id, Number(req.query.after)));
+    if (req.query.upto) extra.push(sql`${schema.truckLedgerEntries.id} <= ${Number(req.query.upto)}`);
+    const rows = await khataRows(Number(req.params.ledgerId), ...extra);
+    res.json({ lines: withBalance(rows), box: rows.filter((r) => r.box) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -313,11 +489,29 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         debit: schema.partyLedgerEntries.debit,
         credit: schema.partyLedgerEntries.credit,
         label: schema.partyLedgerEntries.sectionLabel,
+        sourceRow: schema.partyLedgerEntries.sourceRow,
+        files: sql<number>`(select count(*)::int from attachments x where x.entity_type = 'party_ledger_entry' and x.entity_id = ${schema.partyLedgerEntries.id} and not x.is_deleted)`,
       })
       .from(schema.partyLedgerEntries)
       .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
       .orderBy(desc(schema.partyLedgerEntries.entryDate), desc(schema.partyLedgerEntries.id));
     const pct = a.partnerPercent;
+
+    // cycles closed on this screen: each close wrote one line per side, carrying where that
+    // cycle started (sourceRow); it ended where the next one started, or at the watermark
+    const closeLines = history.filter((h) => (kindOf(h.label) === "safi" || kindOf(h.label) === "loss") && h.sourceRow != null);
+    const starts = [...new Set(closeLines.map((h) => h.sourceRow as number))].sort((x, y) => x - y);
+    const closed = starts.map((after, i) => {
+      const lines = closeLines.filter((h) => h.sourceRow === after);
+      return {
+        no: i + 1,
+        after,
+        upto: starts[i + 1] ?? a.lastEntryId,
+        date: lines[0]?.entryDate,
+        net: lines.reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+        partnerShare: lines.filter((h) => h.partyId === a.partnerPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+      };
+    });
     res.json({
       account: a,
       truck: full.truck,
@@ -332,6 +526,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       },
       ...bal,
       history: history.map((h) => ({ ...h, kind: kindOf(h.label), side: h.partyId === a.partnerPartyId ? "partner" : "hfk" })),
+      closed: closed.reverse(),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
