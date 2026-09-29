@@ -22,6 +22,15 @@ type Feedback = (t: "success" | "error", m: string) => void;
 
 const PKR = (n: number) => (n < 0 ? "-" : "") + Math.abs(Math.round(n || 0)).toLocaleString();
 const minus = (n: number) => (n ? "−" + PKR(n) : "0");
+/** "900000" → "9,00,000 · 9 lakh" — so a missing / extra zero is seen before saving. */
+function amountWords(raw: string): string {
+  const n = Math.round(Number(String(raw || "").replace(/[^0-9.]/g, "")) || 0);
+  if (!n) return "";
+  const pk = n.toLocaleString("en-IN");
+  const lakh = n / 100000;
+  const words = n >= 10000000 ? `${+(n / 10000000).toFixed(2)} crore` : n >= 100000 ? `${+lakh.toFixed(2)} lakh` : n >= 1000 ? `${+(n / 1000).toFixed(1)} thousand` : "";
+  return `= ${pk}${words ? ` · ${words}` : ""}`;
+}
 const today = () => new Date().toISOString().slice(0, 10);
 const fmtDate = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
 const rowDate = (r: any) => r.rawDate || fmtDate(r.entryDate);
@@ -563,6 +572,39 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
       </div>
 
       <AddEntry d={d} busy={busy} act={act} />
+
+      {/* what was just entered shows here straight away (full list: History) */}
+      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+          Latest entries · حالیہ انٹریاں <span className="font-normal text-[#6B7280]">(partner &amp; HFK — click to see, edit or delete · all of them in History)</span>
+        </div>
+        <table className="w-full text-xs">
+          <tbody>
+            {d.history.slice(0, 6).map((h: any) => {
+              const partner = h.side === "partner";
+              const partyId = partner ? d.account.partnerPartyId : d.account.hfkPartyId;
+              const name = partner ? d.partnerName : d.hfkName;
+              return (
+                <tr
+                  key={h.id}
+                  onClick={() => onOpen({ type: "party", partyId, partyName: name, row: h, accountId: d.account.id })}
+                  className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]"
+                >
+                  <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(h.entryDate)}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{name}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{h.label}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap text-[#6B7280]">{h.method}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{h.credit ? PKR(h.credit) : ""}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{h.debit ? PKR(h.debit) : ""}</td>
+                </tr>
+              );
+            })}
+            {!d.history.length && (
+              <tr><td className="px-3 py-3 text-center text-[#6B7280]">No entries yet · ابھی کوئی انٹری نہیں</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -588,7 +630,8 @@ function Side({ title, role, s, onOpen }: { title: string; role: string; s: any;
         <span>Share of profit · منافع کا حصہ</span><span className="text-right">{PKR(s.share)}</span>
         <span>Taken for home · شخصی برداشت</span><span className="text-right">{minus(s.withdrawn)}</span>
         {s.paidOut ? (<><span>Paid out · ادا</span><span className="text-right">{minus(s.paidOut)}</span></>) : null}
-        {s.debt ? (<><span>Old debt left · باقی قرضہ</span><span className="text-right">{minus(s.debt)}</span></>) : null}
+        {s.debt > 0 ? (<><span>Old debt left · باقی قرضہ</span><span className="text-right">{minus(s.debt)}</span></>) : null}
+        {s.debt < 0 ? (<><span>Paid back · جمع کرایا</span><span className="text-right">+{PKR(-s.debt)}</span></>) : null}
       </div>
     </div>
   );
@@ -609,7 +652,7 @@ function AddEntry({ d, busy, act }: { d: any; busy: boolean; act: (fn: () => Pro
   const submit = async () => {
     const r = await act(
       () => enterpriseFetch(`/api/partnership/${d.account.id}/event`, { method: "POST", body: JSON.stringify({ kind, who: whoNow, amount, date, method, note, matchOther }) }),
-      (r) => r.warning || "Saved in the party ledger — attach the receipt from History · کھاتے میں درج ہو گیا",
+      (r) => r.warning || `Saved: ${PKR(r.entry?.credit || r.entry?.debit || 0)} — listed under “Latest entries” below and in History · محفوظ ہو گیا`,
     );
     if (r) {
       setAmount("");
@@ -638,6 +681,7 @@ function AddEntry({ d, busy, act }: { d: any; busy: boolean; act: (fn: () => Pro
         <label className="flex flex-col gap-1">
           <span className="text-[#6B7280]">Amount · رقم *</span>
           <input id="ppl-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${inp} tabular-nums`} />
+          {amount && <span className="text-[11px] text-[#24539B] tabular-nums">{amountWords(amount)}</span>}
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[#6B7280]">Date · تاریخ</span>
