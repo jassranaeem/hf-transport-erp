@@ -237,7 +237,31 @@ export default function CashBook({
       )}
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">{date} — Entries ({withRunning.length})</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center justify-between gap-2 flex-wrap">
+          <span>{date} — Entries ({withRunning.length})</span>
+          {withRunning.length > 0 && (
+            <button
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    `Delete ALL ${withRunning.length} entries of ${date}? Their links in Truck / Party Ledgers are removed too. Use this to import the day's sheet again cleanly. · اس دن کی تمام ${withRunning.length} انٹریاں حذف کریں؟`,
+                  )
+                )
+                  return;
+                try {
+                  const r = await enterpriseFetch(`/api/cash-book/day?date=${date}`, { method: "DELETE" });
+                  showFeedback("success", `${r.message} · حذف ہو گئیں`);
+                  load();
+                } catch (e: any) {
+                  showFeedback("error", e.message);
+                }
+              }}
+              className="flex items-center gap-1 font-normal text-[#B91C1C] border border-[#FCA5A5] rounded-lg px-2 py-1 bg-white hover:bg-[#FEF2F2]"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete this day's entries · اس دن کی سب انٹریاں حذف
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-[#F9FAFB] text-[#6B7280]">

@@ -562,6 +562,11 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
             amount: sql`excluded.amount`,
             person: sql`excluded.person`,
             description: sql`excluded.description`,
+            // a row deleted earlier and brought back by this import starts without a link: its
+            // ledger entry was removed when it was deleted, and the old link may have been wrong
+            linkType: sql`case when ${T.isDeleted} then null else ${T.linkType} end`,
+            linkTargetId: sql`case when ${T.isDeleted} then null else ${T.linkTargetId} end`,
+            derivedEntryId: sql`case when ${T.isDeleted} then null else ${T.derivedEntryId} end`,
             isDeleted: false,
             deletedAt: null,
             updatedAt: new Date(),
@@ -578,6 +583,28 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Import failed" });
+  }
+});
+
+/** Delete every entry of one day (e.g. to import that day's sheet again cleanly). Linked
+ * truck / party ledger lines go with them, exactly as when deleting one entry. */
+router.delete("/day", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const dateStr = String(req.query.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return res.status(400).json({ error: "Pick the day · تاریخ منتخب کریں" });
+    const { start, end } = dayBounds(dateStr);
+    const rows = await db
+      .select()
+      .from(T)
+      .where(and(eq(T.isDeleted, false), gte(T.entryDate, start), lte(T.entryDate, end))); // the very rows the day view shows
+    for (const old of rows) {
+      await db.update(T).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(T.id, old.id));
+      await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+      await audit(req, "DELETE", old.id, old, null);
+    }
+    res.json({ message: `${rows.length} entries of ${dateStr} deleted`, deleted: rows.length });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
