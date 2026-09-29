@@ -42,6 +42,7 @@ import { parseCashbookFlat } from "../src/lib/dataio/cashbook-flat-import.ts";
 import { sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { recompute as recomputeTruckLedger } from "./ledgers.ts";
 import { recompute as recomputePartyLedger } from "./parties.ts";
+import { partnershipLedgerForPlate } from "./partnership.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -93,7 +94,8 @@ function dayBounds(dateStr: string) {
   return { start, end };
 }
 
-// the one ledger Trip Desk (and now Cash Book) ever writes to for a truck: hand-entered,
+// the one ledger Trip Desk (and now Cash Book) ever writes to for a truck: its partnership
+// khata when it is shared with a partner (see partnershipLedgerForPlate), otherwise hand-entered,
 // never tied to a specific old Excel sheet. Created on first use.
 //
 // Matched by NORMALIZED PLATE, not by vehicleId: the fleet has more than one `vehicles` row
@@ -108,6 +110,9 @@ async function resolveManualLedgerId(vehicleId: number, userId: number | undefin
   const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
   if (!veh) throw new Error("Truck not found");
   const plate = veh.vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // a truck shared with a partner keeps ONE khata — the one its partnership cycle reads
+  const shared = await partnershipLedgerForPlate(veh.vehicleNumber);
+  if (shared) return shared;
   const [existing] = await db
     .select()
     .from(schema.truckLedgers)

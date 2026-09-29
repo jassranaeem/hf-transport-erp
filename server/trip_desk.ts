@@ -23,6 +23,7 @@ import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
 import { applyLatestGpsToTrip, distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
+import { partnershipLedgerForPlate } from "./partnership.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -396,7 +397,11 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     await db.update(schema.drivers).set({ status: "On Trip", assignedVehicleId: veh.id }).where(eq(schema.drivers.id, drv.id));
 
     // --- khata + money given
-    let [led] = await db
+    // a truck shared with a partner keeps ONE khata — the one its partnership cycle reads
+    const sharedId = await partnershipLedgerForPlate(veh.vehicleNumber);
+    let [led] = sharedId
+      ? await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, sharedId)).limit(1)
+      : await db
       .select()
       .from(schema.truckLedgers)
       .where(
@@ -547,7 +552,10 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const [trip] = await db.select().from(schema.trips).where(and(eq(schema.trips.id, tripId), eq(schema.trips.isDeleted, false))).limit(1);
     if (!trip) return res.status(404).json({ error: "Trip not found" });
     const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, trip.vehicleId)).limit(1);
-    let [led] = await db
+    const sharedId = veh ? await partnershipLedgerForPlate(veh.vehicleNumber) : null;
+    let [led] = sharedId
+      ? await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, sharedId)).limit(1)
+      : await db
       .select()
       .from(schema.truckLedgers)
       .where(and(eq(schema.truckLedgers.isDeleted, false), isNull(schema.truckLedgers.sourceSheet), eq(schema.truckLedgers.vehicleId, trip.vehicleId)))

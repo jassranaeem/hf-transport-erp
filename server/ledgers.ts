@@ -583,7 +583,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       .select()
       .from(schema.truckLedgerEntries)
       .where(and(...cond))
-      .orderBy(asc(schema.truckLedgerEntries.sectionLabel), asc(schema.truckLedgerEntries.srNo), asc(schema.truckLedgerEntries.id))
+      .orderBy(PAGE_ORDER, asc(schema.truckLedgerEntries.id))
       .limit(limit)
       .offset(offset);
 
@@ -628,24 +628,36 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
   }
 });
 
+// Pages in the order they were written. Sorting the page label as text put "Page 10" before
+// "Page 2" and made "Page 9" the last page, so a 12-page khata's closing balance came from
+// page 9. Within a page, rows keep the order they were written — the paper's own order (an
+// unnumbered real row such as "Carnet Send kiye Taftan ko" stays in place). (Window
+// functions are allowed in ORDER BY.)
+const PAGE_ORDER = sql`min(${schema.truckLedgerEntries.id}) over (partition by ${schema.truckLedgerEntries.sectionLabel})`;
+
 // ---- recompute a ledger's running balances (after edits) ---------
 export async function recompute(ledgerId: number) {
   const rows = await db
     .select()
     .from(schema.truckLedgerEntries)
     .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false)))
-    .orderBy(asc(schema.truckLedgerEntries.sectionLabel), asc(schema.truckLedgerEntries.srNo), asc(schema.truckLedgerEntries.id));
+    .orderBy(PAGE_ORDER, asc(schema.truckLedgerEntries.id));
   let running = 0;
   let section = "";
   let lastReal = 0;
   for (const r of rows) {
     if (r.sectionLabel !== section) {
       section = r.sectionLabel || "";
-      running = 0;
+      // a new paper page starts from 0; rows added in the app ("Manual") carry on from
+      // wherever the khata stood, like a new line written under the last page
+      if (section !== "Manual") running = 0;
     }
-    running += (r.received || 0) - (r.paid || 0);
+    // a figure from the settlement box drawn beside the paper table (imported, but no Sr# and
+    // no balance of its own) is not the truck's money — it must not move the balance
+    const boxFigure = r.sourceRow != null && r.srNo == null && r.sheetBalance == null && !!(r.received || r.paid);
+    if (!boxFigure) running += (r.received || 0) - (r.paid || 0);
     if (r.isReset) running = 0;
-    if (r.received || r.paid) lastReal = running;
+    if ((r.received || r.paid) && !boxFigure) lastReal = running;
     if (r.runningBalance !== running) {
       await db.update(schema.truckLedgerEntries).set({ runningBalance: running }).where(eq(schema.truckLedgerEntries.id, r.id));
     }

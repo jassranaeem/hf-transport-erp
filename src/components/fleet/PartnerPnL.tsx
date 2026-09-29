@@ -313,6 +313,26 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
         <Side title={d.hfkName} role={`HFK ${100 - pct}%`} s={d.hfk} onOpen={onNavigate ? () => openParty(d.account.hfkPartyId) : undefined} />
       </div>
 
+      {d.strays?.length > 0 && (
+        <div className="rounded-xl border border-[#F59E0B] bg-[#FFFBEB] px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap" dir="auto">
+          <span>
+            {d.truck} also has {d.strays.length === 1 ? "another khata" : `${d.strays.length} other khatas`} made in the app (Daily Cash Book / Trip Desk):{" "}
+            {d.strays.map((x: any) => `${x.title} — ${x.entries} entries, in ${PKR(x.received)}, out ${PKR(x.paid)}`).join("; ")}. This cycle can't see them until they are
+            moved here. · اس ٹرک کا ایک اور کھاتہ بھی ہے — اسے یہاں منتقل کریں تاکہ حساب مکمل ہو۔
+          </span>
+          <button
+            disabled={busy}
+            onClick={() =>
+              window.confirm(`Move ${d.strays.reduce((n: number, x: any) => n + x.entries, 0)} entries into ${d.truckTitle}, so ${d.truck} has one khata? · اندراجات اس کھاتے میں منتقل کریں؟`) &&
+              act(() => enterpriseFetch(`/api/partnership/${accountId}/adopt`, { method: "POST" }), (r) => `${r.moved} entries moved into this khata (${r.intoOpenCycle} in the open cycle) · منتقل ہو گئے`)
+            }
+            className="bg-[#B45309] text-white font-semibold rounded-lg px-3 py-1.5 whitespace-nowrap disabled:opacity-60"
+          >
+            Move into this khata · یہاں منتقل کریں
+          </button>
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="px-3 py-2 bg-[#F2F5FA] flex items-center justify-between flex-wrap gap-2">
           <div className="text-xs font-bold">

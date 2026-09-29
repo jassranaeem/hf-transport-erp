@@ -30,13 +30,15 @@
  *   POST   /api/partnership/:id/undo-close    reopen the last closed cycle
  *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
  *   DELETE /api/partnership/:id/event/:entryId
+ *   POST   /api/partnership/:id/adopt         move the truck's other app-made khatas into this one
  */
 import { Router, Response } from "express";
-import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute as recomputeParty } from "./parties.ts";
+import { recompute as recomputeKhata } from "./ledgers.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -132,6 +134,57 @@ async function loadAccount(id: number) {
     .where(and(eq(schema.partnershipAccounts.id, id), eq(schema.partnershipAccounts.isDeleted, false)))
     .limit(1);
   return a || null;
+}
+
+/**
+ * The khata a partnership truck keeps its money in, or null when the truck has no partnership.
+ * Daily Cash Book and Trip Desk write here, so the truck has ONE khata — the same one the
+ * partnership's cycle reads — instead of a second app-made one the cycle never sees.
+ * (Writing into an imported khata is safe: a re-import only matches the sheet's own rows and
+ * always keeps rows added in the app.)
+ */
+export async function partnershipLedgerForPlate(vehicleNumber: string): Promise<number | null> {
+  const plate = String(vehicleNumber || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!plate) return null;
+  const [row] = await db
+    .select({ id: schema.truckLedgers.id })
+    .from(schema.partnershipAccounts)
+    .innerJoin(schema.truckLedgers, eq(schema.partnershipAccounts.truckLedgerId, schema.truckLedgers.id))
+    .where(
+      and(
+        eq(schema.partnershipAccounts.isDeleted, false),
+        eq(schema.truckLedgers.isDeleted, false),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
+    .orderBy(asc(schema.partnershipAccounts.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/** The truck's other app-made khatas (no sheet of their own) that still hold entries. */
+async function strayKhatas(ledgerId: number) {
+  const [main] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+  if (!main) return [];
+  const plate = String(main.registration || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return db
+    .select({
+      id: schema.truckLedgers.id,
+      title: schema.truckLedgers.title,
+      entries: sql<number>`(select count(*)::int from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+      received: sql<number>`(select coalesce(sum(e.received),0)::bigint from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+      paid: sql<number>`(select coalesce(sum(e.paid),0)::bigint from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+    })
+    .from(schema.truckLedgers)
+    .where(
+      and(
+        eq(schema.truckLedgers.isDeleted, false),
+        isNull(schema.truckLedgers.sourceSheet),
+        ne(schema.truckLedgers.id, ledgerId),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
+    .then((rows) => rows.filter((r) => r.entries > 0).map((r) => ({ ...r, received: Number(r.received), paid: Number(r.paid) })));
 }
 
 // A previous page's result written again at the top of the next page — a shortfall
@@ -530,6 +583,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       ...bal,
       history: history.map((h) => ({ ...h, kind: kindOf(h.label), side: h.partyId === a.partnerPartyId ? "partner" : "hfk" })),
       closed: closed.reverse(),
+      strays: await strayKhatas(a.truckLedgerId),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -672,6 +726,33 @@ router.delete("/:id/event/:entryId", requireRole(WRITE), async (req: AuthRequest
     await recomputeParty(e.partyId);
     await audit(req, "DELETE", "party_ledger_entries", e.id, e, null);
     res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Move the entries of the truck's other app-made khatas into the partnership khata, so the
+ * truck has one khata and the cycle sees every rupee. Only app-made khatas (no sheet of
+ * their own) are touched; the emptied khata is left in place with nothing in it.
+ */
+router.post("/:id/adopt", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const strays = await strayKhatas(a.truckLedgerId);
+    if (!strays.length) return res.json({ moved: 0 });
+    const ids = strays.map((x) => x.id);
+    const moved = await db
+      .update(schema.truckLedgerEntries)
+      .set({ ledgerId: a.truckLedgerId, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(and(inArray(schema.truckLedgerEntries.ledgerId, ids), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .returning({ id: schema.truckLedgerEntries.id });
+    for (const id of ids) await recomputeKhata(id);
+    await recomputeKhata(a.truckLedgerId);
+    await audit(req, "UPDATE", "truck_ledger_entries", a.truckLedgerId, { fromLedgers: ids }, { toLedger: a.truckLedgerId, entries: moved.map((m) => m.id) });
+    res.json({ moved: moved.length, intoOpenCycle: moved.filter((m) => m.id > a.lastEntryId).length });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
