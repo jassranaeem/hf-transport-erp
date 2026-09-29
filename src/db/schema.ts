@@ -2423,6 +2423,9 @@ export const cashTransactions = pgTable("cash_transactions", {
   notes: text("notes"),
   sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
   sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
+  // the side (In / Out) the row was imported on. It never changes, so the user can switch an
+  // imported entry between In and Out without colliding with the other side of the same row
+  sourceSide: text("source_side"),
   linkType: text("link_type"), // "truck" | "party" | null - which ledger this entry also posts to
   linkTargetId: integer("link_target_id"), // truck_ledgers.id or parties.id, depending on linkType
   derivedEntryId: integer("derived_entry_id"), // the truck_ledger_entries/party_ledger_entries row this created
@@ -2440,8 +2443,9 @@ export const cashTransactions = pgTable("cash_transactions", {
     // unique (not just indexed) so a bulk import can upsert in one statement
     // instead of one row at a time - NULLs (hand-entered rows) never conflict
     // with each other in Postgres, only two imported rows from the exact same
-    // sheet+row+direction would.
-    ctSourceIdx: uniqueIndex("ct_source_idx").on(table.sourceSheet, table.sourceRow, table.direction),
+    // sheet+row+side would. Keyed on the side the row was IMPORTED on (not today's direction):
+    // switching an imported entry from In to Out used to collide with that row's other entry.
+    ctSourceIdx: uniqueIndex("ct_source_idx").on(table.sourceSheet, table.sourceRow, table.sourceSide),
   };
 });
 

@@ -198,6 +198,23 @@ export default function CashBook({
               {importPreview.skippedSheets?.length > 0 && (
                 <div className="text-[11px] text-amber-700">Skipped sheets (no recognizable data): {importPreview.skippedSheets.join(", ")}</div>
               )}
+              {importPreview.alreadyThere?.length > 0 && (
+                <div className="rounded border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900 space-y-1" dir="auto">
+                  <div className="font-semibold">
+                    {importPreview.alreadyThere.length} of these rows are already in the Cash Book — they will NOT be added again · یہ لائنیں پہلے سے موجود ہیں، دوبارہ نہیں بنیں گی
+                  </div>
+                  <ul className="list-disc pl-4">
+                    {importPreview.alreadyThere.slice(0, 12).map((r: any, i: number) => (
+                      <li key={i}>
+                        {r.rawDate || ""} · {r.direction} · {PKR(r.amount)} · {r.description}
+                      </li>
+                    ))}
+                  </ul>
+                  <div>
+                    Will be imported: <b>{importPreview.newCount}</b> entries — In {PKR(importPreview.newIn)}, Out {PKR(importPreview.newOut)} · صرف نئی لائنیں شامل ہوں گی
+                  </div>
+                </div>
+              )}
               <button onClick={commitImport} disabled={importBusy} className="bg-emerald-600 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
                 {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Confirm import
               </button>

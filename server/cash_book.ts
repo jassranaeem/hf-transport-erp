@@ -342,7 +342,7 @@ router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Re
 
     res.json({ trucks, parties });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
@@ -401,7 +401,7 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
       closingBalance: openingBalance + totalIn - totalOut,
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
@@ -420,7 +420,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     await audit(req, "CREATE", row.id, null, fresh);
     res.json(fresh);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
@@ -453,21 +453,71 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     await audit(req, "UPDATE", id, old, fresh);
     res.json(fresh);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
+/** The real reason a database write failed, not the SQL text (drizzle puts the cause underneath). */
+function dbError(e: any): string {
+  const c = e?.cause;
+  if (c?.code === "23505") return "This would duplicate another entry of the same imported row · یہ لائن پہلے سے موجود ہے";
+  return String(c?.detail || c?.message || e?.message || "Could not save");
+}
+
 // ---- import from Excel (dual cash-book shape) --------------------------
+
+/**
+ * Rows of an upload that the Cash Book already has from somewhere else — an earlier import of
+ * another file, or the same day typed in by hand: same day, In/Out, amount and description
+ * ("SPN 016 • Dawood Online …"). Importing them again would count that money twice. A re-import
+ * of the SAME file isn't a duplicate (it updates its own rows by sheet + row).
+ */
+async function alreadyInBook(rows: Array<{ entryDate: Date | null; direction: string; amount: number; description: string | null; sourceSheet: string; sourceRow: number }>) {
+  const days = rows.map((r) => r.entryDate).filter(Boolean).map((d) => new Date(d as Date).getTime());
+  const dup = new Set<number>();
+  if (!days.length) return dup;
+  const from = new Date(Math.min(...days) - 36 * 3600_000);
+  const to = new Date(Math.max(...days) + 36 * 3600_000);
+  const existing = await db
+    .select({ id: T.id, entryDate: T.entryDate, direction: T.direction, amount: T.amount, description: T.description, sourceSheet: T.sourceSheet, sourceRow: T.sourceRow, sourceSide: T.sourceSide })
+    .from(T)
+    .where(and(eq(T.isDeleted, false), sql`${T.entryDate} between ${from.toISOString()}::timestamp and ${to.toISOString()}::timestamp`));
+  const words = (x: string | null) => String(x || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
+  const day = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  const key = (d: Date | null, dir: string, amt: number, desc: string | null) => `${day(d)}|${dir}|${amt}|${words(desc)}`;
+  const pool = new Map<string, number[]>();
+  for (const e of existing) {
+    const k = key(e.entryDate, e.direction, e.amount, e.description);
+    pool.set(k, [...(pool.get(k) || []), e.id]);
+  }
+  const sameSource = new Set(existing.filter((e) => e.sourceSheet).map((e) => `${e.sourceSheet}|${e.sourceRow}|${e.sourceSide ?? e.direction}`));
+  rows.forEach((r, i) => {
+    if (sameSource.has(`${r.sourceSheet}|${r.sourceRow}|${r.direction}`)) return; // this very file again: it updates itself
+    const ids = pool.get(key(r.entryDate, r.direction, r.amount, r.description));
+    if (ids && ids.length) {
+      ids.shift(); // each existing entry covers one row
+      dup.add(i);
+    }
+  });
+  return dup;
+}
 router.post("/import/preview", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
     const { rows, totalIn, totalOut, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    const dup = await alreadyInBook(rows);
+    const fresh = rows.filter((_, i) => !dup.has(i));
     res.json({
       rowCount: rows.length,
       totalIn,
       totalOut,
       skippedSheets,
       sample: rows.slice(0, 10),
+      // already in the Cash Book (skipped on import) and what will really be added
+      alreadyThere: [...dup].map((i) => rows[i]),
+      newCount: fresh.length,
+      newIn: fresh.filter((r) => r.direction === "In").reduce((a, r) => a + r.amount, 0),
+      newOut: fresh.filter((r) => r.direction === "Out").reduce((a, r) => a + r.amount, 0),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Could not read this workbook" });
@@ -482,7 +532,11 @@ const IMPORT_BATCH_SIZE = 500;
 router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
-    const { rows, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    const parsed = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    const skippedSheets = parsed.skippedSheets;
+    // rows the Cash Book already has from another file / typed by hand are not added twice
+    const dup = await alreadyInBook(parsed.rows);
+    const rows = parsed.rows.filter((_, i) => !dup.has(i));
 
     for (let i = 0; i < rows.length; i += IMPORT_BATCH_SIZE) {
       const chunk = rows.slice(i, i + IMPORT_BATCH_SIZE).map((r) => ({
@@ -493,6 +547,7 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
         description: r.description,
         sourceSheet: r.sourceSheet,
         sourceRow: r.sourceRow,
+        sourceSide: r.direction, // fixed: the side it came from in the file
         createdBy: req.user?.id,
         isDeleted: false,
         deletedAt: null,
@@ -501,7 +556,7 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
         .insert(T)
         .values(chunk as any)
         .onConflictDoUpdate({
-          target: [T.sourceSheet, T.sourceRow, T.direction],
+          target: [T.sourceSheet, T.sourceRow, T.sourceSide],
           set: {
             entryDate: sql`excluded.entry_date`,
             amount: sql`excluded.amount`,
@@ -515,7 +570,12 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
         });
     }
 
-    res.json({ message: `Imported ${rows.length} entries.`, count: rows.length, skippedSheets });
+    res.json({
+      message: `Imported ${rows.length} entries.${dup.size ? ` ${dup.size} were already in the Cash Book and were not added again.` : ""}`,
+      count: rows.length,
+      alreadyThere: dup.size,
+      skippedSheets,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Import failed" });
   }
@@ -534,7 +594,7 @@ router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response
     await audit(req, "DELETE", id, old, null);
     res.json({ message: "Entry deleted" });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dbError(e) });
   }
 });
 
