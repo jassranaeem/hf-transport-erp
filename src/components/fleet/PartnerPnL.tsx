@@ -12,9 +12,10 @@
  * exact row in Truck Ledgers / Party Ledgers.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import { enterpriseFetch } from "../../../client/api.ts";
 import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search, Upload } from "lucide-react";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
+import TruckSheetImport from "./TruckSheetImport.tsx";
 
 type Nav = (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
 type Feedback = (t: "success" | "error", m: string) => void;
@@ -52,47 +53,33 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
   const [truckQ, setTruckQ] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [nonce, setNonce] = useState(0); // bump to re-read the open truck
-  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // the truck's sheet goes where it belongs — Truck Ledgers (same importer as there) — and its
   // khata is then picked here, ready to set up (or opened, if it already is a partnership)
-  const importSheet = async (file: File) => {
-    setImporting(true);
+  // the file is read first and the user picks, per truck, which khata it goes into (the truck's
+  // existing khata by default — see TruckSheetImport); then that khata is picked here
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const importDone = async (r: any) => {
+    setPendingFile(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await uploadFile("/api/ledgers/import-workbook", fd);
-      showFeedback("success", `${r.message || "Imported"} · Truck Ledgers میں آ گیا`);
       const o = await enterpriseFetch("/api/partnership/options");
       setOpts(o);
       loadList();
-      const sheets: any[] = r.report?.ledgers || [];
-      const norm = (x: string) => String(x || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
       const all = o.ledgers as any[];
-      // the khatas this import made / updated (their sheet name is the import's own)
-      const mine = all.filter((l) => l.sourceSheet && sheets.some((sh) => l.sourceSheet === sh.sheet)).sort((x, y) => y.entries - x.entries);
-      const plates = new Set(sheets.map((sh) => norm(sh.registration)));
-      const others = all.filter((l) => plates.has(norm(l.registration)) && !mine.includes(l));
-      const shared = [...mine, ...others].find((l) => l.accountId);
-      const big = others.filter((l) => l.entries >= 10);
-      if (big.length) {
-        showFeedback(
-          "error",
-          `Note: ${[...plates].join(", ")} already had ${big.map((l) => `“${l.title}” (${l.entries} rows)`).join(", ")}. If this is the same sheet, its rows are now in Truck Ledgers twice — delete the extra khata there. · یہ ٹرک پہلے سے موجود تھا — ایک ہی شیٹ دو بار نہ ہو۔`,
-        );
-      }
+      const sheets: any[] = r.report?.ledgers || [];
+      // khatas the rows went into: joined existing ones first, else the sheets' own new khatas
+      const ids = new Set<number>((r.merged || []).map((m: any) => m.ledgerId));
+      const touched = all.filter((l) => ids.has(l.id) || (l.sourceSheet && sheets.some((sh) => l.sourceSheet === sh.sheet))).sort((x, y) => y.entries - x.entries);
+      const shared = touched.find((l) => l.accountId);
       if (shared) {
         setLedgerId(shared.id); // the truck already is a partnership: open it
         setTab("cycle");
-      } else if (mine[0]) {
-        setLedgerId(mine[0].id);
-        setShowNew(mine[0].id); // set it up, starting from the khata just imported
+      } else if (touched[0]) {
+        setLedgerId(touched[0].id);
+        setShowNew(touched[0].id); // set it up, starting from that khata
       }
-    } catch (e: any) {
-      showFeedback("error", e.message || "Import failed");
     } finally {
-      setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -144,14 +131,13 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => e.target.files?.[0] && importSheet(e.target.files[0])} />
+          <input ref={fileRef} type="file" accept=".xlsx,.xlsm" hidden onChange={(e) => e.target.files?.[0] && setPendingFile(e.target.files[0])} />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={importing}
             title="The sheet is saved in Truck Ledgers (same as importing it there), then picked here"
             className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA] disabled:opacity-60"
           >
-            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Import truck sheet (.xlsx) · ٹرک شیٹ امپورٹ
+            <Upload className="w-3.5 h-3.5" /> Import truck sheet (.xlsx) · ٹرک شیٹ امپورٹ
           </button>
           <button onClick={() => setShowNew("blank")} className="flex items-center gap-1.5 text-xs border border-[#24539B] text-[#24539B] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
             <Plus className="w-3.5 h-3.5" /> New partnership · نیا شراکتی حساب
@@ -161,6 +147,8 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
           </button>
         </div>
       </div>
+
+      {pendingFile && <TruckSheetImport file={pendingFile} onCancel={() => { setPendingFile(null); if (fileRef.current) fileRef.current.value = ""; }} onDone={importDone} showFeedback={showFeedback} />}
 
       {showNew !== null && (
         <React.Fragment key={String(showNew)}>

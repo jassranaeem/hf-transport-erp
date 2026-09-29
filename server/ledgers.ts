@@ -13,7 +13,8 @@ import { logAudit } from "../src/db/audit.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { parseFreightLogWorkbook } from "../src/lib/dataio/freight-log-workbook.ts";
 import { parseCashbookWorkbook } from "../src/lib/dataio/cashbook-workbook.ts";
-import { importParsedWorkbook } from "../src/lib/dataio/truck-workbook-import.ts";
+import { importParsedWorkbook, retireSyncedRecords } from "../src/lib/dataio/truck-workbook-import.ts";
+import { khataCandidates, planMerge } from "../src/lib/dataio/khata-merge.ts";
 import { notifyDriverOfLedgerEntry } from "./sms.ts";
 import { parseAndValidate, commitBatch, listWorkbookSheets } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
@@ -51,9 +52,37 @@ router.post("/import-workbook/preview", requireRole(WRITE), workbookUpload.singl
   try {
     if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
     const { ledgers, report } = await parseTruckWorkbook(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    // for the "add into which khata?" choice: each truck's khatas, the one it would join by
+    // default, and how many of the sheet's rows that khata already has
+    const firstSheetOfPlate = new Map<string, string>();
+    const trucks = [];
+    for (const l of ledgers) {
+      const plate = l.registration.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const [own] = await db.select({ id: schema.truckLedgers.id }).from(schema.truckLedgers).where(eq(schema.truckLedgers.sourceSheet, l.sourceSheet)).limit(1);
+      const candidates = l.looksLikeVehicle ? await khataCandidates(l.registration) : [];
+      const main = candidates.find((k) => !k.derived || k.partnership) ?? null;
+      let plan: { already: number; add: number; unclear: number; unclearSample: string[] } | null = null;
+      if (!own && main) {
+        const p = await planMerge(main.id, l);
+        plan = { already: p.already, add: p.add.length, unclear: p.unclear.length, unclearSample: p.unclear.slice(0, 3).map((e) => `${e.rawDate || ""} ${String(e.description || "").replace(/\s+/g, " ").slice(0, 60)}`) };
+      }
+      const joinsSheet = !own && !main ? firstSheetOfPlate.get(plate) ?? null : null;
+      if (!firstSheetOfPlate.has(plate)) firstSheetOfPlate.set(plate, l.sourceSheet);
+      trucks.push({
+        sheet: l.sourceSheet,
+        registration: l.registration,
+        entries: l.entries.length,
+        looksLikeVehicle: l.looksLikeVehicle,
+        ownKhataId: own?.id ?? null, // this very sheet was imported before: it just updates
+        candidates: candidates.map((k) => ({ id: k.id, title: k.title, entries: k.entries, partnership: k.partnership, derived: k.derived })),
+        defaultTarget: own ? own.id : main ? main.id : "new",
+        joinsSheet, // no khata yet, but an earlier sheet of this file starts one: joins it
+        plan,
+      });
+    }
     res.json({
       ledgerCount: ledgers.length,
-      trucks: ledgers.map((l) => ({ sheet: l.sourceSheet, registration: l.registration, entries: l.entries.length, looksLikeVehicle: l.looksLikeVehicle })),
+      trucks,
       totals: report.totals,
       skippedSheets: report.skippedSheets,
       skippedReasons: report.skippedReasons,
@@ -82,7 +111,16 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
         skippedReasons: report.skippedReasons,
       });
     }
-    const result = await importParsedWorkbook(ledgers, report, { userId: req.user?.id });
+    // which khata each sheet goes into (from the preview's choice); by default a sheet joins the
+    // khata its truck already has instead of making a new one per sheet / per table
+    let targets: Record<string, number | "new" | "auto"> | undefined;
+    try {
+      targets = req.body?.targets ? JSON.parse(String(req.body.targets)) : undefined;
+    } catch {
+      targets = undefined;
+    }
+    const result = await importParsedWorkbook(ledgers, report, { userId: req.user?.id }, { targets, merge: true });
+    for (const id of result.touchedLedgerIds) await recompute(id);
     await logAudit({
       action: "CREATE",
       tableName: "truck_ledgers",
@@ -98,6 +136,9 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"],
     }).catch(() => {});
+    const mergedMsg = result.merged.length
+      ? ` Added into existing khatas: ${result.merged.map((m) => `${m.added} new rows (${m.already} already there${m.unclear ? `, ${m.unclear} unclear rows not added` : ""})`).join("; ")}.`
+      : "";
     const msg =
       `Imported ${result.ledgersInserted + result.ledgersUpdated} truck ledgers ` +
       `(${result.ledgersInserted} new, ${result.ledgersUpdated} updated) — ` +
@@ -105,7 +146,8 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
       `Also filed ${result.expensesCreated + result.expensesUpdated} expenses ` +
       `(${result.expensesCreated} new) and ${result.maintenanceCreated + result.maintenanceUpdated} maintenance records ` +
       `(${result.maintenanceCreated} new) in Finance/Workshop.` +
-      (result.failedSheets.length ? ` ${result.failedSheets.length} sheet(s) failed (rest imported fine).` : "");
+      (result.failedSheets.length ? ` ${result.failedSheets.length} sheet(s) failed (rest imported fine).` : "") +
+      mergedMsg;
     res.json({
       message: msg,
       ...result,
@@ -583,7 +625,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       .select()
       .from(schema.truckLedgerEntries)
       .where(and(...cond))
-      .orderBy(PAGE_ORDER, asc(schema.truckLedgerEntries.id))
+      .orderBy(PAGE_ORDER, asc(ROW_ORDER))
       .limit(limit)
       .offset(offset);
 
@@ -633,7 +675,10 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
 // page 9. Within a page, rows keep the order they were written — the paper's own order (an
 // unnumbered real row such as "Carnet Send kiye Taftan ko" stays in place). (Window
 // functions are allowed in ORDER BY.)
-const PAGE_ORDER = sql`min(${schema.truckLedgerEntries.id}) over (partition by ${schema.truckLedgerEntries.sectionLabel})`;
+// A row's place on the paper: its id, unless it was imported into this khata from another
+// sheet and placed between existing rows (sort_key; see khata-merge.ts).
+const ROW_ORDER = sql`coalesce(${schema.truckLedgerEntries.sortKey}, ${schema.truckLedgerEntries.id})`;
+const PAGE_ORDER = sql`min(coalesce(${schema.truckLedgerEntries.sortKey}, ${schema.truckLedgerEntries.id})) over (partition by ${schema.truckLedgerEntries.sectionLabel})`;
 
 // ---- recompute a ledger's running balances (after edits) ---------
 export async function recompute(ledgerId: number) {
@@ -641,7 +686,7 @@ export async function recompute(ledgerId: number) {
     .select()
     .from(schema.truckLedgerEntries)
     .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false)))
-    .orderBy(PAGE_ORDER, asc(schema.truckLedgerEntries.id));
+    .orderBy(PAGE_ORDER, asc(ROW_ORDER));
   let running = 0;
   let section = "";
   let lastReal = 0;
@@ -786,6 +831,7 @@ router.delete("/entries/:id", requireRole(WRITE), async (req: AuthRequest, res: 
       .update(schema.truckLedgerEntries)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.truckLedgerEntries.id, id));
+    await retireSyncedRecords(id, req.user?.id); // its auto-filed expense / maintenance + journal
     await recompute(old.ledgerId);
     await audit(req, "DELETE", id, old, null);
     res.json({ message: "Entry deleted" });
@@ -810,6 +856,9 @@ router.delete("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Re
       .update(schema.truckLedgerEntries)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.truckLedgerEntries.ledgerId, id));
+    // and whatever its rows had filed into Expenses / Workshop / the journal (an imported khata
+    // deleted as a mistake must not leave its money counted in Finance)
+    for (const e of entries) await retireSyncedRecords(e.id, req.user?.id);
     await db
       .update(schema.truckLedgers)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })

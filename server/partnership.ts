@@ -205,6 +205,28 @@ const CARRY_RE = /قرضدار|qarz\s*d[ae]r|qarzder|بچت|bach?at|bacht/i;
 // NOTE: correlated sub-queries below name the outer table literally ("truck_ledger_entries"."id").
 // On a single-table select drizzle renders ${col} as a bare "id", which inside the sub-query
 // binds to the sub-query's own table — every count came out wrong.
+// A khata row's place on the paper: its id, unless it was imported into the khata from another
+// sheet and placed between existing rows (sort_key). Cycle watermarks stay row ids; ranges are
+// compared by place.
+const ROW_ORDER = sql`coalesce(${schema.truckLedgerEntries.sortKey}, ${schema.truckLedgerEntries.id})`;
+
+async function placeOf(entryId: number): Promise<number | null> {
+  if (!entryId) return null;
+  const [r] = await db.select({ k: sql<number>`${ROW_ORDER}` }).from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, entryId)).limit(1);
+  return r ? Number(r.k) : entryId;
+}
+
+/** The khata's last paper close line (صافی بچت / "hisab nil"), by place — 0 when there is none. */
+async function lastCloseEntryId(ledgerId: number): Promise<number> {
+  const [r] = await db
+    .select({ id: schema.truckLedgerEntries.id })
+    .from(schema.truckLedgerEntries)
+    .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), sql`(${schema.truckLedgerEntries.category} = 'SafiBachat' or ${schema.truckLedgerEntries.isReset})`))
+    .orderBy(desc(ROW_ORDER))
+    .limit(1);
+  return r?.id ?? 0;
+}
+
 async function khataRows(ledgerId: number, ...extra: any[]) {
   const rows = await db
     .select({
@@ -225,7 +247,7 @@ async function khataRows(ledgerId: number, ...extra: any[]) {
     })
     .from(schema.truckLedgerEntries)
     .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), ...extra))
-    .orderBy(asc(schema.truckLedgerEntries.id));
+    .orderBy(asc(ROW_ORDER));
   return rows.map((r) => {
     const money = (r.received || 0) !== 0 || (r.paid || 0) !== 0;
     return {
@@ -272,7 +294,8 @@ function withBalance(rows: KhataRow[]) {
 
 /** The open cycle: every khata row written after the watermark, in writing order. */
 async function openCycle(ledgerId: number, afterId: number) {
-  const rows = await khataRows(ledgerId, gt(schema.truckLedgerEntries.id, afterId));
+  const after = await placeOf(afterId);
+  const rows = after == null ? await khataRows(ledgerId) : await khataRows(ledgerId, sql`${ROW_ORDER} > ${after}`);
   // a صافی بچت line is the paper's close marker, not money
   const lines = withBalance(rows.filter((r) => r.category !== "SafiBachat"));
   const received = lines.reduce((s, r) => s + (r.received || 0), 0);
@@ -450,11 +473,7 @@ router.get("/suggest", requireRole(READ), async (req: AuthRequest, res: Response
       .map((p) => ({ name: p.name, partyId: p.id, why: "HFK ledger" }));
 
     // where the open cycle would start (same rule the create uses)
-    const [lc] = await db
-      .select({ id: sql<number>`max(${schema.truckLedgerEntries.id})` })
-      .from(schema.truckLedgerEntries)
-      .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), sql`(${schema.truckLedgerEntries.category} = 'SafiBachat' or ${schema.truckLedgerEntries.isReset})`));
-    const after = Number(lc?.id || 0);
+    const after = await lastCloseEntryId(ledgerId);
     const [closeRow] = after ? await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, after)).limit(1) : [];
     const cyc = await openCycle(ledgerId, after);
 
@@ -576,8 +595,10 @@ router.get("/ledger/:ledgerId/rows", requireRole(READ), async (req: AuthRequest,
   try {
     const extra: any[] = [];
     if (req.query.page) extra.push(eq(schema.truckLedgerEntries.sectionLabel, String(req.query.page)));
-    if (req.query.after) extra.push(gt(schema.truckLedgerEntries.id, Number(req.query.after)));
-    if (req.query.upto) extra.push(sql`${schema.truckLedgerEntries.id} <= ${Number(req.query.upto)}`);
+    const after = await placeOf(Number(req.query.after || 0));
+    const upto = await placeOf(Number(req.query.upto || 0));
+    if (after != null) extra.push(sql`${ROW_ORDER} > ${after}`);
+    if (upto != null) extra.push(sql`${ROW_ORDER} <= ${upto}`);
     const rows = await khataRows(Number(req.params.ledgerId), ...extra);
     res.json({ lines: withBalance(rows), box: rows.filter((r) => r.box) });
   } catch (e: any) {
@@ -624,11 +645,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     // where the open cycle starts: after the given row, else after the paper's last close line
     let lastEntryId = whole(b.startAfterEntryId);
     if (!lastEntryId) {
-      const [lc] = await db
-        .select({ id: sql<number>`max(${schema.truckLedgerEntries.id})` })
-        .from(schema.truckLedgerEntries)
-        .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), sql`(${schema.truckLedgerEntries.category} = 'SafiBachat' or ${schema.truckLedgerEntries.isReset})`));
-      lastEntryId = Number(lc?.id || 0);
+      lastEntryId = await lastCloseEntryId(ledgerId);
     }
 
     const [acc] = await db

@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronRight, Handshake, Upload, FileSpreadsheet, CheckCircle, RefreshCw,
   Pencil, Trash2,
 } from "lucide-react";
+import TruckSheetImport from "./TruckSheetImport.tsx";
 
 const CATS = ["Freight","Diesel","TripCash","Tyre","Visa","Carnet","TomanFX","PartsBill","Garage","Salary","Battery","Insurance","MobilOil","Permit","OnlineTransfer","Capital","SafiBachat","Other"];
 
@@ -325,29 +326,25 @@ export default function TruckLedgers({
     }
   };
 
-  const doImport = async (file: File) => {
-    setImportBusy(true);
+  // the file is read first and the user chooses, per truck, which khata its rows go into
+  // (the truck's existing khata by default) — see TruckSheetImport
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const doImport = (file: File) => {
     setImportResult(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await uploadFile("/api/ledgers/import-workbook", fd);
-      setImportResult(r);
-      showFeedback("success", r.message || "Workbook imported");
-      loadList();
-      setSelId(null);
-      setDetail(null);
-    } catch (e: any) {
-      showFeedback("error", e.message || "Import failed");
-      setImportResult({ error: e.message });
-    } finally {
-      setImportBusy(false);
-      if (importFileRef.current) importFileRef.current.value = "";
-    }
+    setPendingFile(file);
+    if (importFileRef.current) importFileRef.current.value = "";
+  };
+  const importDone = (r: any) => {
+    setPendingFile(null);
+    setImportResult(r);
+    loadList();
+    setSelId(null);
+    setDetail(null);
   };
 
   return (
     <div className="space-y-4">
+      {pendingFile && <TruckSheetImport file={pendingFile} onCancel={() => setPendingFile(null)} onDone={importDone} showFeedback={showFeedback} />}
       <div className="flex items-center justify-between">
         <h2 className="text-base font-bold flex items-center gap-2">
           <BookOpen className="w-4 h-4" /> Truck Ledgers <span className="text-[#9CA3AF] font-normal text-sm">· ٹرک کھاتہ</span>

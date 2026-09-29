@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -2123,6 +2123,13 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
   needsReview: boolean("needs_review").default(false).notNull(),
   reviewReason: text("review_reason"),
   derivedTripId: integer("derived_trip_id").references(() => trips.id),
+  // Where the row sits on the paper, when that isn't its id order: a sheet imported INTO a
+  // khata that already had rows (its older pages go before them, rows written under an
+  // existing row go right after it). Rows are ordered by coalesce(sort_key, id).
+  sortKey: doublePrecision("sort_key"),
+  // the sheet a row came from when it was imported into a khata that isn't that sheet's own
+  // — so a re-import of the khata's own sheet never matches (or removes) it
+  mergedFrom: text("merged_from"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

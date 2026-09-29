@@ -169,6 +169,13 @@
       "when": 1790677934327,
       "tag": "0023_partnership_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790682985056,
+      "tag": "0024_khata_merge",
+      "breakpoints": true
     }
   ]
 }
