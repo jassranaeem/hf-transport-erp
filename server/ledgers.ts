@@ -611,6 +611,9 @@ router.get("/summary", requireRole(READ), async (_req: AuthRequest, res: Respons
 router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+    // balances are always shown as the current rules read the paper (a khata imported or merged
+    // under older rules corrects itself the first time it is opened; unchanged rows aren't written)
+    if (Number.isFinite(id)) await recompute(id).catch(() => {});
     const [row] = await db
       .select({ ledger: schema.truckLedgers, vehicleNumber: schema.vehicles.vehicleNumber })
       .from(schema.truckLedgers)
@@ -694,15 +697,22 @@ export async function recompute(ledgerId: number) {
     .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false)))
     .orderBy(PAGE_ORDER, asc(ROW_ORDER));
   let running = 0;
-  let section = "";
+  let section: string | null | undefined = undefined;
+  let prevPageLastId = 0; // highest row id of the page just finished
+  let pageLastId = 0;
   let lastReal = 0;
   for (const r of rows) {
     if (r.sectionLabel !== section) {
-      section = r.sectionLabel || "";
-      // a new paper page starts from 0; rows added in the app ("Manual") carry on from
-      // wherever the khata stood, like a new line written under the last page
-      if (section !== "Manual") running = 0;
+      prevPageLastId = pageLastId;
+      pageLastId = 0;
+      section = r.sectionLabel;
+      // a new paper page starts from 0. Rows added in the app ("Manual") carry on from the page
+      // before them — but only when that page was written BEFORE them (a new line under the last
+      // page). An older paper page imported later and placed before them is history: it must
+      // not add its balance into rows it was never part of.
+      if (section !== "Manual" || prevPageLastId > r.id) running = 0;
     }
+    pageLastId = Math.max(pageLastId, r.id);
     // a figure from the settlement box drawn beside the paper table (imported, but no Sr# and
     // no balance of its own) is not the truck's money — it must not move the balance
     const boxFigure = r.sourceRow != null && r.srNo == null && r.sheetBalance == null && !!(r.received || r.paid);

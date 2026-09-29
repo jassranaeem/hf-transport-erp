@@ -243,6 +243,7 @@ async function khataRows(ledgerId: number, ...extra: any[]) {
       sheetBalance: schema.truckLedgerEntries.sheetBalance,
       sourceRow: schema.truckLedgerEntries.sourceRow,
       isReset: schema.truckLedgerEntries.isReset,
+      mergedFrom: schema.truckLedgerEntries.mergedFrom,
       files: sql<number>`(select count(*)::int from attachments a where a.entity_type = 'truck_ledger_entry' and a.entity_id = "truck_ledger_entries"."id" and not a.is_deleted)`,
     })
     .from(schema.truckLedgerEntries)
@@ -296,8 +297,13 @@ function withBalance(rows: KhataRow[]) {
 async function openCycle(ledgerId: number, afterId: number) {
   const after = await placeOf(afterId);
   const rows = after == null ? await khataRows(ledgerId) : await khataRows(ledgerId, sql`${ROW_ORDER} > ${after}`);
+  // Older paper pages imported into the khata LATER and placed before its own rows are past
+  // cycles, not this one: the open cycle starts at the first row the khata had of its own
+  // (rows merged in between its own rows — the same page's missing lines — still count).
+  const firstOwn = rows.findIndex((r) => r.mergedFrom == null && r.money);
+  const inCycle = firstOwn > 0 ? rows.slice(firstOwn) : rows;
   // a صافی بچت line is the paper's close marker, not money
-  const lines = withBalance(rows.filter((r) => r.category !== "SafiBachat"));
+  const lines = withBalance(inCycle.filter((r) => r.category !== "SafiBachat"));
   const received = lines.reduce((s, r) => s + (r.received || 0), 0);
   const paid = lines.reduce((s, r) => s + (r.paid || 0), 0);
   return { lines, received, paid, net: received - paid, lastId: rows.length ? rows[rows.length - 1].id : afterId };
