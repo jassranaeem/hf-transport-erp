@@ -30,7 +30,10 @@
  *   POST   /api/partnership/:id/close         close the open cycle
  *   POST   /api/partnership/:id/undo-close    reopen the last closed cycle
  *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
- *   DELETE /api/partnership/:id/event/:entryId
+ *   PUT    /api/partnership/:id                edit: partner / HFK ledger (entries move along), %, note
+ *   DELETE /api/partnership/:id                delete the partnership and its party-ledger entries
+ *   PUT    /api/partnership/:id/event/:entryId edit an entry (a home-money pair changes together)
+ *   DELETE /api/partnership/:id/event/:entryId (a home-money pair goes together)
  *   POST   /api/partnership/:id/adopt         move the truck's other app-made khatas into this one
  */
 import { Router, Response } from "express";
@@ -840,6 +843,7 @@ router.post("/:id/event", requireRole(WRITE), async (req: AuthRequest, res: Resp
       const otherName = who === "partner" ? full.hfkName : full.partnerName;
       matched = await post({
         accountId: a.id, partyId: otherId, kind, date, method: "Adjustment", userId: req.user?.id,
+        prevWatermark: e.id, // for a matched line, sourceRow = the entry it matches (edit / delete them together)
         description: `${full.truck}: Shakhsi bardasht — ${otherName} — same as ${name} (50/50 kept level · برابر)`,
         debit: amount,
       });
@@ -876,10 +880,171 @@ router.delete("/:id/event/:entryId", requireRole(WRITE), async (req: AuthRequest
     if (!e) return res.status(404).json({ error: "Entry not found" });
     const k = kindOf(e.sectionLabel);
     if (k === "safi" || k === "loss") return res.status(400).json({ error: "A cycle close is removed with “Reopen last cycle” · حساب دوبارہ کھولیں" });
-    await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partyLedgerEntries.id, e.id));
+    const pair = req.query.pair === "0" ? null : await pairOf(a.id, e);
+    const ids = [e.id, ...(pair ? [pair.id] : [])];
+    await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(inArray(schema.partyLedgerEntries.id, ids));
     await recomputeParty(e.partyId);
-    await audit(req, "DELETE", "party_ledger_entries", e.id, e, null);
-    res.json({ ok: true });
+    if (pair) await recomputeParty(pair.partyId);
+    await audit(req, "DELETE", "party_ledger_entries", e.id, { ...e, alsoRemoved: pair?.id ?? null }, null);
+    res.json({ ok: true, removed: ids.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * The other half of a "money taken for home" pair: the same amount written for the other
+ * partner (paper method). New pairs are linked (the matched line's sourceRow = the entry's
+ * id); older ones are recognised by same day, same amount, other side, "same as" wording.
+ */
+async function pairOf(accountId: number, e: typeof schema.partyLedgerEntries.$inferSelect) {
+  if (kindOf(e.sectionLabel) !== "shakhsi") return null;
+  const live = and(eq(schema.partyLedgerEntries.refNo, tag(accountId)), eq(schema.partyLedgerEntries.isDeleted, false), eq(schema.partyLedgerEntries.sectionLabel, KIND.shakhsi));
+  const [linked] = await db.select().from(schema.partyLedgerEntries).where(and(live, eq(schema.partyLedgerEntries.sourceRow, e.id))).limit(1);
+  if (linked) return linked;
+  if (e.sourceRow) {
+    const [main] = await db.select().from(schema.partyLedgerEntries).where(and(live, eq(schema.partyLedgerEntries.id, e.sourceRow))).limit(1);
+    if (main) return main;
+  }
+  const isCopy = /same as/i.test(e.description || "");
+  const candidates = await db
+    .select()
+    .from(schema.partyLedgerEntries)
+    .where(and(live, ne(schema.partyLedgerEntries.partyId, e.partyId), eq(schema.partyLedgerEntries.debit, e.debit)));
+  const sameDay = (x: any) => x.entryDate && e.entryDate && new Date(x.entryDate).toISOString().slice(0, 10) === new Date(e.entryDate).toISOString().slice(0, 10);
+  return candidates.find((x) => sameDay(x) && /same as/i.test(x.description || "") !== isCopy) ?? null;
+}
+
+/** Edit one partner / HFK entry: amount, date, how, note. A home-money pair changes together. */
+router.put("/:id/event/:entryId", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const [e] = await db
+      .select()
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.id, Number(req.params.entryId)), eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .limit(1);
+    if (!e) return res.status(404).json({ error: "Entry not found" });
+    const k = kindOf(e.sectionLabel);
+    if (k === "safi" || k === "loss") {
+      return res.status(400).json({ error: "A cycle close comes from the khata — fix the khata rows, then “Reopen last cycle” and close it again · کھاتہ درست کر کے حساب دوبارہ بند کریں" });
+    }
+    const b = req.body || {};
+    const patch: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
+    let amount: number | null = null;
+    if (b.amount !== undefined) {
+      amount = whole(b.amount);
+      if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
+      // the amount stays on the side it was written on (added = jama, taken = naam)
+      if (e.credit > 0) patch.credit = amount;
+      else patch.debit = amount;
+    }
+    let date: Date | null = null;
+    if (b.date) {
+      date = dayOf(b.date);
+      patch.entryDate = date;
+      patch.rawDate = date.toISOString().slice(0, 10);
+    }
+    if (b.method) patch.method = String(b.method);
+    if (b.note !== undefined && k && k !== "opening" && !/same as/i.test(e.description || "")) {
+      const who = e.partyId === a.partnerPartyId ? full.partnerName : full.hfkName;
+      const note = String(b.note || "").trim();
+      patch.description = `${full.truck}: ${KIND[k].split(" · ")[0]} — ${who}${note ? ` — ${note}` : ""}`;
+    }
+    const pair = b.pair === false ? null : await pairOf(a.id, e);
+    await db.update(schema.partyLedgerEntries).set(patch).where(eq(schema.partyLedgerEntries.id, e.id));
+    if (pair && (amount != null || date)) {
+      const pp: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
+      if (amount != null) pp.debit = amount;
+      if (date) {
+        pp.entryDate = date;
+        pp.rawDate = date.toISOString().slice(0, 10);
+      }
+      await db.update(schema.partyLedgerEntries).set(pp).where(eq(schema.partyLedgerEntries.id, pair.id));
+    }
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "UPDATE", "party_ledger_entries", e.id, e, { ...patch, pairUpdated: pair?.id ?? null });
+    res.json({ ok: true, pairUpdated: !!pair, ...(await balances(a.id, a.partnerPartyId, a.hfkPartyId)) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Edit the partnership: who the partner / HFK side is (their entries move with them), %, note. */
+router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const b = req.body || {};
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, a.truckLedgerId)).limit(1);
+    const reg = led?.registration || "";
+    const partnerPartyId = b.partnerPartyId || b.partnerName ? await ensureParty(b.partnerPartyId, b.partnerName, `Partner in ${reg}`, req.user?.id) : a.partnerPartyId;
+    const hfkPartyId = b.hfkPartyId || b.hfkName ? await ensureParty(b.hfkPartyId, b.hfkName, `HFK share in ${reg}`, req.user?.id) : a.hfkPartyId;
+    if (partnerPartyId === hfkPartyId) return res.status(400).json({ error: "The partner and HFK must be two different ledgers · شریک اور HFK کے الگ کھاتے ہوں" });
+    const pct = b.partnerPercent !== undefined ? Math.max(1, Math.min(99, whole(b.partnerPercent))) : a.partnerPercent;
+
+    // a side moved to another ledger: its entries go with it
+    const moves: [number, number][] = [];
+    if (partnerPartyId !== a.partnerPartyId) moves.push([a.partnerPartyId, partnerPartyId]);
+    if (hfkPartyId !== a.hfkPartyId) moves.push([a.hfkPartyId, hfkPartyId]);
+    for (const [from, to] of moves) {
+      await db
+        .update(schema.partyLedgerEntries)
+        .set({ partyId: to, updatedAt: new Date(), updatedBy: req.user?.id })
+        .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.partyId, from)));
+    }
+    const [updated] = await db
+      .update(schema.partnershipAccounts)
+      .set({
+        partnerPartyId,
+        hfkPartyId,
+        partnerPercent: pct,
+        ...(b.notes !== undefined ? { notes: String(b.notes || "").trim() || null } : {}),
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnershipAccounts.id, a.id))
+      .returning();
+    for (const id of new Set([a.partnerPartyId, a.hfkPartyId, partnerPartyId, hfkPartyId])) await recomputeParty(id);
+    await audit(req, "UPDATE", "partnership_accounts", a.id, a, updated);
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Delete the partnership: the account and every entry it wrote into the two party ledgers
+ * (shares, money taken for home, old debt …). The truck's own khata is not touched.
+ */
+router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const removed = await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .returning({ id: schema.partyLedgerEntries.id });
+    await db
+      .update(schema.partnershipAccounts)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.partnershipAccounts.id, a.id));
+    const [other] = await db
+      .select({ id: schema.partnershipAccounts.id })
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, a.truckLedgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    if (!other) await db.update(schema.truckLedgers).set({ isPartnership: false }).where(eq(schema.truckLedgers.id, a.truckLedgerId));
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "DELETE", "partnership_accounts", a.id, { ...a, entriesRemoved: removed.length }, null);
+    res.json({ ok: true, entriesRemoved: removed.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

@@ -13,7 +13,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
-import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search, Upload } from "lucide-react";
+import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search, Upload, Pencil } from "lucide-react";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
 
@@ -41,8 +41,8 @@ const LEFT_OUT_WHY: Record<string, string> = {
 
 /** Clickable row detail: what it is, where it lives, and its receipts. */
 type Detail =
-  | { type: "khata"; ledgerId: number; row: any }
-  | { type: "party"; partyId: number; partyName: string; row: any };
+  | { type: "khata"; ledgerId: number; row: any; edit?: boolean }
+  | { type: "party"; partyId: number; partyName: string; row: any; accountId?: number; edit?: boolean };
 
 export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback: Feedback; onNavigate?: Nav }) {
   const [list, setList] = useState<any[] | null>(null);
@@ -53,6 +53,7 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
   const [truckQ, setTruckQ] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const [nonce, setNonce] = useState(0); // bump to re-read the open truck
+  const [editingAcc, setEditingAcc] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // the truck's sheet goes where it belongs — Truck Ledgers (same importer as there) — and its
@@ -254,14 +255,67 @@ export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback:
                 Make this a partnership truck · شراکتی ٹرک بنائیں
               </button>
             )}
+            {account && (
+              <div className="ml-auto mb-1 flex items-center gap-2">
+                <button onClick={() => setEditingAcc((v) => !v)} className="flex items-center gap-1 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1 bg-white hover:bg-[#F2F5FA]">
+                  <Pencil className="w-3.5 h-3.5" /> Edit partnership · ترمیم
+                </button>
+                <button
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        `Delete the partnership of ${account.truck}? Every entry it wrote into ${account.partnerName}'s and ${account.hfkName}'s ledgers (shares, money taken for home, old debt) is removed. The truck's own khata is NOT touched. · شراکتی حساب حذف کریں؟ ٹرک کا کھاتہ نہیں ہٹے گا`,
+                      )
+                    )
+                      return;
+                    try {
+                      const r = await enterpriseFetch(`/api/partnership/${account.id}`, { method: "DELETE" });
+                      showFeedback("success", `Partnership deleted — ${r.entriesRemoved} ledger entries removed · حذف ہو گیا`);
+                      setEditingAcc(false);
+                      setTab("report");
+                      refresh();
+                    } catch (e: any) {
+                      showFeedback("error", e.message);
+                    }
+                  }}
+                  className="flex items-center gap-1 text-xs border border-[#FCA5A5] text-[#B91C1C] rounded-lg px-2.5 py-1 bg-white hover:bg-[#FEF2F2]"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete partnership · حذف
+                </button>
+              </div>
+            )}
           </div>
+          {account && editingAcc && (
+            <EditPartnership
+              account={account}
+              parties={opts?.parties || []}
+              onCancel={() => setEditingAcc(false)}
+              onSaved={() => {
+                setEditingAcc(false);
+                refresh();
+              }}
+              showFeedback={showFeedback}
+            />
+          )}
           {account && tab === "cycle" && <React.Fragment key={`c${account.id}-${nonce}`}><CycleTab accountId={account.id} showFeedback={showFeedback} onChanged={refresh} onOpen={setDetail} onNavigate={onNavigate} /></React.Fragment>}
           {account && tab === "history" && <React.Fragment key={`h${account.id}-${nonce}`}><HistoryTab accountId={account.id} ledgerId={ledgerId} showFeedback={showFeedback} onChanged={refresh} onOpen={setDetail} /></React.Fragment>}
           {tab === "report" && <React.Fragment key={`r${ledgerId}-${nonce}`}><ReportTab ledgerId={ledgerId} showFeedback={showFeedback} onOpen={setDetail} /></React.Fragment>}
         </div>
       )}
 
-      {detail && <DetailDrawer d={detail} onClose={() => setDetail(null)} onNavigate={onNavigate} onFilesChanged={() => setNonce((n) => n + 1)} />}
+      {detail && (
+        <DetailDrawer
+          d={detail}
+          onClose={() => setDetail(null)}
+          onNavigate={onNavigate}
+          onFilesChanged={() => setNonce((n) => n + 1)}
+          onChanged={() => {
+            setDetail(null);
+            refresh();
+          }}
+          showFeedback={showFeedback}
+        />
+      )}
     </div>
   );
 }
@@ -580,10 +634,10 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
   };
 
   const remove = async (id: number) => {
-    if (!window.confirm("Remove this entry from the party ledger? · یہ انٹری ہٹائیں؟")) return;
+    if (!window.confirm("Remove this entry from the party ledger? Money taken for home also removes its matching line on the other side. · یہ انٹری ہٹائیں؟")) return;
     try {
-      await enterpriseFetch(`/api/partnership/${accountId}/event/${id}`, { method: "DELETE" });
-      showFeedback("success", "Entry removed · انٹری ہٹ گئی");
+      const r = await enterpriseFetch(`/api/partnership/${accountId}/event/${id}`, { method: "DELETE" });
+      showFeedback("success", r.removed > 1 ? "Entry and its matching line removed · دونوں لائنیں ہٹ گئیں" : "Entry removed · انٹری ہٹ گئی");
       onChanged();
     } catch (e: any) {
       showFeedback("error", e.message);
@@ -636,7 +690,7 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
             </thead>
             <tbody>
               {d.history.map((h: any) => (
-                <tr key={h.id} onClick={() => onOpen({ type: "party", partyId: partyOf(h), partyName: nameOf(h), row: h })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                <tr key={h.id} onClick={() => onOpen({ type: "party", partyId: partyOf(h), partyName: nameOf(h), row: h, accountId })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
                   <td className="px-3 py-1.5 whitespace-nowrap">{fmtDate(h.entryDate)}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{nameOf(h)}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap" dir="auto">{h.label}</td>
@@ -645,6 +699,18 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
                   <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{h.debit ? PKR(h.debit) : ""}</td>
                   <td className="px-2 py-1.5 text-right whitespace-nowrap">
                     <Clip n={h.files} />
+                    {h.kind !== "safi" && h.kind !== "loss" && (
+                      <button
+                        title="Edit this entry · ترمیم"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpen({ type: "party", partyId: partyOf(h), partyName: nameOf(h), row: h, accountId, edit: true });
+                        }}
+                        className="ml-2 text-[#9CA3AF] hover:text-[#24539B] align-middle"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {h.kind !== "safi" && h.kind !== "loss" && (
                       <button
                         title="Remove this entry"
@@ -858,9 +924,27 @@ function Card({ label, value, tone, big }: { label: string; value: string; tone?
 
 // ---------------------------------------------------------------- row detail
 
-function DetailDrawer({ d, onClose, onNavigate, onFilesChanged }: { d: Detail; onClose: () => void; onNavigate?: Nav; onFilesChanged: () => void }) {
+const KHATA_KINDS = ["Freight", "Diesel", "TripCash", "OnlineTransfer", "TomanFX", "Tyre", "PartsBill", "Garage", "MobilOil", "Battery", "Visa", "Carnet", "Permit", "Salary", "Insurance", "Capital", "SafiBachat", "Other"];
+
+function DetailDrawer({
+  d,
+  onClose,
+  onNavigate,
+  onFilesChanged,
+  onChanged,
+  showFeedback,
+}: {
+  d: Detail;
+  onClose: () => void;
+  onNavigate?: Nav;
+  onFilesChanged: () => void;
+  onChanged: () => void;
+  showFeedback: Feedback;
+}) {
   const r = d.row;
   const isKhata = d.type === "khata";
+  const [editing, setEditing] = useState(!!d.edit);
+  const partyEditable = d.type === "party" && !!d.accountId && r.kind !== "safi" && r.kind !== "loss";
   const facts: [string, React.ReactNode][] = isKhata
     ? [
         ["Date · تاریخ", rowDate(r) || "—"],
@@ -898,6 +982,42 @@ function DetailDrawer({ d, onClose, onNavigate, onFilesChanged }: { d: Detail; o
             </React.Fragment>
           ))}
         </div>
+        {editing ? (
+          isKhata ? (
+            <EditKhataRow row={r} onCancel={() => setEditing(false)} onDone={onChanged} showFeedback={showFeedback} />
+          ) : (
+            <EditPartyEntry accountId={(d as any).accountId} row={r} onCancel={() => setEditing(false)} onDone={onChanged} showFeedback={showFeedback} />
+          )
+        ) : isKhata || partyEditable ? (
+          <div className="flex gap-2">
+            <button onClick={() => setEditing(true)} className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-3 py-2 hover:bg-[#F2F5FA]">
+              <Pencil className="w-3.5 h-3.5" /> Edit · ترمیم
+            </button>
+            <button
+              onClick={async () => {
+                const msg = isKhata
+                  ? "Delete this khata row? Its balance is recalculated, and anything the import filed for it (expense / workshop record) is removed too. · یہ لائن حذف کریں؟"
+                  : "Delete this entry? Money taken for home also removes its matching line on the other side. · یہ انٹری حذف کریں؟";
+                if (!window.confirm(msg)) return;
+                try {
+                  if (isKhata) await enterpriseFetch(`/api/ledgers/entries/${r.id}`, { method: "DELETE" });
+                  else await enterpriseFetch(`/api/partnership/${(d as any).accountId}/event/${r.id}`, { method: "DELETE" });
+                  showFeedback("success", "Deleted · حذف ہو گیا");
+                  onChanged();
+                } catch (e: any) {
+                  showFeedback("error", e.message);
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-[#FCA5A5] text-[#B91C1C] rounded-lg px-3 py-2 hover:bg-[#FEF2F2]"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete · حذف
+            </button>
+          </div>
+        ) : d.type === "party" && (r.kind === "safi" || r.kind === "loss") ? (
+          <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-[11px] text-[#4B5563]" dir="auto">
+            This is a cycle close — it comes from the khata. To change it, fix the khata rows, then “Reopen last cycle” and close it again. · کھاتہ درست کر کے حساب دوبارہ بند کریں
+          </div>
+        ) : null}
         {isKhata && (r.box || r.carry) && (
           <div className="rounded-lg bg-[#F9FAFB] border border-[#E5E7EB] px-3 py-2 text-[11px] text-[#4B5563]" dir="auto">
             {r.box ? LEFT_OUT_WHY.box : LEFT_OUT_WHY.carry} — not counted in the profit report.
@@ -918,6 +1038,239 @@ function DetailDrawer({ d, onClose, onNavigate, onFilesChanged }: { d: Detail; o
         <div onClick={onFilesChanged}>
           <AttachmentPanel entityType={isKhata ? "truck_ledger_entry" : "party_ledger_entry"} entityId={r.id} title="Receipts & proof · رسیدیں" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- editing
+
+const ymd = (d: any) => {
+  if (!d) return "";
+  const x = new Date(d);
+  return isNaN(x.getTime()) ? "" : x.toISOString().slice(0, 10);
+};
+
+/** Edit a truck khata row (the same fields as in Truck Ledgers). */
+function EditKhataRow({ row, onCancel, onDone, showFeedback }: { row: any; onCancel: () => void; onDone: () => void; showFeedback: Feedback }) {
+  const [f, setF] = useState({
+    entryDate: ymd(row.entryDate),
+    description: row.description || "",
+    received: String(row.received || ""),
+    paid: String(row.paid || ""),
+    category: row.category || "Other",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: string) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const save = async () => {
+    setSaving(true);
+    try {
+      await enterpriseFetch(`/api/ledgers/entries/${row.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...f, entryDate: f.entryDate || null, received: Number(f.received || 0), paid: Number(f.paid || 0) }),
+      });
+      showFeedback("success", "Khata row saved — balances recalculated · محفوظ ہو گیا");
+      onDone();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5 text-xs";
+  return (
+    <div className="rounded-lg border border-[#24539B] p-3 space-y-2 text-xs">
+      <div className="font-bold">Edit khata row · کھاتے کی لائن میں ترمیم</div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Date · تاریخ</span>
+          <input id="ppl-ek-date" type="date" value={f.entryDate} onChange={set("entryDate")} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Kind · قسم</span>
+          <select id="ppl-ek-cat" value={f.category} onChange={set("category")} className={inp}>
+            {[...new Set([f.category, ...KHATA_KINDS])].map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 col-span-2">
+          <span className="text-[#6B7280]">Detail · تفصیل</span>
+          <input id="ppl-ek-desc" value={f.description} onChange={set("description")} dir="auto" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">In · وصول</span>
+          <input id="ppl-ek-in" inputMode="numeric" value={f.received} onChange={set("received")} className={`${inp} tabular-nums`} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Out · ادائیگی</span>
+          <input id="ppl-ek-out" inputMode="numeric" value={f.paid} onChange={set("paid")} className={`${inp} tabular-nums`} />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <button disabled={saving} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">{saving ? "Saving…" : "Save · محفوظ کریں"}</button>
+        <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/** Edit a partner / HFK entry: amount, date, how, note (a home-money pair changes together). */
+function EditPartyEntry({ accountId, row, onCancel, onDone, showFeedback }: { accountId: number; row: any; onCancel: () => void; onDone: () => void; showFeedback: Feedback }) {
+  const parts = String(row.description || "").split(" — ");
+  const isCopy = /same as/i.test(row.description || "");
+  const [f, setF] = useState({
+    amount: String(row.credit || row.debit || ""),
+    date: ymd(row.entryDate),
+    method: row.method || "Cash",
+    note: parts.length >= 3 && !isCopy ? parts.slice(2).join(" — ") : "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: string) => (e: any) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const noteEditable = row.kind !== "opening" && !isCopy;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await enterpriseFetch(`/api/partnership/${accountId}/event/${row.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ amount: f.amount, date: f.date, method: f.method, ...(noteEditable ? { note: f.note } : {}) }),
+      });
+      showFeedback("success", r.pairUpdated ? "Saved — the matching line on the other side changed too · دونوں لائنیں درست" : "Saved · محفوظ ہو گیا");
+      onDone();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5 text-xs";
+  return (
+    <div className="rounded-lg border border-[#24539B] p-3 space-y-2 text-xs">
+      <div className="font-bold">Edit entry · انٹری میں ترمیم <span className="font-normal text-[#6B7280]">({row.label})</span></div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Amount · رقم</span>
+          <input id="ppl-ee-amount" inputMode="numeric" value={f.amount} onChange={set("amount")} className={`${inp} tabular-nums`} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">Date · تاریخ</span>
+          <input id="ppl-ee-date" type="date" value={f.date} onChange={set("date")} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">How · طریقہ</span>
+          <select id="ppl-ee-method" value={f.method} onChange={set("method")} className={inp}>
+            {[...new Set([f.method, "Cash", "Online", "Cheque", "Adjustment"])].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </label>
+        {noteEditable && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">Note · تفصیل</span>
+            <input id="ppl-ee-note" value={f.note} onChange={set("note")} dir="auto" className={inp} />
+          </label>
+        )}
+      </div>
+      {row.kind === "shakhsi" && (
+        <div className="text-[11px] text-[#6B7280]" dir="auto">Money taken for home: the matching line on the other side gets the same amount and date. · دوسرے شریک کی برابر لائن بھی بدلے گی</div>
+      )}
+      <div className="flex items-center gap-2">
+        <button disabled={saving} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">{saving ? "Saving…" : "Save · محفوظ کریں"}</button>
+        <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/** Edit the partnership itself: the partner's / HFK's ledger, the share %, a note. */
+function EditPartnership({
+  account,
+  parties,
+  onCancel,
+  onSaved,
+  showFeedback,
+}: {
+  account: any;
+  parties: any[];
+  onCancel: () => void;
+  onSaved: () => void;
+  showFeedback: Feedback;
+}) {
+  const [f, setF] = useState({
+    partnerName: account.partnerName || "",
+    partnerPartyId: account.partnerPartyId as number | null,
+    hfkName: account.hfkName || "",
+    hfkPartyId: account.hfkPartyId as number | null,
+    partnerPercent: String(account.partnerPercent ?? 50),
+    notes: account.notes || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await enterpriseFetch(`/api/partnership/${account.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          partnerName: f.partnerName,
+          partnerPartyId: f.partnerPartyId || undefined,
+          hfkName: f.hfkName,
+          hfkPartyId: f.hfkPartyId || undefined,
+          partnerPercent: f.partnerPercent,
+          notes: f.notes,
+        }),
+      });
+      showFeedback("success", "Partnership saved · محفوظ ہو گیا");
+      onSaved();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const inp = "border border-[#E5E7EB] rounded px-2 py-1.5";
+  const pctChanged = String(account.partnerPercent) !== String(f.partnerPercent);
+  return (
+    <div className="rounded-xl border border-[#24539B] bg-white p-3 space-y-3 text-xs">
+      <div className="font-bold">Edit partnership · شراکتی حساب میں ترمیم — {account.truck}</div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <PartyPicker
+          id="ppl-edit-partner"
+          label="Partner (his Party Ledger) · شریک کا کھاتہ"
+          parties={parties}
+          name={f.partnerName}
+          partyId={f.partnerPartyId}
+          suggestions={[]}
+          placeholder="Search or type the partner's name"
+          onPick={(name, id) => setF((x) => ({ ...x, partnerName: name, partnerPartyId: id }))}
+        />
+        <PartyPicker
+          id="ppl-edit-hfk"
+          label="HFK side · HFK کا کھاتہ"
+          parties={parties}
+          name={f.hfkName}
+          partyId={f.hfkPartyId}
+          suggestions={[]}
+          placeholder="Search or type"
+          onPick={(name, id) => setF((x) => ({ ...x, hfkName: name, hfkPartyId: id }))}
+        />
+        <div className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">Partner's share % · شریک کا حصہ</span>
+            <input id="ppl-edit-pct" inputMode="numeric" value={f.partnerPercent} onChange={(e) => setF((x) => ({ ...x, partnerPercent: e.target.value }))} className={inp} />
+          </label>
+          {pctChanged && (
+            <span className="text-[11px] text-[#B45309]" dir="auto">Applies to cycles closed from now on; cycles already closed keep their split. · نیا حصہ آئندہ حساب پر لگے گا</span>
+          )}
+          <label className="flex flex-col gap-1">
+            <span className="text-[#6B7280]">Note · نوٹ</span>
+            <input id="ppl-edit-notes" value={f.notes} onChange={(e) => setF((x) => ({ ...x, notes: e.target.value }))} dir="auto" className={inp} />
+          </label>
+        </div>
+      </div>
+      <div className="text-[11px] text-[#6B7280]" dir="auto">
+        Changing the partner's or HFK's ledger moves all of this partnership's entries (shares, money taken for home, debt) to the new ledger. · کھاتہ بدلنے سے سب انٹریاں نئے کھاتے میں چلی جائیں گی
+      </div>
+      <div className="flex items-center gap-2">
+        <button disabled={saving || !f.partnerName.trim() || !f.hfkName.trim()} onClick={save} className="bg-[#24539B] text-white font-semibold rounded-lg px-4 py-1.5 disabled:opacity-60">
+          {saving ? "Saving…" : "Save · محفوظ کریں"}
+        </button>
+        <button onClick={onCancel} className="text-[#4B5563] underline">Cancel</button>
       </div>
     </div>
   );
