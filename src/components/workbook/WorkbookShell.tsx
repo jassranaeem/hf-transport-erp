@@ -29,6 +29,7 @@ import SmsGatewaySettings from "../fleet/SmsGatewaySettings.tsx";
 import GpsProviderSettings from "../fleet/GpsProviderSettings.tsx";
 import TripFuelHistory from "../fleet/TripFuelHistory.tsx";
 import PartnerPnL from "../fleet/PartnerPnL.tsx";
+import PartnershipAccount from "../fleet/PartnershipAccount.tsx";
 import PersonalExpenses from "../fleet/PersonalExpenses.tsx";
 import Zakat from "../fleet/Zakat.tsx";
 import CashBook from "../fleet/CashBook.tsx";
@@ -260,6 +261,8 @@ export default function WorkbookShell({
         return <GpsProviderSettings showFeedback={showFeedback} />;
       case "TripFuelHistory":
         return <TripFuelHistory showFeedback={showFeedback} />;
+      case "PartnershipAccount":
+        return <PartnershipAccount showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "PartnerPnL":
         return <PartnerPnL showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "PersonalExpenses":

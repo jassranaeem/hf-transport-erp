@@ -25,6 +25,7 @@ import alertsRouter from "./server/alerts.ts";
 import { smsRouter } from "./server/sms.ts";
 import reportsRouter from "./server/reports.ts";
 import partnerPnlRouter from "./server/partner_pnl.ts";
+import partnershipRouter from "./server/partnership.ts";
 import personalExpensesRouter from "./server/personal_expenses.ts";
 import zakatRouter from "./server/zakat.ts";
 import { cashBookRouter } from "./server/cash_book.ts";
@@ -104,6 +105,7 @@ async function startServer() {
   app.use("/api/sms", smsRouter);
   app.use("/api/reports", reportsRouter);
   app.use("/api/partner-pnl", partnerPnlRouter);
+  app.use("/api/partnership", partnershipRouter);
   app.use("/api/personal-expenses", personalExpensesRouter);
   app.use("/api/zakat", zakatRouter);
   app.use("/api/cash-book", cashBookRouter);

@@ -1997,6 +1997,36 @@ export const partnerSettlements = pgTable("partner_settlements", {
 });
 
 // ---------------------------------------------------------
+// PARTNERSHIP ACCOUNTS  (شراکت کا حساب) — a truck co-owned with a partner
+// (e.g. TLE 730: HFK 50% / Qudrat Ullah 50%), run exactly like the paper book:
+//  - the truck's khata is read in the order rows were written; everything after
+//    the last closed cycle is the open cycle (lastEntryId is that watermark)
+//  - closing a cycle with money left = صافی بچت: split by % and credited to the
+//    partner's party ledger and HFK's party ledger (together = مشترکہ جمع)
+//  - شخصی برداشت (money taken for home), old قرضہ, repayments and payouts are
+//    posted to the same two party ledgers, tagged refNo = "PSHIP-<id>"
+// The accounts themselves hold no money — every rupee lives in a party ledger.
+// ---------------------------------------------------------
+export const partnershipAccounts = pgTable("partnership_accounts", {
+  id: serial("id").primaryKey(),
+  truckLedgerId: integer("truck_ledger_id").references(() => truckLedgers.id).notNull(),
+  partnerPartyId: integer("partner_party_id").references(() => parties.id).notNull(),
+  hfkPartyId: integer("hfk_party_id").references(() => parties.id).notNull(),
+  partnerPercent: integer("partner_percent").notNull().default(50),
+  lastEntryId: integer("last_entry_id").notNull().default(0), // truck khata rows with id > this = the open cycle
+  cycleNo: integer("cycle_no").notNull().default(0), // cycles closed through this screen
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  deletedBy: integer("deleted_by"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+});
+
+// ---------------------------------------------------------
 // COMPANY PROFILE  (single row, id = 1) — letterhead / tax / bank details
 // used on invoices and other printed documents
 // ---------------------------------------------------------
