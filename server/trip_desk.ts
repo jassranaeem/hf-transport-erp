@@ -23,7 +23,10 @@ import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
 import { applyLatestGpsToTrip, distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
-import { partnershipLedgerForPlate } from "./partnership.ts";
+import { partnershipLedgerForPlate, partnershipPreviewForPlate, closePartnershipCycle } from "./partnership.ts";
+import { journeyMoney, journeyStops, rootOf, syncStopInvoice } from "./trip_close.ts";
+import { createCashEntry } from "./cash_book.ts";
+import { triggerAutoInvoicing } from "./finance_engine.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -230,6 +233,11 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
           otherExpense: total - (m.TripCash || 0) - (m.Diesel || 0),
           totalGiven: total,
           ledgerPaid: ledgerPaid.get(r.trip.id) || 0,
+          // "Close trip" state (kept on the first stop of the journey)
+          closedAt: r.trip.closedAt,
+          splitAt: r.trip.splitAt,
+          splitAmount: r.trip.splitAmount,
+          freightWrittenOff: r.trip.freightWrittenOff,
         };
       }),
     );
@@ -979,6 +987,166 @@ router.post("/master/:kind/delete", requireRole(WRITE), async (req: AuthRequest,
     res.json({ deleted: rows.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Close trip (option C): bills, what came in per customer, 50/50 when all is received ----
+const money = (v: any) => whole(String(v ?? "").replace(/[^0-9.]/g, ""));
+
+async function journeyOr404(req: AuthRequest, res: Response) {
+  const rootId = await rootOf(parseInt(req.params.id));
+  if (!rootId) {
+    res.status(404).json({ error: "Trip not found" });
+    return null;
+  }
+  const m = await journeyMoney(rootId);
+  if (!m) {
+    res.status(404).json({ error: "Trip not found" });
+    return null;
+  }
+  return m;
+}
+
+router.get("/:id/close", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    const partnership = m.vehicleNumber ? await partnershipPreviewForPlate(m.vehicleNumber) : null;
+    res.json({ ...m, partnership });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Mark every stop Completed (frees truck and driver, makes each customer's bill) and the journey closed. */
+router.post("/:id/close/complete", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    const legs = await journeyStops(m.rootId);
+    for (const l of legs) {
+      if (l.trip.status !== "Completed") {
+        await db.update(schema.trips).set({ status: "Completed", updatedAt: new Date() }).where(eq(schema.trips.id, l.trip.id));
+        await audit(req, "UPDATE", "trips", l.trip.id, { status: l.trip.status }, { status: "Completed", via: "Close trip" });
+        try {
+          await triggerAutoInvoicing(l.trip.id, { userId: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] as string });
+        } catch (err: any) {
+          console.error("[close trip] invoicing failed:", err?.message);
+        }
+      }
+      await syncStopInvoice(l.trip.id, req.user?.id); // money already received marks the new bill paid
+    }
+    const last = legs[legs.length - 1].trip;
+    await db.update(schema.vehicles).set({ currentStatus: "Available" }).where(eq(schema.vehicles.id, last.vehicleId));
+    await db.update(schema.drivers).set({ status: "Available" }).where(eq(schema.drivers.id, last.driverId));
+    await db.update(schema.trips).set({ closedAt: m.closedAt ?? new Date() }).where(eq(schema.trips.id, m.rootId));
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Money received for one stop: a Cash Book "Kirya jama" entry linked to the truck, tagged to the stop. */
+router.post("/:id/close/receive", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    const b = req.body || {};
+    const stop = m.stops.find((s) => s.id === Number(b.stopId));
+    if (!stop) return res.status(400).json({ error: "Pick the stop / customer · کسٹمر منتخب کریں" });
+    const amount = money(b.amount);
+    if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
+    const method = clean(b.method) || "Cash";
+    const row = await createCashEntry(
+      {
+        entryDate: b.date || new Date().toISOString(),
+        direction: "In",
+        amount,
+        person: stop.customer || null,
+        description: `${m.vehicleNumber} • Kiraya jama — ${stop.customer || "customer"} — ${stop.from || ""} → ${stop.to || ""} (${method})`,
+        notes: clean(b.note) || null,
+        linkType: "truck",
+        linkTargetId: m.vehicleId,
+      },
+      req.user?.id,
+    );
+    if (row?.derivedEntryId) {
+      const [e] = await db
+        .update(schema.truckLedgerEntries)
+        .set({ derivedTripId: stop.id, category: "Freight", method })
+        .where(eq(schema.truckLedgerEntries.id, row.derivedEntryId))
+        .returning({ ledgerId: schema.truckLedgerEntries.ledgerId });
+      if (e) await recompute(e.ledgerId);
+    }
+    await syncStopInvoice(stop.id, req.user?.id);
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** "Is this Sardar Wali's?" — tie kiraya already in the truck's khata to a stop (or untie it). */
+router.post("/:id/close/assign", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    const b = req.body || {};
+    const entryId = Number(b.entryId);
+    const stopId = b.stopId ? Number(b.stopId) : null;
+    if (stopId && !m.stops.some((s) => s.id === stopId)) return res.status(400).json({ error: "That stop is not part of this trip" });
+    const allowed = new Set([...m.unassigned.map((u) => u.id), ...m.stops.flatMap((s) => s.receipts.map((r) => r.id))]);
+    if (!allowed.has(entryId)) return res.status(400).json({ error: "That khata row is not money received for this truck since the trip began" });
+    const [e] = await db
+      .update(schema.truckLedgerEntries)
+      .set({ derivedTripId: stopId, ...(stopId ? { category: "Freight" } : {}) })
+      .where(eq(schema.truckLedgerEntries.id, entryId))
+      .returning({ ledgerId: schema.truckLedgerEntries.ledgerId });
+    if (e) await recompute(e.ledgerId);
+    if (stopId) await syncStopInvoice(stopId, req.user?.id);
+    await audit(req, "UPDATE", "truck_ledger_entries", entryId, null, { derivedTripId: stopId, via: "Close trip" });
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** A customer won't pay the rest (or pays less): write it off so the trip can close. 0 undoes it. */
+router.post("/:id/close/writeoff", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    const b = req.body || {};
+    const stop = m.stops.find((s) => s.id === Number(b.stopId));
+    if (!stop) return res.status(400).json({ error: "Pick the stop / customer · کسٹمر منتخب کریں" });
+    const most = Math.max(0, stop.freight - stop.received);
+    const amount = b.amount === "rest" ? most : Math.min(most, money(b.amount));
+    await db.update(schema.trips).set({ freightWrittenOff: amount }).where(eq(schema.trips.id, stop.id));
+    await audit(req, "UPDATE", "trips", stop.id, { freightWrittenOff: stop.writtenOff }, { freightWrittenOff: amount, note: clean(b.note) || null });
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** All customers paid: split the result 50/50 (closes the truck's Partner P&L cycle). */
+router.post("/:id/close/split", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    if (m.splitAt) return res.status(400).json({ error: "This trip was already split · پہلے ہی تقسیم ہو چکا" });
+    if (!m.allPaid) {
+      const who = m.stops.filter((s) => s.pending > 0).map((s) => `${s.customer} ${s.pending.toLocaleString()}`).join(", ");
+      return res.status(400).json({ error: `Still to receive: ${who}. Mark it received, or write it off, first · ابھی رقم باقی ہے` });
+    }
+    const p = m.vehicleNumber ? await partnershipPreviewForPlate(m.vehicleNumber) : null;
+    if (!p) return res.status(400).json({ error: "This truck has no partnership — nothing to split · اس ٹرک کا شراکتی حساب نہیں" });
+    const r = await closePartnershipCycle(p.accountId, { date: new Date(), splitLoss: !!req.body?.splitLoss, userId: req.user?.id, note: `trip ${m.route}` });
+    await db.update(schema.trips).set({ splitAt: new Date(), splitAmount: r.net, splitAccountId: p.accountId }).where(eq(schema.trips.id, m.rootId));
+    await audit(req, "UPDATE", "trips", m.rootId, null, { split: r });
+    res.json({ ...(await journeyMoney(m.rootId)), split: r });
+  } catch (e: any) {
+    const known = /Nothing written|short by|not found/.test(e.message || "");
+    res.status(known ? 400 : 500).json({ error: e.message });
   }
 });
 

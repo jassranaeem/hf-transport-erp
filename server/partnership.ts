@@ -45,6 +45,7 @@ import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute as recomputeParty } from "./parties.ts";
 import { recompute as recomputeKhata } from "./ledgers.ts";
+import { pendingTripsForPlate } from "./trip_close.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -814,48 +815,99 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       history: history.map((h) => ({ ...h, kind: kindOf(h.label), side: h.partyId === a.partnerPartyId ? "partner" : "hfk" })),
       closed: closed.reverse(),
       strays: await strayKhatas(a.truckLedgerId),
+      // closed trips of this truck still waiting for money from a customer (red until received)
+      pendingTrips: await pendingTripsForPlate(full.truck).catch(() => []),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
+/**
+ * Close a partnership's open cycle (the paper's صافی بچت / قرضدار): split in − out since the last
+ * close by % into the partner's and HFK's party ledgers. Used by Partner P&L and by "Close trip"
+ * on Fleet Desk. Throws an Error with a user-facing message when it can't close.
+ */
+export async function closePartnershipCycle(accountId: number, opts: { date?: any; splitLoss?: boolean; userId?: number; note?: string } = {}) {
+  const full = await loadAccount(accountId);
+  if (!full) throw new Error("Partnership account not found");
+  const a = full.acc;
+  const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
+  if (!cycle.lines.length) throw new Error("Nothing written in the khata since the last close · پچھلے حساب کے بعد کوئی انٹری نہیں");
+  if (cycle.net < 0 && !opts.splitLoss) {
+    throw new Error(
+      `This cycle is short by ${Math.abs(cycle.net).toLocaleString()} (قرضدار). Paper method: leave it open — it carries into the next trip. Or choose "split the loss now". · یہ حساب ${Math.abs(cycle.net).toLocaleString()} کم ہے — اگلے حساب میں شامل ہو گا`,
+    );
+  }
+  const date = dayOf(opts.date);
+  const no = a.cycleNo + 1;
+  const partnerPart = Math.round((cycle.net * a.partnerPercent) / 100);
+  const hfkPart = cycle.net - partnerPart;
+  const kind: Kind = cycle.net >= 0 ? "safi" : "loss";
+  const head = `${full.truck} cycle ${no}${opts.note ? ` (${opts.note})` : ""}: in ${cycle.received.toLocaleString()} − out ${cycle.paid.toLocaleString()} = ${cycle.net.toLocaleString()}`;
+  const e1 = await post({
+    accountId: a.id, partyId: a.partnerPartyId, kind, date, prevWatermark: a.lastEntryId, userId: opts.userId,
+    description: `${head} × ${a.partnerPercent}%`,
+    credit: partnerPart > 0 ? partnerPart : 0, debit: partnerPart < 0 ? -partnerPart : 0,
+  });
+  const e2 = await post({
+    accountId: a.id, partyId: a.hfkPartyId, kind, date, prevWatermark: a.lastEntryId, userId: opts.userId,
+    description: `${head} × ${100 - a.partnerPercent}%`,
+    credit: hfkPart > 0 ? hfkPart : 0, debit: hfkPart < 0 ? -hfkPart : 0,
+  });
+  await db.update(schema.partnershipAccounts).set({ lastEntryId: cycle.lastId, cycleNo: no, updatedAt: new Date(), updatedBy: opts.userId }).where(eq(schema.partnershipAccounts.id, a.id));
+  await recomputeParty(a.partnerPartyId);
+  await recomputeParty(a.hfkPartyId);
+  await logAudit({
+    action: "UPDATE",
+    tableName: "partnership_accounts",
+    recordId: a.id,
+    oldValues: { lastEntryId: a.lastEntryId, cycleNo: a.cycleNo },
+    newValues: { lastEntryId: cycle.lastId, cycleNo: no, net: cycle.net, entries: [e1.id, e2.id], note: opts.note ?? null },
+    performedBy: opts.userId,
+  }).catch(() => {});
+  return { ok: true, net: cycle.net, partnerShare: partnerPart, hfkShare: hfkPart, cycleNo: no, partnerName: full.partnerName, hfkName: full.hfkName, accountId: a.id };
+}
+
+/** The partnership (if any) a truck belongs to, with what its open cycle stands at now. */
+export async function partnershipPreviewForPlate(vehicleNumber: string) {
+  const ledgerId = await partnershipLedgerForPlate(vehicleNumber);
+  if (!ledgerId) return null;
+  const [acc] = await db
+    .select({ id: schema.partnershipAccounts.id })
+    .from(schema.partnershipAccounts)
+    .where(and(eq(schema.partnershipAccounts.truckLedgerId, ledgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+    .limit(1);
+  if (!acc) return null;
+  const full = await loadAccount(acc.id);
+  if (!full) return null;
+  const a = full.acc;
+  const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
+  const partnerShare = Math.round((cycle.net * a.partnerPercent) / 100);
+  return {
+    accountId: a.id,
+    partnerName: full.partnerName,
+    hfkName: full.hfkName,
+    partnerPartyId: a.partnerPartyId,
+    hfkPartyId: a.hfkPartyId,
+    partnerPercent: a.partnerPercent,
+    cycleNo: a.cycleNo + 1,
+    rows: cycle.lines.length,
+    received: cycle.received,
+    paid: cycle.paid,
+    net: cycle.net,
+    partnerShare,
+    hfkShare: cycle.net - partnerShare,
+  };
+}
+
 router.post("/:id/close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
-    const full = await loadAccount(Number(req.params.id));
-    if (!full) return res.status(404).json({ error: "Partnership account not found" });
-    const a = full.acc;
-    const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
-    if (!cycle.lines.length) return res.status(400).json({ error: "Nothing written in the khata since the last close · پچھلے حساب کے بعد کوئی انٹری نہیں" });
-    const splitLoss = !!req.body?.splitLoss;
-    if (cycle.net < 0 && !splitLoss) {
-      return res.status(400).json({
-        error: `This cycle is short by ${Math.abs(cycle.net).toLocaleString()} (قرضدار). Paper method: leave it open — it carries into the next trip. Or choose "split the loss now". · یہ حساب ${Math.abs(cycle.net).toLocaleString()} کم ہے — اگلے حساب میں شامل ہو گا`,
-      });
-    }
-    const date = dayOf(req.body?.date);
-    const no = a.cycleNo + 1;
-    const partnerPart = Math.round((cycle.net * a.partnerPercent) / 100);
-    const hfkPart = cycle.net - partnerPart;
-    const kind: Kind = cycle.net >= 0 ? "safi" : "loss";
-    const head = `${full.truck} cycle ${no}: in ${cycle.received.toLocaleString()} − out ${cycle.paid.toLocaleString()} = ${cycle.net.toLocaleString()}`;
-    const e1 = await post({
-      accountId: a.id, partyId: a.partnerPartyId, kind, date, prevWatermark: a.lastEntryId, userId: req.user?.id,
-      description: `${head} × ${a.partnerPercent}%`,
-      credit: partnerPart > 0 ? partnerPart : 0, debit: partnerPart < 0 ? -partnerPart : 0,
-    });
-    const e2 = await post({
-      accountId: a.id, partyId: a.hfkPartyId, kind, date, prevWatermark: a.lastEntryId, userId: req.user?.id,
-      description: `${head} × ${100 - a.partnerPercent}%`,
-      credit: hfkPart > 0 ? hfkPart : 0, debit: hfkPart < 0 ? -hfkPart : 0,
-    });
-    await db.update(schema.partnershipAccounts).set({ lastEntryId: cycle.lastId, cycleNo: no, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.partnershipAccounts.id, a.id));
-    await recomputeParty(a.partnerPartyId);
-    await recomputeParty(a.hfkPartyId);
-    await audit(req, "UPDATE", "partnership_accounts", a.id, { lastEntryId: a.lastEntryId, cycleNo: a.cycleNo }, { lastEntryId: cycle.lastId, cycleNo: no, net: cycle.net, entries: [e1.id, e2.id] });
-    res.json({ ok: true, net: cycle.net, partnerShare: partnerPart, hfkShare: hfkPart, cycleNo: no });
+    const r = await closePartnershipCycle(Number(req.params.id), { date: req.body?.date, splitLoss: !!req.body?.splitLoss, userId: req.user?.id });
+    res.json(r);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    const known = /not found|Nothing written|short by/.test(e.message || "");
+    res.status(known ? 400 : 500).json({ error: e.message });
   }
 });
 

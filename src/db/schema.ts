@@ -568,6 +568,13 @@ export const trips = pgTable("trips", {
   parentTripId: integer("parent_trip_id"),
   legNo: integer("leg_no").default(1).notNull(),
   cargo: text("cargo"), // blank = empty run
+  // closing a trip ("Close trip"): freight a customer will never pay (written off, per stop), when
+  // the journey was closed, and — for a partnership truck — when its result was split 50/50
+  freightWrittenOff: integer("freight_written_off").default(0).notNull(),
+  closedAt: timestamp("closed_at"),
+  splitAt: timestamp("split_at"),
+  splitAmount: integer("split_amount"), // the cycle result that was split
+  splitAccountId: integer("split_account_id"), // partnership_accounts.id
   
   // Real-time tracking / state fields
   status: text("status").notNull().default("Scheduled"), // Scheduled -> Started -> In Transit -> Arrived -> Completed

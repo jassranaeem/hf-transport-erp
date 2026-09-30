@@ -405,6 +405,23 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
   }
 });
 
+/**
+ * Write one Cash Book entry and post its link (truck / party …), exactly like "Add entry" does.
+ * Used by Fleet Desk "Close trip → Mark received" so money received for a trip is in the Cash
+ * Book AND the truck's khata from one action. Returns the saved row (with derivedEntryId).
+ */
+export async function createCashEntry(body: Record<string, unknown>, userId: number | undefined) {
+  const patch = coerce(body);
+  if (!patch.amount) throw new Error("Amount is required");
+  if (patch.direction === undefined) patch.direction = "Out";
+  if (patch.entryDate === undefined) patch.entryDate = new Date();
+  const [row] = await db.insert(T).values({ ...patch, createdBy: userId } as any).returning();
+  await syncLink(row, userId);
+  const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
+  await logAudit({ action: "CREATE", tableName: "cash_transactions", recordId: row.id, newValues: fresh, performedBy: userId }).catch(() => {});
+  return fresh;
+}
+
 router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const patch = coerce(req.body || {});

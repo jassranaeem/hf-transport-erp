@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
+import CloseTrip from "./CloseTrip.tsx";
 import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip, MapPin } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
@@ -56,6 +57,7 @@ export default function TripDesk({
 }) {
   const [opts, setOpts] = useState<Opts>({ vehicles: [], drivers: [], contractors: [], routes: [] });
   const [trips, setTrips] = useState<any[]>([]);
+  const [closingId, setClosingId] = useState<number | null>(null); // the journey whose "Close trip" is open
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
@@ -296,6 +298,7 @@ export default function TripDesk({
 
   return (
     <div className="space-y-4 p-3">
+      {closingId && <CloseTrip tripId={closingId} onClose={() => setClosingId(null)} onChanged={load} showFeedback={showFeedback} />}
       <datalist id="td-trucks">{opts.vehicles.map((v) => <option key={v.id} value={v.vehicleNumber} />)}</datalist>
       <datalist id="td-drivers">{opts.drivers.map((d) => <option key={d.id} value={d.driverName} />)}</datalist>
       <datalist id="td-customers">{opts.contractors.map((c) => <option key={c.id} value={c.company} />)}</datalist>
@@ -449,6 +452,22 @@ export default function TripDesk({
                           {[...new Set([j.last.status, ...STATUSES])].map((s) => <option key={s}>{s}</option>)}
                         </select>
                         <GpsLine gps={j.last.gps} destination={j.last.destination} />
+                        <button
+                          onClick={() => setClosingId(j.root)}
+                          className={`mt-1 block text-[11px] rounded-lg border px-2 py-0.5 whitespace-nowrap ${
+                            j.first.splitAt
+                              ? "border-[#86EFAC] bg-[#DCFCE7] text-[#166534]"
+                              : j.first.closedAt
+                              ? "border-[#FCA5A5] bg-[#FEE2E2] text-[#991B1B]"
+                              : "border-[#24539B] text-[#24539B] bg-white"
+                          }`}
+                        >
+                          {j.first.splitAt
+                            ? `Closed · split ${fmt(j.first.splitAmount || 0)}`
+                            : j.first.closedAt
+                            ? "Closed · money pending · باقی"
+                            : "Close trip · ٹرپ کا حساب"}
+                        </button>
                       </td>
                     </tr>
                     {open && (

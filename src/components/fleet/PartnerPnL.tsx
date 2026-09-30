@@ -486,6 +486,18 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
         <Side title={d.hfkName} role={`HFK ${100 - pct}%`} s={d.hfk} onOpen={onNavigate ? () => openParty(d.account.hfkPartyId) : undefined} />
       </div>
 
+      {d.pendingTrips?.filter((t: any) => t.pending > 0).map((t: any) => (
+        <div key={t.rootId} className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]" dir="auto">
+          <b>Trip {t.route}</b> — money still to come · کرایہ باقی: {t.stops.filter((x: any) => x.pending > 0).map((x: any) => `${x.customer} ${PKR(x.pending)}`).join(", ")}.
+          The 50/50 split waits until it comes in (Fleet Desk → Close trip). · وصول ہونے پر تقسیم
+        </div>
+      ))}
+      {d.pendingTrips?.filter((t: any) => t.pending === 0).map((t: any) => (
+        <div key={t.rootId} className="rounded-xl border border-[#86EFAC] bg-[#F0FDF4] px-3 py-2 text-xs text-[#166534]" dir="auto">
+          <b>Trip {t.route}</b> — every customer has paid. Split it 50/50 from Fleet Desk → Close trip (or close the cycle below). · سب وصول، تقسیم کریں
+        </div>
+      ))}
+
       {d.strays?.length > 0 && (
         <div className="rounded-xl border border-[#F59E0B] bg-[#FFFBEB] px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap" dir="auto">
           <span>
