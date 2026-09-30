@@ -9,10 +9,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
-import {
-  Handshake, RefreshCw, Loader2, Plus, X, CheckCircle, ChevronDown, ChevronRight,
-  AlertTriangle, TrendingUp, TrendingDown, FileText,
-} from "lucide-react";
+import { Handshake, RefreshCw, Loader2, Plus, X, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, FileText, Pencil, Trash2, Undo2 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
@@ -42,6 +39,8 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
   const [showSettleFor, setShowSettleFor] = useState<number | null>(null);
   const [settleForm, setSettleForm] = useState<any>({ grossRevenue: "", expenses: [{ type: "Diesel", amount: "" }], periodFrom: "", periodTo: today(), notes: "" });
   const [saving, setSaving] = useState(false);
+  const [editPartner, setEditPartner] = useState<any>(null); // partner row being edited
+  const [editAgreement, setEditAgreement] = useState<any>(null); // agreement being edited
 
   const load = useCallback(() => {
     setLoading(true);
@@ -134,6 +133,25 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
     }
   };
 
+  const call = async (path: string, method: string, body: any, ok: string) => {
+    try {
+      await enterpriseFetch(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
+      showFeedback("success", ok);
+      return true;
+    } catch (e: any) {
+      showFeedback("error", e.message);
+      return false;
+    }
+  };
+  const refreshLedger = (agreementId: number) => {
+    delete ledger[agreementId];
+    setLedger({ ...ledger });
+    if (openId === agreementId) {
+      setOpenId(null);
+      setTimeout(() => openLedger(agreementId), 0);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -214,6 +232,60 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
         </div>
       )}
 
+      {partners.length > 0 && (
+        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+          <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Partners · {partners.length}</div>
+          <table className="w-full text-xs">
+            <tbody>
+              {partners.map((pt) =>
+                editPartner?.id === pt.id ? (
+                  <tr key={pt.id} className="border-t border-[#F3F4F6] bg-[#F2F5FA]">
+                    <td colSpan={5} className="px-3 py-2">
+                      <div className="flex flex-wrap items-end gap-2">
+                        {(["name", "cnic", "phone", "address"] as const).map((k) => (
+                          <React.Fragment key={k}><Field label={k}>
+                            <input id={`pt-${k}-${pt.id}`} value={editPartner[k] || ""} onChange={(e) => setEditPartner({ ...editPartner, [k]: e.target.value })} className="border rounded px-2 py-1" dir="auto" />
+                          </Field></React.Fragment>
+                        ))}
+                        <button
+                          onClick={async () => {
+                            if (await call(`/api/partnerships/partners/${pt.id}`, "PUT", editPartner, "Partner saved · محفوظ")) {
+                              setEditPartner(null);
+                              load();
+                            }
+                          }}
+                          className="bg-[#24539B] text-white rounded px-3 py-1 font-semibold"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setEditPartner(null)} className="underline text-[#4B5563]">Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={pt.id} className="border-t border-[#F3F4F6]">
+                    <td className="px-3 py-1.5 font-semibold" dir="auto">{pt.name}</td>
+                    <td className="px-2 py-1.5 text-[#6B7280]">{pt.cnic || ""}</td>
+                    <td className="px-2 py-1.5 text-[#6B7280]">{pt.phone || ""}</td>
+                    <td className="px-2 py-1.5 text-[#6B7280]" dir="auto">{pt.address || ""}</td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                      <button title="Edit" onClick={() => setEditPartner({ ...pt })} className="text-[#6B7280] hover:text-[#24539B] mr-3"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button
+                        title="Delete"
+                        onClick={async () => window.confirm(`Delete partner ${pt.name}? · حذف کریں؟`) && (await call(`/api/partnerships/partners/${pt.id}`, "DELETE", null, "Partner deleted · حذف")) && load()}
+                        className="text-[#6B7280] hover:text-[#B91C1C]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Agreements · {agreements.length}</div>
         <div className="divide-y divide-[#F3F4F6]">
@@ -232,6 +304,50 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
               </button>
               {openId === a.id && (
                 <div className="px-3 pb-3 bg-[#FAFAFA]">
+                  <div className="flex items-center gap-3 pt-2 text-xs">
+                    <button
+                      onClick={() => setEditAgreement(editAgreement?.id === a.id ? null : { id: a.id, agreedPrice: String(a.agreedPrice ?? ""), advancePaid: String(a.advancePaid ?? ""), companySharePercent: String(a.companySharePercent ?? ""), expenseRatioBenchmark: String(a.expenseRatioBenchmark ?? ""), notes: a.notes || "" })}
+                      className="flex items-center gap-1 text-[#24539B]"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit agreement · ترمیم
+                    </button>
+                    <button
+                      onClick={async () =>
+                        window.confirm(`Delete agreement ${a.agreementNumber} (${a.partnerName}, ${a.vehicleNumber}) and its settlements? · معاہدہ حذف کریں؟`) &&
+                        (await call(`/api/partnerships/agreements/${a.id}`, "DELETE", null, "Agreement deleted · حذف")) &&
+                        (setOpenId(null), load())
+                      }
+                      className="flex items-center gap-1 text-[#B91C1C]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete agreement · حذف
+                    </button>
+                  </div>
+                  {editAgreement?.id === a.id && (
+                    <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 mt-2">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                        <Field label="Agreed price"><input inputMode="numeric" value={editAgreement.agreedPrice} onChange={(e) => setEditAgreement({ ...editAgreement, agreedPrice: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Advance paid"><input inputMode="numeric" value={editAgreement.advancePaid} onChange={(e) => setEditAgreement({ ...editAgreement, advancePaid: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Company share %"><input inputMode="numeric" value={editAgreement.companySharePercent} onChange={(e) => setEditAgreement({ ...editAgreement, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Expected expense ratio %"><input inputMode="numeric" value={editAgreement.expenseRatioBenchmark} onChange={(e) => setEditAgreement({ ...editAgreement, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Notes"><input value={editAgreement.notes} onChange={(e) => setEditAgreement({ ...editAgreement, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={async () => {
+                            if (await call(`/api/partnerships/agreements/${a.id}`, "PUT", editAgreement, "Agreement saved — outstanding worked out again · محفوظ")) {
+                              setEditAgreement(null);
+                              refreshLedger(a.id);
+                              load();
+                            }
+                          }}
+                          className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setEditAgreement(null)} className="border rounded px-3 py-1.5 text-xs">Cancel</button>
+                      </div>
+                    </div>
+                  )}
                   {ledgerLoading === a.id ? (
                     <div className="py-4 text-center text-[#9CA3AF] text-xs flex items-center justify-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</div>
                   ) : ledger[a.id] ? (
@@ -244,6 +360,13 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
                       onSubmitSettlement={() => submitSettlement(a.id)}
                       onCancelSettle={() => setShowSettleFor(null)}
                       saving={saving}
+                      onUndoSettlement={async (sid: number, no: string) => {
+                        if (!window.confirm(`Take back settlement ${no}? The agreement's outstanding goes back to what it was before it. · یہ سیٹلمنٹ واپس لیں؟`)) return;
+                        if (await call(`/api/partnerships/agreements/${a.id}/settlements/${sid}`, "DELETE", null, "Settlement taken back · واپس")) {
+                          refreshLedger(a.id);
+                          load();
+                        }
+                      }}
                     />
                   ) : null}
                 </div>
@@ -257,7 +380,8 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
   );
 }
 
-function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving }: any) {
+function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving, onUndoSettlement }: any) {
+  const lastId = data.settlements.length ? Math.max(...data.settlements.map((x: any) => x.id)) : null;
   const t = data.totals;
   return (
     <div className="space-y-3 pt-1">
@@ -305,7 +429,7 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
       <div className="rounded-lg border border-[#E5E7EB] bg-white overflow-hidden">
         <table className="w-full text-[11px]">
           <thead className="bg-[#F9FAFB] text-[#6B7280]">
-            <tr><th className="text-left px-2 py-1.5">Settlement</th><th className="text-left px-2 py-1.5">Period</th><th className="text-right px-2 py-1.5">Revenue</th><th className="text-right px-2 py-1.5">Expenses</th><th className="text-right px-2 py-1.5">To Company</th><th className="text-left px-2 py-1.5">Flags</th></tr>
+            <tr><th className="text-left px-2 py-1.5">Settlement</th><th className="text-left px-2 py-1.5">Period</th><th className="text-right px-2 py-1.5">Revenue</th><th className="text-right px-2 py-1.5">Expenses</th><th className="text-right px-2 py-1.5">To Company</th><th className="text-left px-2 py-1.5">Flags</th><th /></tr>
           </thead>
           <tbody>
             {data.settlements.map((s: any) => (
@@ -318,9 +442,16 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
                 <td className="px-2 py-1.5">
                   {s.flags?.length ? <span className="text-[#B00005] flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{s.flags.join(", ")}</span> : <CheckCircle className="w-3 h-3 text-[#1E4480]" />}
                 </td>
+                <td className="px-2 py-1.5 text-right">
+                  {s.id === lastId && (
+                    <button onClick={() => onUndoSettlement(s.id, s.settlementNumber)} className="inline-flex items-center gap-1 text-[#6B7280] hover:text-[#B91C1C]" title="Take back the latest settlement">
+                      <Undo2 className="w-3 h-3" /> Take back · واپس
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
-            {data.settlements.length === 0 && <tr><td colSpan={6} className="px-2 py-4 text-center text-[#9CA3AF]">No settlements recorded yet</td></tr>}
+            {data.settlements.length === 0 && <tr><td colSpan={7} className="px-2 py-4 text-center text-[#9CA3AF]">No settlements recorded yet</td></tr>}
           </tbody>
         </table>
       </div>

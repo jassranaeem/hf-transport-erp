@@ -520,6 +520,117 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
 });
 
 // ===========================================================================
+// EDIT / DELETE — partners, agreements, and taking back a settlement
+// ===========================================================================
+router.delete("/partners/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partners).where(eq(schema.partners.id, id)).limit(1);
+    if (!old) return res.status(404).json({ error: "Partner not found" });
+    const [agr] = await db
+      .select({ id: schema.partnerAgreements.id })
+      .from(schema.partnerAgreements)
+      .where(and(eq(schema.partnerAgreements.partnerId, id), eq(schema.partnerAgreements.isDeleted, false)))
+      .limit(1);
+    if (agr) return res.status(400).json({ error: "This partner has an agreement — delete the agreement first · پہلے معاہدہ حذف کریں" });
+    await db.update(schema.partners).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partners.id, id));
+    await audit(req, "DELETE", "partners", id, old, null);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Edit an agreement's terms; the outstanding balance is worked out again from its settlements. */
+router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const n = (v: any, d: number) => (v === undefined || v === "" ? d : Math.max(0, Math.round(Number(v) || 0)));
+    const agreedPrice = n(b.agreedPrice, old.agreedPrice);
+    const advancePaid = n(b.advancePaid, old.advancePaid);
+    const openingBalance = Math.max(0, agreedPrice - advancePaid);
+    const [rec] = await db
+      .select({ s: sql<number>`coalesce(sum(${schema.partnerSettlements.amountToCompany}),0)::int` })
+      .from(schema.partnerSettlements)
+      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)));
+    const currentBalance = Math.max(0, openingBalance - Number(rec?.s || 0));
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({
+        partnerId: b.partnerId ? Number(b.partnerId) : old.partnerId,
+        vehicleId: b.vehicleId ? Number(b.vehicleId) : old.vehicleId,
+        agreedPrice,
+        advancePaid,
+        openingBalance,
+        currentBalance,
+        companySharePercent: Math.min(100, n(b.companySharePercent, old.companySharePercent)),
+        expenseRatioBenchmark: Math.min(100, n(b.expenseRatioBenchmark, old.expenseRatioBenchmark)),
+        startDate: b.startDate ? new Date(b.startDate) : old.startDate,
+        notes: b.notes !== undefined ? String(b.notes || "") || null : old.notes,
+        status: currentBalance <= 0 ? "Settled" : old.status === "Settled" ? "Active" : old.status,
+        closeDate: currentBalance <= 0 ? old.closeDate || new Date() : null,
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    await audit(req, "UPDATE", "partner_agreements", id, old, updated);
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Delete an agreement made by mistake, with its settlements. */
+router.delete("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const gone = await db
+      .update(schema.partnerSettlements)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
+      .returning({ id: schema.partnerSettlements.id });
+    await db.update(schema.partnerAgreements).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partnerAgreements.id, id));
+    // a khata pointing at this agreement no longer does
+    await db.update(schema.truckLedgers).set({ partnerAgreementId: null }).where(eq(schema.truckLedgers.partnerAgreementId, id));
+    await audit(req, "DELETE", "partner_agreements", id, { ...old, settlementsRemoved: gone.length }, null);
+    res.json({ ok: true, settlementsRemoved: gone.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Take back the latest settlement of an agreement (balances run in order, so only the last). */
+router.delete("/agreements/:id/settlements/:sid", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const sid = parseInt(req.params.sid);
+    const [last] = await db
+      .select()
+      .from(schema.partnerSettlements)
+      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
+      .orderBy(desc(schema.partnerSettlements.id))
+      .limit(1);
+    if (!last) return res.status(404).json({ error: "No settlement to take back" });
+    if (last.id !== sid) return res.status(400).json({ error: "Only the latest settlement can be taken back — take back the newer ones first · پہلے بعد والی واپس لیں" });
+    await db.update(schema.partnerSettlements).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partnerSettlements.id, sid));
+    await db
+      .update(schema.partnerAgreements)
+      .set({ currentBalance: last.balanceBefore, status: last.balanceBefore > 0 ? "Active" : "Settled", closeDate: last.balanceBefore > 0 ? null : undefined, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(eq(schema.partnerAgreements.id, id));
+    await audit(req, "DELETE", "partner_settlements", sid, last, null);
+    res.json({ ok: true, currentBalance: last.balanceBefore });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===========================================================================
 // PORTFOLIO SUMMARY
 // ===========================================================================
 router.get("/summary", requireRole(READ_ROLES), async (_req: AuthRequest, res: Response) => {
