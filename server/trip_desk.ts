@@ -23,8 +23,8 @@ import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
 import { applyLatestGpsToTrip, distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
-import { partnershipLedgerForPlate, partnershipPreviewForPlate, closePartnershipCycle } from "./partnership.ts";
-import { journeyMoney, journeyStops, rootOf, syncStopInvoice } from "./trip_close.ts";
+import { partnershipLedgerForPlate, partnershipPreviewForPlate, closePartnershipCycle, reopenLastCycle } from "./partnership.ts";
+import { journeyMoney, journeyStops, rootOf, syncStopInvoice, resyncStopInvoice, deleteStopInvoice } from "./trip_close.ts";
 import { createCashEntry } from "./cash_book.ts";
 import { triggerAutoInvoicing } from "./finance_engine.ts";
 
@@ -1096,13 +1096,15 @@ router.post("/:id/close/assign", requireRole(WRITE), async (req: AuthRequest, re
     if (stopId && !m.stops.some((s) => s.id === stopId)) return res.status(400).json({ error: "That stop is not part of this trip" });
     const allowed = new Set([...m.unassigned.map((u) => u.id), ...m.stops.flatMap((s) => s.receipts.map((r) => r.id))]);
     if (!allowed.has(entryId)) return res.status(400).json({ error: "That khata row is not money received for this truck since the trip began" });
+    const [before] = await db.select({ tripId: schema.truckLedgerEntries.derivedTripId }).from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, entryId)).limit(1);
     const [e] = await db
       .update(schema.truckLedgerEntries)
       .set({ derivedTripId: stopId, ...(stopId ? { category: "Freight" } : {}) })
       .where(eq(schema.truckLedgerEntries.id, entryId))
       .returning({ ledgerId: schema.truckLedgerEntries.ledgerId });
     if (e) await recompute(e.ledgerId);
-    if (stopId) await syncStopInvoice(stopId, req.user?.id);
+    if (before?.tripId && before.tripId !== stopId) await resyncStopInvoice(before.tripId, req.user?.id); // its bill goes back down
+    if (stopId) await resyncStopInvoice(stopId, req.user?.id);
     await audit(req, "UPDATE", "truck_ledger_entries", entryId, null, { derivedTripId: stopId, via: "Close trip" });
     res.json(await journeyMoney(m.rootId));
   } catch (e: any) {
@@ -1147,6 +1149,126 @@ router.post("/:id/close/split", requireRole(WRITE), async (req: AuthRequest, res
   } catch (e: any) {
     const known = /Nothing written|short by|not found/.test(e.message || "");
     res.status(known ? 400 : 500).json({ error: e.message });
+  }
+});
+
+/** A receipt of this trip: the khata line and the Cash Book entry that made it (if any). */
+async function receiptOf(m: NonNullable<Awaited<ReturnType<typeof journeyMoney>>>, entryId: number) {
+  const stop = m.stops.find((s) => s.receipts.some((r: any) => r.id === entryId));
+  if (!stop) return null;
+  const [cash] = await db
+    .select()
+    .from(schema.cashTransactions)
+    .where(and(eq(schema.cashTransactions.derivedEntryId, entryId), eq(schema.cashTransactions.linkType, "truck"), eq(schema.cashTransactions.isDeleted, false)))
+    .limit(1);
+  return { stop, cash: cash ?? null };
+}
+
+/** Fix a receipt's amount / date — the khata line and its Cash Book entry change together. */
+router.post("/:id/close/receipt/edit", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    if (m.splitAt) return res.status(400).json({ error: "This trip is already split — take the split back first · پہلے تقسیم واپس لیں" });
+    const b = req.body || {};
+    const entryId = Number(b.entryId);
+    const r = await receiptOf(m, entryId);
+    if (!r) return res.status(404).json({ error: "Receipt not found on this trip" });
+    const amount = money(b.amount);
+    if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
+    const date = b.date ? new Date(b.date) : null;
+    const [e] = await db
+      .update(schema.truckLedgerEntries)
+      .set({ received: amount, ...(date ? { entryDate: date, rawDate: String(b.date).slice(0, 10) } : {}), updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(eq(schema.truckLedgerEntries.id, entryId))
+      .returning({ ledgerId: schema.truckLedgerEntries.ledgerId });
+    if (r.cash) {
+      await db
+        .update(schema.cashTransactions)
+        .set({ amount, ...(date ? { entryDate: date } : {}), updatedAt: new Date(), updatedBy: req.user?.id })
+        .where(eq(schema.cashTransactions.id, r.cash.id));
+    }
+    if (e) await recompute(e.ledgerId);
+    await resyncStopInvoice(r.stop.id, req.user?.id);
+    await audit(req, "UPDATE", "truck_ledger_entries", entryId, null, { received: amount, date: b.date || null, cashEntry: r.cash?.id ?? null, via: "Close trip" });
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Delete a receipt entered by mistake: its khata line and its Cash Book entry go. */
+router.post("/:id/close/receipt/delete", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    if (m.splitAt) return res.status(400).json({ error: "This trip is already split — take the split back first · پہلے تقسیم واپس لیں" });
+    const entryId = Number(req.body?.entryId);
+    const r = await receiptOf(m, entryId);
+    if (!r) return res.status(404).json({ error: "Receipt not found on this trip" });
+    const [e] = await db
+      .update(schema.truckLedgerEntries)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.truckLedgerEntries.id, entryId))
+      .returning({ ledgerId: schema.truckLedgerEntries.ledgerId });
+    if (r.cash) {
+      await db.update(schema.cashTransactions).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.cashTransactions.id, r.cash.id));
+    }
+    if (e) await recompute(e.ledgerId);
+    await resyncStopInvoice(r.stop.id, req.user?.id);
+    await audit(req, "DELETE", "truck_ledger_entries", entryId, { stop: r.stop.id, cashEntry: r.cash?.id ?? null }, null);
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Take the 50/50 split back (reopens the Partner P&L cycle — only if it's the latest split). */
+router.post("/:id/close/unsplit", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    if (!m.splitAt || !m.splitAccountId) return res.status(400).json({ error: "This trip isn't split" });
+    await reopenLastCycle(m.splitAccountId, req.user?.id, `trip ${m.route}`);
+    await db.update(schema.trips).set({ splitAt: null, splitAmount: null, splitAccountId: null }).where(eq(schema.trips.id, m.rootId));
+    await audit(req, "UPDATE", "trips", m.rootId, { splitAt: m.splitAt, splitAmount: m.splitAmount }, { split: "taken back" });
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(/later split|No closed|not found/.test(e.message || "") ? 400 : 500).json({ error: e.message });
+  }
+});
+
+/** Reopen the trip: bills removed (with Close trip's payments), stops back to Arrived. Receipts stay. */
+router.post("/:id/close/reopen", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const m = await journeyOr404(req, res);
+    if (!m) return;
+    if (m.splitAt) return res.status(400).json({ error: "Take the 50/50 split back first · پہلے تقسیم واپس لیں" });
+    const legs = await journeyStops(m.rootId);
+    // check every bill can go before touching any
+    for (const l of legs) {
+      const [inv] = await db
+        .select({ id: schema.invoices.id, no: schema.invoices.invoiceNumber })
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.tripId, l.trip.id), eq(schema.invoices.isDeleted, false)))
+        .limit(1);
+      if (!inv) continue;
+      const other = await db
+        .select({ id: schema.payments.id })
+        .from(schema.invoicePayments)
+        .innerJoin(schema.payments, eq(schema.invoicePayments.paymentId, schema.payments.id))
+        .where(and(eq(schema.invoicePayments.invoiceId, inv.id), sql`coalesce(${schema.payments.referenceNumber}, '') <> ${`TRIP-${l.trip.id}`}`));
+      if (other.length) return res.status(400).json({ error: `Bill ${inv.no} has payments entered in Finance — remove those there first · فنانس والی ادائیگی پہلے ہٹائیں` });
+    }
+    for (const l of legs) {
+      await deleteStopInvoice(l.trip.id);
+      if (l.trip.status === "Completed") await db.update(schema.trips).set({ status: "Arrived", updatedAt: new Date() }).where(eq(schema.trips.id, l.trip.id));
+    }
+    await db.update(schema.trips).set({ closedAt: null }).where(eq(schema.trips.id, m.rootId));
+    await audit(req, "UPDATE", "trips", m.rootId, { closedAt: m.closedAt }, { reopened: true });
+    res.json(await journeyMoney(m.rootId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

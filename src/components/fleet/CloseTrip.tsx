@@ -7,7 +7,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
-import { X, Loader2, CheckCircle, Handshake, ExternalLink } from "lucide-react";
+import { X, Loader2, CheckCircle, Handshake, ExternalLink, Pencil, Trash2, Undo2 } from "lucide-react";
 
 const PKR = (n: number) => (n < 0 ? "-" : "") + Math.abs(Math.round(n || 0)).toLocaleString("en-IN");
 const fmtDate = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
@@ -44,6 +44,7 @@ export default function CloseTrip({
   const [d, setD] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [recv, setRecv] = useState<{ stopId: number; amount: string; date: string; method: string } | null>(null);
+  const [editRc, setEditRc] = useState<{ entryId: number; amount: string; date: string } | null>(null);
 
   const load = useCallback(() => {
     enterpriseFetch(`/api/trip-desk/${tripId}/close`).then(setD).catch((e) => showFeedback("error", e.message));
@@ -101,6 +102,19 @@ export default function CloseTrip({
                   className="bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60"
                 >
                   Complete trip · ٹرپ مکمل
+                </button>
+              )}
+              {d.allCompleted && !d.splitAt && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    window.confirm(
+                      "Reopen this trip? The customers' bills are removed (and their payments from this screen); received money stays tied to the customers. · ٹرپ دوبارہ کھولیں؟ بل ہٹ جائیں گے",
+                    ) && act("/reopen", {}, () => "Trip reopened — bills removed · ٹرپ دوبارہ کھل گئی")
+                  }
+                  className="flex items-center gap-1 border border-[#E5E7EB] rounded-lg px-2.5 py-1 text-[#4B5563] hover:bg-[#F9FAFB]"
+                >
+                  <Undo2 className="w-3.5 h-3.5" /> Reopen trip · دوبارہ کھولیں
                 </button>
               )}
             </div>
@@ -202,16 +216,56 @@ export default function CloseTrip({
                       {s.receipts.length > 0 && (
                         <tr>
                           <td colSpan={7} className="px-2 pb-2 text-[10px] text-[#166534]" dir="auto">
-                            {s.receipts.map((r: any) => (
-                              <span key={r.id} className="mr-3 inline-flex items-center gap-1">
-                                ✓ {fmtDate(r.date)} {PKR(r.amount)} — {String(r.description || "").slice(0, 60)}
-                                {!d.splitAt && (
-                                  <button disabled={busy} onClick={() => act("/assign", { entryId: r.id, stopId: null }, () => "Untied from this customer")} className="underline text-[#6B7280]">
-                                    untie
+                            {s.receipts.map((r: any) =>
+                              editRc?.entryId === r.id ? (
+                                <span key={r.id} className="mr-3 inline-flex items-center gap-1 flex-wrap text-[#111827]">
+                                  <input id={`ct-rc-amt-${r.id}`} inputMode="numeric" value={editRc.amount} onChange={(e) => setEditRc({ ...editRc, amount: e.target.value })} className="border border-[#E5E7EB] rounded px-1.5 py-0.5 w-28 tabular-nums" />
+                                  <input id={`ct-rc-date-${r.id}`} type="date" value={editRc.date} onChange={(e) => setEditRc({ ...editRc, date: e.target.value })} className="border border-[#E5E7EB] rounded px-1.5 py-0.5" />
+                                  <span className="text-[#24539B]">{amountWords(editRc.amount)}</span>
+                                  <button
+                                    disabled={busy}
+                                    onClick={async () => {
+                                      const x = await act("/receipt/edit", editRc, () => "Receipt corrected — Cash Book and khata updated · درست ہو گیا");
+                                      if (x) setEditRc(null);
+                                    }}
+                                    className="bg-[#166534] text-white rounded px-2 py-0.5"
+                                  >
+                                    Save
                                   </button>
-                                )}
-                              </span>
-                            ))}
+                                  <button onClick={() => setEditRc(null)} className="underline text-[#6B7280]">Cancel</button>
+                                </span>
+                              ) : (
+                                <span key={r.id} className="mr-3 inline-flex items-center gap-1.5">
+                                  ✓ {fmtDate(r.date)} {PKR(r.amount)} — {String(r.description || "").slice(0, 60)}
+                                  {!d.splitAt && (
+                                    <>
+                                      <button
+                                        title="Edit amount / date · ترمیم"
+                                        onClick={() => setEditRc({ entryId: r.id, amount: String(r.amount), date: r.date ? new Date(r.date).toISOString().slice(0, 10) : today() })}
+                                        className="text-[#6B7280] hover:text-[#24539B]"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        title="Delete this receipt · حذف"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          window.confirm(
+                                            `Delete this receipt of ${PKR(r.amount)}? It is removed from the truck's khata AND the Daily Cash Book. (To keep it but take it off this customer, use "untie".) · یہ وصولی حذف کریں؟`,
+                                          ) && act("/receipt/delete", { entryId: r.id }, () => "Receipt deleted · حذف ہو گیا")
+                                        }
+                                        className="text-[#6B7280] hover:text-[#B91C1C]"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                      <button disabled={busy} onClick={() => act("/assign", { entryId: r.id, stopId: null }, () => "Untied from this customer — it's back in the list below")} className="underline text-[#6B7280]">
+                                        untie
+                                      </button>
+                                    </>
+                                  )}
+                                </span>
+                              ),
+                            )}
                           </td>
                         </tr>
                       )}
@@ -276,6 +330,16 @@ export default function CloseTrip({
                   <div className="text-[#166534] font-semibold" dir="auto">
                     <CheckCircle className="w-4 h-4 inline" /> Split on {fmtDate(d.splitAt)}: result {PKR(d.splitAmount)} — {p.partnerName} {PKR(Math.round((d.splitAmount * p.partnerPercent) / 100))}, {p.hfkName}{" "}
                     {PKR(d.splitAmount - Math.round((d.splitAmount * p.partnerPercent) / 100))} · تقسیم ہو گیا
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        window.confirm(`Take this split back? Both shares leave ${p.partnerName}'s and ${p.hfkName}'s ledgers, and the trip can be corrected and split again. · تقسیم واپس لیں؟`) &&
+                        act("/unsplit", {}, () => "Split taken back — shares removed from both ledgers · تقسیم واپس")
+                      }
+                      className="ml-3 inline-flex items-center gap-1 font-normal border border-[#E5E7EB] bg-white rounded-lg px-2 py-0.5 text-[#4B5563] hover:bg-[#F9FAFB]"
+                    >
+                      <Undo2 className="w-3 h-3" /> Take split back · تقسیم واپس
+                    </button>
                   </div>
                 ) : (
                   <>

@@ -911,28 +911,51 @@ router.post("/:id/close", requireRole(WRITE), async (req: AuthRequest, res: Resp
   }
 });
 
+/**
+ * Reopen a partnership's last closed cycle: its صافی بچت / loss lines leave both ledgers and the
+ * cycle is open again. A trip split by that close (Fleet Desk → Close trip) goes back to "not
+ * split". `onlyIfNote`: refuse unless the last close was made for that trip (its note).
+ */
+export async function reopenLastCycle(accountId: number, userId?: number, onlyIfNote?: string) {
+  const full = await loadAccount(accountId);
+  if (!full) throw new Error("Partnership account not found");
+  const a = full.acc;
+  const closes = await db
+    .select()
+    .from(schema.partyLedgerEntries)
+    .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false), inArray(schema.partyLedgerEntries.sectionLabel, [KIND.safi, KIND.loss])))
+    .orderBy(desc(schema.partyLedgerEntries.id))
+    .limit(2);
+  if (!closes.length || closes[0].sourceRow == null) throw new Error("No closed cycle to reopen");
+  if (onlyIfNote && !String(closes[0].description || "").includes(`(${onlyIfNote})`)) {
+    throw new Error("A later split was made after this one — reopen that first (Partner P&L → Reopen last cycle) · بعد والا حساب پہلے کھولیں");
+  }
+  const prev = closes[0].sourceRow;
+  const pair = closes.filter((c) => c.sourceRow === prev);
+  await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId }).where(inArray(schema.partyLedgerEntries.id, pair.map((x) => x.id)));
+  await db.update(schema.partnershipAccounts).set({ lastEntryId: prev, cycleNo: Math.max(0, a.cycleNo - 1), updatedAt: new Date(), updatedBy: userId }).where(eq(schema.partnershipAccounts.id, a.id));
+  // the trip this close split (if it came from Close trip) is not split any more
+  const closedAt = new Date(closes[0].createdAt).getTime();
+  const [trip] = await db
+    .select({ id: schema.trips.id, splitAt: schema.trips.splitAt })
+    .from(schema.trips)
+    .where(eq(schema.trips.splitAccountId, a.id))
+    .orderBy(desc(schema.trips.splitAt))
+    .limit(1);
+  if (trip?.splitAt && Math.abs(new Date(trip.splitAt).getTime() - closedAt) < 5 * 60_000) {
+    await db.update(schema.trips).set({ splitAt: null, splitAmount: null, splitAccountId: null }).where(eq(schema.trips.id, trip.id));
+  }
+  await recomputeParty(a.partnerPartyId);
+  await recomputeParty(a.hfkPartyId);
+  await logAudit({ action: "UPDATE", tableName: "partnership_accounts", recordId: a.id, oldValues: { lastEntryId: a.lastEntryId }, newValues: { lastEntryId: prev, reopened: true }, performedBy: userId }).catch(() => {});
+  return { ok: true };
+}
+
 router.post("/:id/undo-close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
-    const full = await loadAccount(Number(req.params.id));
-    if (!full) return res.status(404).json({ error: "Partnership account not found" });
-    const a = full.acc;
-    const closes = await db
-      .select()
-      .from(schema.partyLedgerEntries)
-      .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false), inArray(schema.partyLedgerEntries.sectionLabel, [KIND.safi, KIND.loss])))
-      .orderBy(desc(schema.partyLedgerEntries.id))
-      .limit(2);
-    if (!closes.length || closes[0].sourceRow == null) return res.status(400).json({ error: "No closed cycle to reopen" });
-    const prev = closes[0].sourceRow;
-    const pair = closes.filter((c) => c.sourceRow === prev);
-    await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(inArray(schema.partyLedgerEntries.id, pair.map((p) => p.id)));
-    await db.update(schema.partnershipAccounts).set({ lastEntryId: prev, cycleNo: Math.max(0, a.cycleNo - 1), updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.partnershipAccounts.id, a.id));
-    await recomputeParty(a.partnerPartyId);
-    await recomputeParty(a.hfkPartyId);
-    await audit(req, "UPDATE", "partnership_accounts", a.id, { lastEntryId: a.lastEntryId }, { lastEntryId: prev, reopened: true });
-    res.json({ ok: true });
+    res.json(await reopenLastCycle(Number(req.params.id), req.user?.id));
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(/No closed|not found/.test(e.message || "") ? 400 : 500).json({ error: e.message });
   }
 });
 

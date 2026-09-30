@@ -204,6 +204,74 @@ export async function syncStopInvoice(stopId: number, userId?: number) {
   return inv;
 }
 
+/**
+ * Take back every bill payment "Close trip" posted for a stop (reference TRIP-<stop>): the
+ * payment, its link and journal entry, the bill's paid amount / status and the customer's
+ * balance. Payments entered elsewhere (Finance) are not touched. Returns the amount reversed.
+ */
+export async function undoTripPayments(stopId: number): Promise<number> {
+  const [inv] = await db.select().from(schema.invoices).where(and(eq(schema.invoices.tripId, stopId), eq(schema.invoices.isDeleted, false))).limit(1);
+  if (!inv) return 0;
+  const pays = await db
+    .select({ id: schema.payments.id, amount: schema.invoicePayments.amount, linkId: schema.invoicePayments.id })
+    .from(schema.invoicePayments)
+    .innerJoin(schema.payments, eq(schema.invoicePayments.paymentId, schema.payments.id))
+    .where(and(eq(schema.invoicePayments.invoiceId, inv.id), eq(schema.payments.referenceNumber, `TRIP-${stopId}`)));
+  if (!pays.length) return 0;
+  const total = pays.reduce((s, x) => s + (x.amount || 0), 0);
+  const jes = await db
+    .select({ id: schema.journalEntries.id })
+    .from(schema.journalEntries)
+    .where(and(eq(schema.journalEntries.sourceType, "Payment"), inArray(schema.journalEntries.sourceId, pays.map((x) => x.id))));
+  if (jes.length) {
+    await db.delete(schema.journalLines).where(inArray(schema.journalLines.journalEntryId, jes.map((x) => x.id)));
+    await db.delete(schema.journalEntries).where(inArray(schema.journalEntries.id, jes.map((x) => x.id)));
+  }
+  await db.delete(schema.invoicePayments).where(inArray(schema.invoicePayments.id, pays.map((x) => x.linkId)));
+  await db.delete(schema.payments).where(inArray(schema.payments.id, pays.map((x) => x.id)));
+  const paid = Math.max(0, (inv.paidAmount || 0) - total);
+  await db
+    .update(schema.invoices)
+    .set({ paidAmount: paid, outstandingBalance: Math.max(0, inv.totalAmount - paid), status: paid <= 0 ? "Unpaid" : paid >= inv.totalAmount ? "Paid" : "Partially Paid" })
+    .where(eq(schema.invoices.id, inv.id));
+  const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
+  if (c) await db.update(schema.contractors).set({ outstandingBalance: (c.bal || 0) + total }).where(eq(schema.contractors.id, inv.contractorId));
+  return total;
+}
+
+/** After a receipt changes or goes away: the bill's paid amount follows what is received now. */
+export async function resyncStopInvoice(stopId: number, userId?: number) {
+  await undoTripPayments(stopId);
+  return syncStopInvoice(stopId, userId);
+}
+
+/** Reopening a trip: remove a stop's bill (with Close trip's payments and its journal entry). */
+export async function deleteStopInvoice(stopId: number): Promise<{ ok: boolean; reason?: string }> {
+  const [inv] = await db.select().from(schema.invoices).where(and(eq(schema.invoices.tripId, stopId), eq(schema.invoices.isDeleted, false))).limit(1);
+  if (!inv) return { ok: true };
+  const other = await db
+    .select({ id: schema.payments.id })
+    .from(schema.invoicePayments)
+    .innerJoin(schema.payments, eq(schema.invoicePayments.paymentId, schema.payments.id))
+    .where(and(eq(schema.invoicePayments.invoiceId, inv.id), sql`coalesce(${schema.payments.referenceNumber}, '') <> ${`TRIP-${stopId}`}`));
+  if (other.length) return { ok: false, reason: `bill ${inv.invoiceNumber} has payments entered in Finance — remove those there first` };
+  await undoTripPayments(stopId);
+  const [fresh] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, inv.id)).limit(1);
+  const jes = await db
+    .select({ id: schema.journalEntries.id })
+    .from(schema.journalEntries)
+    .where(and(eq(schema.journalEntries.sourceType, "Invoice"), eq(schema.journalEntries.sourceId, inv.id)));
+  if (jes.length) {
+    await db.delete(schema.journalLines).where(inArray(schema.journalLines.journalEntryId, jes.map((x) => x.id)));
+    await db.delete(schema.journalEntries).where(inArray(schema.journalEntries.id, jes.map((x) => x.id)));
+  }
+  await db.delete(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, inv.id));
+  await db.delete(schema.invoices).where(eq(schema.invoices.id, inv.id));
+  const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
+  if (c) await db.update(schema.contractors).set({ outstandingBalance: Math.max(0, (c.bal || 0) - (fresh?.outstandingBalance || 0)) }).where(eq(schema.contractors.id, inv.contractorId));
+  return { ok: true };
+}
+
 /** Closed journeys of this truck still waiting for money (shown in Partner P&L). */
 export async function pendingTripsForPlate(vehicleNumber: string) {
   const plate = normPlate(vehicleNumber);
