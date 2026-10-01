@@ -257,8 +257,9 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                   <th className="text-left px-2 py-1.5">Truck</th>
                   <th className="text-right px-2 py-1.5">Share</th>
                   <th className="text-right px-2 py-1.5">His money in the pool · مشترکہ جمع</th>
-                  <th className="text-right px-2 py-1.5">Qarz on him · قرض</th>
+                  <th className="text-right px-2 py-1.5">Qarz · قرض (taken − paid back)</th>
                   <th className="text-right px-2 py-1.5">This cycle · موجودہ</th>
+                  <th className="text-right px-2 py-1.5">With us · ہمارے پاس</th>
                   <th />
                 </tr>
               </thead>
@@ -269,12 +270,31 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                     <td className="px-2 py-1.5 whitespace-nowrap">{a.truck || a.truckTitle}</td>
                     <td className="px-2 py-1.5 text-right whitespace-nowrap">{a.partnerPercent}% / {100 - a.partnerPercent}%</td>
                     <td className={`px-2 py-1.5 text-right tabular-nums ${(a.partner?.inPool || 0) < 0 ? "text-[#B91C1C]" : ""}`}>{pkr(a.partner?.inPool || 0)}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{a.partner?.debt ? pkr(a.partner.debt) : "—"}</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums whitespace-nowrap ${(a.partner?.debt || 0) > 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
+                      {(a.partner?.debt || 0) > 0 ? PKR(a.partner.debt) : (a.partner?.debt || 0) < 0 ? `+${PKR(a.partner.debt)} paid back · واپس دیا` : "—"}
+                    </td>
                     <td className={`px-2 py-1.5 text-right tabular-nums ${(a.cycleNet || 0) < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>{pkr(a.cycleNet || 0)}</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold whitespace-nowrap ${(a.partner?.net || 0) < 0 ? "text-[#B91C1C]" : (a.partner?.net || 0) > 0 ? "text-[#047857]" : ""}`}>
+                      {(a.partner?.net || 0) > 0 ? `${PKR(a.partner.net)} جمع ہے` : (a.partner?.net || 0) < 0 ? `owes ${PKR(a.partner.net)} · قرضدار` : "Clear · برابر"}
+                    </td>
                     <td className="px-3 py-1.5 text-right whitespace-nowrap text-[#24539B]">Open ↗</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-[#E5E7EB] font-semibold">
+                  <td colSpan={6} className="px-3 py-1.5 text-right">Partners' money with us · شریکوں کا ہمارے پاس جمع</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-[#047857]">{PKR(truckPartners.reduce((s, a) => s + Math.max(0, a.partner?.net || 0), 0))}</td>
+                  <td />
+                </tr>
+                {truckPartners.some((a) => (a.partner?.net || 0) < 0) && (
+                  <tr className="font-semibold">
+                    <td colSpan={6} className="px-3 py-1.5 text-right">Partners who owe us · شریکوں پر قرض</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{PKR(truckPartners.reduce((s, a) => s + Math.min(0, a.partner?.net || 0), 0))}</td>
+                    <td />
+                  </tr>
+                )}
+              </tfoot>
             </table>
           </div>
         )}
