@@ -29,6 +29,11 @@
  *   DELETE /api/cash-book/:id                   soft-delete an entry
  *   POST   /api/cash-book/import/preview         upload a dual cash-book .xlsx, see counts before committing
  *   POST   /api/cash-book/import                 commit the same file
+ *   GET    /api/cash-book/count?date=            the day's cash count (what was counted vs the book)
+ *   PUT    /api/cash-book/count                  { date, counted?, denominations?, notes } count the cash
+ *   DELETE /api/cash-book/count?date=            remove a count
+ *   POST   /api/cash-book/count/settle           { date } write the difference into the cash book
+ *   GET    /api/cash-book/summary?by=&from=&to=  in / out / closing by day, week, month or year, with counts
  *
  * Mounted at /api/cash-book.
  */
@@ -57,6 +62,8 @@ const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
   party: { needsTarget: true },
   personal: { needsTarget: false },
   zakat: { needsTarget: false },
+  // a cash-count difference (shortage / excess) written by "Record the difference" — books: 5095
+  count: { needsTarget: false },
 };
 
 const workbookUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -441,7 +448,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
   }
 });
 
-router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);
@@ -605,6 +612,222 @@ router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async 
 
 /** Delete every entry of one day (e.g. to import that day's sheet again cleanly). Linked
  * truck / party ledger lines go with them, exactly as when deleting one entry. */
+// ---------------------------------------------------------------- the day's cash count
+export const NOTES = ["5000", "1000", "500", "100", "50", "20", "10"] as const;
+
+/** What the cash book says the cash should be at the end of a day. */
+export async function bookPosition(dateStr: string) {
+  const { start, end } = dayBounds(dateStr);
+  const [r] = await db
+    .select({
+      before: sql<number>`coalesce(sum(case when ${T.entryDate} < ${start} then case when ${T.direction}='In' then ${T.amount} else -${T.amount} end else 0 end),0)::bigint`,
+      cin: sql<number>`coalesce(sum(case when ${T.entryDate} >= ${start} and ${T.entryDate} < ${end} and ${T.direction}='In' then ${T.amount} else 0 end),0)::bigint`,
+      cout: sql<number>`coalesce(sum(case when ${T.entryDate} >= ${start} and ${T.entryDate} < ${end} and ${T.direction}='Out' then ${T.amount} else 0 end),0)::bigint`,
+      n: sql<number>`count(*) filter (where ${T.entryDate} >= ${start} and ${T.entryDate} < ${end})::int`,
+    })
+    .from(T)
+    .where(and(eq(T.isDeleted, false), lt(T.entryDate, end)));
+  const opening = Number(r?.before || 0);
+  const cashIn = Number(r?.cin || 0);
+  const cashOut = Number(r?.cout || 0);
+  return { opening, cashIn, cashOut, closing: opening + cashIn - cashOut, entries: Number(r?.n || 0) };
+}
+
+const C = schema.cashClosings;
+const countAudit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", id: number, oldV: unknown, newV: unknown) =>
+  logAudit({ action, tableName: "cash_closings", recordId: id, oldValues: oldV, newValues: newV, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+const okDay = (v: any) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
+
+async function countFor(day: string) {
+  const [row] = await db.select().from(C).where(and(eq(C.isDeleted, false), eq(C.day, day))).limit(1);
+  return row || null;
+}
+
+router.get("/count", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.query.date) || new Date().toISOString().slice(0, 10);
+    const book = await bookPosition(day);
+    const count = await countFor(day);
+    // the difference is always against the book as it is NOW (an entry added later corrects it)
+    res.json({ date: day, book, count, difference: count ? count.declaredBalance - book.closing : null });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.put("/count", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const day = okDay(b.date);
+    if (!day) return res.status(400).json({ error: "Which day? · کون سا دن؟" });
+    const den: Record<string, number> = {};
+    let fromNotes = 0;
+    for (const k of [...NOTES, "coins"]) {
+      const n = Math.max(0, Math.round(Number(b.denominations?.[k]) || 0));
+      if (n) {
+        den[k] = n;
+        fromNotes += k === "coins" ? n : n * Number(k);
+      }
+    }
+    const counted = b.counted !== undefined && b.counted !== "" ? Math.max(0, Math.round(Number(b.counted) || 0)) : fromNotes;
+    if (!counted && !Object.keys(den).length && b.counted === undefined) return res.status(400).json({ error: "Enter what was counted · گنی ہوئی رقم لکھیں" });
+    const book = await bookPosition(day);
+    const values = {
+      day,
+      closingDate: dayBounds(day).start,
+      denominations: Object.keys(den).length ? den : null,
+      openingBalance: book.opening,
+      cashIn: book.cashIn,
+      cashOut: book.cashOut,
+      closingBalance: book.closing,
+      declaredBalance: counted,
+      discrepancy: counted - book.closing,
+      notes: b.notes ? String(b.notes).slice(0, 500) : null,
+      updatedAt: new Date(),
+    };
+    const old = await countFor(day);
+    const [row] = old
+      ? await db.update(C).set({ ...values, updatedBy: req.user?.id }).where(eq(C.id, old.id)).returning()
+      : await db.insert(C).values({ ...values, status: "Draft", createdBy: req.user?.id }).returning();
+    await countAudit(req, old ? "UPDATE" : "CREATE", row.id, old, row);
+    res.json({ date: day, book, count: row, difference: counted - book.closing });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.delete("/count", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.query.date);
+    const old = day ? await countFor(day) : null;
+    if (!old) return res.status(404).json({ error: "No count for that day" });
+    await db.update(C).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(C.id, old.id));
+    await countAudit(req, "DELETE", old.id, old, null);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/** The count and the book differ: write the difference into the cash book (shortage = out, excess = in). */
+router.post("/count/settle", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.body?.date);
+    const count = day ? await countFor(day) : null;
+    if (!day || !count) return res.status(404).json({ error: "Count the cash for that day first" });
+    const book = await bookPosition(day);
+    const diff = count.declaredBalance - book.closing;
+    if (diff === 0) return res.json({ ok: true, message: "Nothing to record — the count matches the book" });
+    const at = new Date(dayBounds(day).end.getTime() - 60_000); // last minute of that day
+    const row = await createCashEntry(
+      {
+        entryDate: at.toISOString(),
+        direction: diff < 0 ? "Out" : "In",
+        amount: Math.abs(diff),
+        person: "Cash count",
+        description: diff < 0 ? `Cash short on count (${day}) · گنتی میں کم` : `Cash extra on count (${day}) · گنتی میں زیادہ`,
+        linkType: "count",
+      },
+      req.user?.id,
+    );
+    res.json({ ok: true, entry: row, message: diff < 0 ? `Shortage of ${Math.abs(diff).toLocaleString()} recorded` : `Excess of ${diff.toLocaleString()} recorded` });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/** In / out / closing by day, week, month or year — and how the counts went in each. */
+router.get("/summary", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const by = ["day", "week", "month", "year"].includes(String(req.query.by)) ? String(req.query.by) : "month";
+    const now = new Date();
+    const fy = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    const from = okDay(req.query.from) || `${fy}-07-01`;
+    const to = okDay(req.query.to) || `${fy + 1}-06-30`;
+    const { start } = dayBounds(from);
+    const { end } = dayBounds(to);
+    const opening = (await bookPosition(from)).opening;
+    const list = await db
+      .select({ d: T.entryDate, dir: T.direction, amount: T.amount })
+      .from(T)
+      .where(and(eq(T.isDeleted, false), gte(T.entryDate, start), lt(T.entryDate, end)))
+      .orderBy(asc(T.entryDate));
+    const counts = await db
+      .select({ day: C.day, declared: C.declaredBalance })
+      .from(C)
+      .where(and(eq(C.isDeleted, false), gte(C.day, from), lte(C.day, to)));
+
+    // the day as the cash book shows it (server-local midnight, like /day)
+    const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const keyOf = (day: string) => {
+      if (by === "day") return day;
+      if (by === "month") return day.slice(0, 7);
+      if (by === "year") {
+        const y = Number(day.slice(0, 4));
+        const m = Number(day.slice(5, 7));
+        const s = m >= 7 ? y : y - 1;
+        return `FY ${s}-${String((s + 1) % 100).padStart(2, "0")}`;
+      }
+      const dt = new Date(`${day}T00:00:00Z`); // week starting Monday
+      dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+      return dt.toISOString().slice(0, 10);
+    };
+    const days = new Map<string, { in: number; out: number }>();
+    for (const r of list) {
+      const day = localDay(new Date(r.d));
+      const cur = days.get(day) || { in: 0, out: 0 };
+      if (r.dir === "In") cur.in += r.amount;
+      else cur.out += r.amount;
+      days.set(day, cur);
+    }
+    // closing per day (running), for the counts' difference
+    let run = opening;
+    const closingOf = new Map<string, number>();
+    for (const day of [...days.keys()].sort()) {
+      run += days.get(day)!.in - days.get(day)!.out;
+      closingOf.set(day, run);
+    }
+    const closingAt = (day: string) => {
+      let c = opening;
+      for (const [d, v] of closingOf) if (d <= day) c = v;
+      return c;
+    };
+    const periods = new Map<string, { key: string; first: string; last: string; in: number; out: number; days: number; counted: number; difference: number; diffDays: number }>();
+    for (const day of [...days.keys()].sort()) {
+      const k = keyOf(day);
+      const p = periods.get(k) || { key: k, first: day, last: day, in: 0, out: 0, days: 0, counted: 0, difference: 0, diffDays: 0 };
+      p.in += days.get(day)!.in;
+      p.out += days.get(day)!.out;
+      p.days += 1;
+      p.last = day;
+      periods.set(k, p);
+    }
+    for (const c of counts) {
+      if (!c.day) continue;
+      const k = keyOf(c.day);
+      const p = periods.get(k) || { key: k, first: c.day, last: c.day, in: 0, out: 0, days: 0, counted: 0, difference: 0, diffDays: 0 };
+      p.counted += 1;
+      const d = c.declared - closingAt(c.day);
+      if (d !== 0) {
+        p.difference += d;
+        p.diffDays += 1;
+      }
+      periods.set(k, p);
+    }
+    let bal = opening;
+    const rows = [...periods.values()]
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((p) => {
+        const o = bal;
+        bal = o + p.in - p.out;
+        return { ...p, opening: o, closing: bal };
+      });
+    res.json({ by, from, to, opening, closing: bal, totalIn: rows.reduce((s, r) => s + r.in, 0), totalOut: rows.reduce((s, r) => s + r.out, 0), rows });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
 router.delete("/day", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const dateStr = String(req.query.date || "");
@@ -625,7 +848,7 @@ router.delete("/day", requireRole(WRITE), async (req: AuthRequest, res: Response
   }
 });
 
-router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+router.delete("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);

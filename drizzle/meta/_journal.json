@@ -204,6 +204,13 @@
       "when": 1790880000000,
       "tag": "0028_books_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790890000000,
+      "tag": "0029_cash_count",
+      "breakpoints": true
     }
   ]
 }

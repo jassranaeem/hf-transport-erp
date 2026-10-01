@@ -746,6 +746,8 @@ export const bankAccounts = pgTable("bank_accounts", {
 export const cashClosings = pgTable("cash_closings", {
   id: serial("id").primaryKey(),
   closingDate: timestamp("closing_date").defaultNow().notNull(),
+  day: text("day"), // YYYY-MM-DD — the Daily Cash Book day this count is for (one count per day)
+  denominations: jsonb("denominations"), // { "5000": 3, "1000": 12, … , "coins": 140 }
   openingBalance: integer("opening_balance").default(0).notNull(),
   cashIn: integer("cash_in").default(0).notNull(),
   cashOut: integer("cash_out").default(0).notNull(),

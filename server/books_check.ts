@@ -271,6 +271,59 @@ const CHECKS: Check[] = [
       ),
   },
 
+  {
+    code: "CASH_COUNT_DIFF",
+    level: "red",
+    area: "Daily Cash Book",
+    title: "Cash counted is not what the cash book says",
+    urdu: "گنا ہوا نقد کیش بک سے مختلف",
+    why: "When the cash in the drawer and the cash book differ, an entry is missing or wrong — or money is short.",
+    fix: "Open that day: add the missing entry, or press 'Record the difference' to write the shortage / excess into the cash book.",
+    run: async () => {
+      const counts = await rows(sql`select id, day, declared_balance from cash_closings where not is_deleted and day is not null
+          and ${notDismissed("CASH_COUNT_DIFF", sql`'count:' || day`)} order by day desc limit 400`);
+      const { bookPosition } = await import("./cash_book.ts"); // loaded here: cash_book → ledgers → this file
+      const items: Item[] = [];
+      for (const c of counts) {
+        const book = await bookPosition(c.day);
+        const diff = num(c.declared_balance) - book.closing;
+        if (diff !== 0)
+          items.push({ key: `count:${c.day}`, date: c.day, title: diff < 0 ? "Cash short · کم" : "Cash extra · زیادہ", detail: `counted ${num(c.declared_balance).toLocaleString()} · book ${book.closing.toLocaleString()}`, amount: diff, link: cashLink(c.day) });
+      }
+      return { total: items.length, items };
+    },
+  },
+  {
+    code: "CASH_NOT_COUNTED",
+    level: "amber",
+    area: "Daily Cash Book",
+    title: "Days with cash entries but no cash count",
+    urdu: "جن دنوں انٹریاں ہیں مگر نقد نہیں گنا",
+    why: "Counting the cash every evening is how a missing entry or a shortage is caught the same day, not months later.",
+    fix: "Open the day in the Daily Cash Book and count the cash (notes of 5000, 1000, 500…).",
+    run: async () => {
+      const [first] = await rows(sql`select min(day) d from cash_closings where not is_deleted and day is not null`);
+      if (!first?.d) {
+        const [any] = await rows(sql`select count(*)::int n from cash_transactions where not is_deleted`);
+        return num(any?.n)
+          ? { total: 1, items: [{ key: "count:never", date: null, title: "The cash has never been counted", detail: "start counting the cash every evening · روز شام نقد گنیں", amount: null, link: cashLink(null) }] }
+          : { total: 0, items: [] };
+      }
+      // days (as text, like the cash book shows them) from the first count on, with entries but no count
+      const list = await rows(sql`select distinct to_char(entry_date, 'YYYY-MM-DD') d from cash_transactions
+          where not is_deleted and entry_date >= ${first.d}::timestamp and entry_date < now() - interval '1 day'
+          except select day from cash_closings where not is_deleted and day is not null
+          order by 1 desc limit 300`);
+      const left = list;
+      const out: Item[] = [];
+      for (const r of left) {
+        const [dm] = await rows(sql`select 1 from check_dismissals where code = 'CASH_NOT_COUNTED' and item_key = ${"count:" + r.d}`);
+        if (!dm) out.push({ key: `count:${r.d}`, date: r.d, title: "Not counted · نہیں گنا", detail: "", amount: null, link: cashLink(r.d) });
+      }
+      return { total: out.length, items: out };
+    },
+  },
+
   // ---------------------------------------------------------------- bills and invoices
   {
     code: "INVOICE_FIGURES",

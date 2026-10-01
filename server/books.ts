@@ -72,6 +72,7 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "5007", name: "Tyres", type: "Expense", category: "Maintenance" },
   { code: "5008", name: "Border, permits, carnet & visas", type: "Expense", category: "Miscellaneous" },
   { code: "5010", name: "Trip expenses (driver trip cash)", type: "Expense", category: "Miscellaneous" },
+  { code: "5095", name: "Cash shortage / excess (cash count)", type: "Expense", category: "Miscellaneous" },
   { code: "5098", name: "Truck expenses — not classified", type: "Expense", category: "Miscellaneous", review: true },
   { code: "5100", name: "Hired transport / freight paid", type: "Expense", category: "Miscellaneous" },
   { code: "5900", name: "Partners' share of truck profit", type: "Expense", category: "Miscellaneous" },
@@ -224,6 +225,7 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
               when link_type = 'truck' then '1060'
               when link_type = 'party' then case (select role from _who w where w.party_id = c.pid limit 1) when 'partner' then '2200' when 'hfk' then '3100' else '1150' end
               when link_type in ('personal', 'zakat') then '3100'
+              when link_type = 'count' then '5095'
               else '1097' end code
           from c)
         select 'ct:' || id, entry_date, left(descr, 300), '1001', case when is_in then amt else 0 end, case when is_in then 0 else amt end,

@@ -13,6 +13,7 @@ import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronDown, ChevronRight, Upload } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
+import { CashCountPanel, CashSummary } from "./CashCount.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
@@ -35,6 +36,7 @@ export default function CashBook({
   }, [focusDate]);
   const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
   const [data, setData] = useState<any>(null);
+  const [countVersion, setCountVersion] = useState(0); // re-read the count when the day's entries change
   const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -51,7 +53,10 @@ export default function CashBook({
   const load = useCallback(() => {
     setLoading(true);
     enterpriseFetch(`/api/cash-book/day?date=${date}`)
-      .then(setData)
+      .then((r) => {
+        setData(r);
+        setCountVersion((v) => v + 1);
+      })
       .catch((e) => showFeedback("error", e.message))
       .finally(() => setLoading(false));
   }, [date, showFeedback]);
@@ -243,6 +248,8 @@ export default function CashBook({
         </div>
       )}
 
+      <CashCountPanel date={date} showFeedback={showFeedback} onChanged={load} version={countVersion} />
+
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center justify-between gap-2 flex-wrap">
           <span className="flex items-center gap-3">{date} — Entries ({withRunning.length}) <DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Order" /></span>
@@ -340,6 +347,8 @@ export default function CashBook({
           </table>
         </div>
       </div>
+
+      <CashSummary showFeedback={showFeedback} onPickDay={setDate} />
     </div>
   );
 }
