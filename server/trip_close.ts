@@ -57,6 +57,101 @@ export async function journeyStops(rootId: number) {
     .orderBy(asc(schema.trips.legNo), asc(schema.trips.id));
 }
 
+// ---------------------------------------------------------------------------------------------
+// Which trip a khata row belongs to. A row typed through a trip carries derivedTripId; any other
+// row of the truck belongs to the journey whose span holds its date — from the day that journey
+// left until the day the truck's NEXT journey left. So a new trip never adds onto the last one.
+// ---------------------------------------------------------------------------------------------
+export const dayOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+const ddmmyyyy = (day: string) => `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}`;
+
+export interface TripSpan {
+  rootId: number;
+  tripNumber: string;
+  label: string; // "27.09.2026 Quetta → Islamabad"
+  fromDay: string; // YYYY-MM-DD, first day counted
+  untilDay: string | null; // first day NOT counted (the next trip's day), null = still open
+  nextRootId: number | null;
+  stopIds: number[];
+}
+
+type SpanTrip = { id: number; parent: number | null; legNo: number | null; tripNumber: string; departure: Date | string; origin: string | null; destination: string | null };
+
+/** Group a truck's trips into journeys, oldest first, each with its span. */
+export function spansFromTrips(trips: SpanTrip[]): TripSpan[] {
+  const byRoot = new Map<number, SpanTrip[]>();
+  for (const t of trips) byRoot.set(t.parent || t.id, [...(byRoot.get(t.parent || t.id) || []), t]);
+  const list = [...byRoot.entries()].map(([rootId, legs]) => {
+    legs.sort((a, b) => (a.legNo || 1) - (b.legNo || 1) || a.id - b.id);
+    const first = legs.find((l) => l.id === rootId) || legs[0];
+    const start = Math.min(...legs.map((l) => new Date(l.departure).getTime()));
+    const fromDay = dayOf(new Date(start))!;
+    return {
+      rootId,
+      tripNumber: first.tripNumber,
+      label: `${ddmmyyyy(fromDay)} ${first.origin || "?"} → ${legs[legs.length - 1].destination || "?"}`,
+      fromDay,
+      untilDay: null as string | null,
+      nextRootId: null as number | null,
+      stopIds: legs.map((l) => l.id),
+      start,
+    };
+  });
+  list.sort((a, b) => a.start - b.start || a.rootId - b.rootId);
+  list.forEach((s, i) => {
+    const next = list[i + 1];
+    if (next) {
+      s.untilDay = next.fromDay;
+      s.nextRootId = next.rootId;
+    }
+  });
+  return list.map(({ start, ...s }) => s);
+}
+
+/** Every journey of one truck (matched by vehicle id or plate), oldest first. */
+export async function tripSpansForTruck(vehicleId: number | null | undefined, vehicleNumber: string | null | undefined): Promise<TripSpan[]> {
+  const plate = normPlate(vehicleNumber);
+  if (!vehicleId && !plate) return [];
+  const rows = await db
+    .select({
+      id: schema.trips.id,
+      parent: schema.trips.parentTripId,
+      legNo: schema.trips.legNo,
+      tripNumber: schema.trips.tripNumber,
+      departure: schema.trips.departureTime,
+      origin: schema.routes.origin,
+      destination: schema.routes.destination,
+    })
+    .from(schema.trips)
+    .leftJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+    .leftJoin(schema.routes, eq(schema.trips.routeId, schema.routes.id))
+    .where(
+      and(
+        eq(schema.trips.isDeleted, false),
+        sql`(${vehicleId ? sql`${schema.trips.vehicleId} = ${vehicleId}` : sql`false`} or ${
+          plate ? sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}` : sql`false`
+        })`,
+      ),
+    );
+  return spansFromTrips(rows);
+}
+
+/** The journey a khata row belongs to, if any. */
+export function spanOf(spans: TripSpan[], e: { derivedTripId?: number | null; entryDate?: Date | string | null }): TripSpan | null {
+  if (e.derivedTripId) return spans.find((s) => s.stopIds.includes(e.derivedTripId!)) || null;
+  const day = dayOf(e.entryDate);
+  if (!day) return null;
+  return spans.find((s) => s.fromDay <= day && (!s.untilDay || day < s.untilDay)) || null;
+}
+
+/** SQL: an (untagged) khata row's date falls inside a journey's span. */
+export function inSpan(span: { fromDay: string; untilDay: string | null }, daysBefore = 0) {
+  const col = schema.truckLedgerEntries.entryDate;
+  return span.untilDay
+    ? sql`(${col}::date >= ${span.fromDay}::date - ${daysBefore}::int and ${col}::date < ${span.untilDay}::date)`
+    : sql`${col}::date >= ${span.fromDay}::date - ${daysBefore}::int`;
+}
+
 /** Everything "Close trip" shows for one journey. */
 export async function journeyMoney(rootId: number) {
   const legs = await journeyStops(rootId);
@@ -65,7 +160,9 @@ export async function journeyMoney(rootId: number) {
   const vehicleNumber = legs[0].vehicleNumber || "";
   const stopIds = legs.map((l) => l.trip.id);
   const khataIds = await khataIdsForPlate(vehicleNumber);
-  const since = new Date(Math.min(...legs.map((l) => new Date(l.trip.departureTime).getTime())) - 2 * 24 * 3600_000);
+  // this journey's days: from the day it left until the truck's next trip left
+  const spans = await tripSpansForTruck(root.vehicleId, vehicleNumber);
+  const span = spans.find((s) => s.rootId === rootId) || spansFromTrips(legs.map((l) => ({ id: l.trip.id, parent: l.trip.parentTripId, legNo: l.trip.legNo, tripNumber: l.trip.tripNumber, departure: l.trip.departureTime, origin: l.origin, destination: l.destination })))[0];
 
   // money rows tagged to the stops (receipts in, trip cash / diesel out)
   const tagged = await db
@@ -99,7 +196,7 @@ export async function journeyMoney(rootId: number) {
             isNull(schema.truckLedgerEntries.derivedTripId),
             sql`${schema.truckLedgerEntries.received} > 0`,
             sql`${schema.truckLedgerEntries.category} <> 'SafiBachat'`,
-            gte(schema.truckLedgerEntries.entryDate, since),
+            inSpan(span, 2), // a receipt may be written a day or two before the truck leaves
           ),
         )
         .orderBy(desc(schema.truckLedgerEntries.entryDate))
@@ -116,7 +213,7 @@ export async function journeyMoney(rootId: number) {
             eq(schema.truckLedgerEntries.isDeleted, false),
             inArray(schema.truckLedgerEntries.ledgerId, khataIds),
             isNull(schema.truckLedgerEntries.derivedTripId),
-            gte(schema.truckLedgerEntries.entryDate, since),
+            inSpan(span),
           ),
         )
     : [{ paid: 0 }];
@@ -168,6 +265,7 @@ export async function journeyMoney(rootId: number) {
     splitAmount: root.splitAmount,
     splitAccountId: root.splitAccountId,
     allCompleted: legs.every((l) => l.trip.status === "Completed"),
+    span: { fromDay: span.fromDay, untilDay: span.untilDay, nextRootId: span.nextRootId },
     stops,
     unassigned,
     totals: {

@@ -19,6 +19,7 @@ import { notifyDriverOfLedgerEntry } from "./sms.ts";
 import { parseAndValidate, commitBatch, listWorkbookSheets } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
 import { matchSheetToEntity } from "./dataio.ts";
+import { tripSpansForTruck, spanOf } from "./trip_close.ts";
 import type { ParseResult } from "../src/lib/dataio/truck-workbook.ts";
 
 const router = Router();
@@ -661,10 +662,19 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         .limit(1);
     }
 
+    // which trip each row belongs to (typed through it, or dated inside its days)
+    const spans = await tripSpansForTruck(row.ledger.vehicleId, row.vehicleNumber || row.ledger.registration).catch(() => []);
+    const withTrip = spans.length
+      ? entries.map((e) => {
+          const s = spanOf(spans, e);
+          return { ...e, trip: s ? { rootId: s.rootId, label: s.label, tagged: e.derivedTripId != null } : null };
+        })
+      : entries;
+
     res.json({
       ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber },
       partnerAgreement,
-      entries,
+      entries: withTrip,
       pnl: {
         totalReceived: totReceived,
         totalPaid: totPaid,

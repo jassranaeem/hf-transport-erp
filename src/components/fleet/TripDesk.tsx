@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import CloseTrip from "./CloseTrip.tsx";
-import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip, MapPin } from "lucide-react";
+import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip, MapPin, History, Truck, AlertCircle } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
 const nowLocal = () => {
@@ -28,6 +28,7 @@ const emptyForm = () => ({
   departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
+const dmy = (day: string | null | undefined) => (day ? `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}` : "");
 
 interface Opts {
   vehicles: { id: number; vehicleNumber: string }[];
@@ -48,6 +49,9 @@ interface Journey {
   route: string;
   loads: string;
   customers: string;
+  received: number; // kiraya received, tied to its stops
+  pending: number; // kiraya still to come
+  completed: boolean; // every stop completed → the trip sits in History
 }
 
 export default function TripDesk({
@@ -74,6 +78,8 @@ export default function TripDesk({
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string } | null>(null);
+  const [view, setView] = useState<"active" | "history">("active");
+  const [khata, setKhata] = useState<{ span: any; rows: any[] } | null>(null); // the truck's other rows inside this trip's days
 
   const loadEntries = useCallback((rootId: number) => {
     enterpriseFetch(`/api/trip-desk/${rootId}/entries?journey=1`).then(setEntries).catch(() => setEntries([]));
@@ -100,8 +106,19 @@ export default function TripDesk({
     setEditLegId(null);
     setAttachLegId(null);
     setEntryEdit(null);
-    if (openId != null) loadEntries(openId);
+    setKhata(null);
+    if (openId != null) {
+      loadEntries(openId);
+      enterpriseFetch(`/api/trip-desk/${openId}/khata-rows`).then(setKhata).catch(() => setKhata({ span: null, rows: [] }));
+    }
   }, [openId, loadEntries]);
+
+  // "New trip" for the same truck, straight after the last one: truck, driver and the place it ended
+  const newTripFrom = (j: Journey) => {
+    setForm({ ...emptyForm(), truck: j.first.vehicleNumber || "", driverName: j.last.driverName || j.first.driverName || "", driverPhone: j.last.driverMobile || j.first.driverMobile || "", from: j.last.destination || "" });
+    document.getElementById("trip-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    showFeedback("success", `New trip for ${j.first.vehicleNumber}: truck, driver and "from ${j.last.destination}" are filled — add where it goes, the customer and the freight · نئی ٹرپ کا فارم بھر دیا`);
+  };
 
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -151,19 +168,26 @@ export default function TripDesk({
         route: stops.join(" → "),
         loads: legs.map((l) => l.cargo || "Empty").join(" → "),
         customers: [...new Set(legs.map((l) => l.company).filter(Boolean))].join(", "),
+        received: legs.reduce((s, x) => s + (x.received || 0), 0),
+        pending: legs.reduce((s, x) => s + Math.max(0, (x.revenue || 0) - (x.received || 0) - (x.freightWrittenOff || 0)), 0),
+        completed: legs.every((l) => l.status === "Completed"),
       } as Journey;
     });
     list.sort((a, b) => new Date(b.first.departureTime).getTime() - new Date(a.first.departureTime).getTime());
     return list;
   }, [trips]);
 
+  const inView = useMemo(() => journeyList.filter((j) => (view === "history") === j.completed), [journeyList, view]);
+  const activeCount = journeyList.filter((j) => !j.completed).length;
+  const historyCount = journeyList.length - activeCount;
+  const moneyPending = journeyList.filter((j) => j.completed && j.pending > 0);
   const filtered = useMemo(() => {
     const n = q.trim().toLowerCase();
-    if (!n) return journeyList;
-    return journeyList.filter((j) =>
+    if (!n) return inView;
+    return inView.filter((j) =>
       [j.first.vehicleNumber, j.first.driverName, j.route, j.customers, j.loads, ...j.legs.map((l) => l.tripNumber)].join(" ").toLowerCase().includes(n),
     );
-  }, [journeyList, q]);
+  }, [inView, q]);
 
   const allSel = filtered.length > 0 && filtered.every((j) => selected.has(j.root));
   const toggle = (id: number) =>
@@ -305,7 +329,7 @@ export default function TripDesk({
       <datalist id="td-from">{[...new Set(opts.routes.map((r) => r.origin))].map((o) => <option key={o} value={o} />)}</datalist>
       <datalist id="td-to">{[...new Set(opts.routes.map((r) => r.destination))].map((o) => <option key={o} value={o} />)}</datalist>
 
-      <div className="border border-emerald-200 rounded-xl bg-white p-4 space-y-3">
+      <div id="trip-form" className="border border-emerald-200 rounded-xl bg-white p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-1">
           <h2 className="text-base font-bold text-slate-800">New trip <span className="text-slate-400 font-normal text-sm">· نئی ٹرپ</span></h2>
           <span className="text-[11px] text-slate-400">Fill in the first stop. More stops (e.g. the loaded run back) are added inside the trip. · پہلا پڑاؤ بھریں، آگے کے پڑاؤ ٹرپ کے اندر شامل ہوں گے</span>
@@ -387,7 +411,28 @@ export default function TripDesk({
         </button>
       </div>
 
+      {moneyPending.length > 0 && (
+        <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] p-3 text-xs space-y-1">
+          <div className="font-semibold text-[#991B1B] flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4" /> Money still to come on finished trips · مکمل ٹرپس کا باقی کرایہ — {fmt(moneyPending.reduce((s, j) => s + j.pending, 0))}
+          </div>
+          {moneyPending.map((j) => (
+            <button key={j.root} onClick={() => setClosingId(j.root)} className="block text-left text-[#7F1D1D] hover:underline">
+              {j.first.vehicleNumber} · {new Date(j.first.departureTime).toLocaleDateString("en-GB")} · {j.route} — <b>{fmt(j.pending)}</b> pending ({j.customers}) → Close trip
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="border border-slate-200 rounded-xl bg-white">
+        <div className="flex border-b border-slate-200 px-2 pt-2 gap-1">
+          <button onClick={() => { setView("active"); setOpenId(null); setSelected(new Set()); }} className={`text-xs px-3 py-2 -mb-px border-b-2 inline-flex items-center gap-1.5 ${view === "active" ? "border-emerald-600 text-emerald-700 font-semibold" : "border-transparent text-slate-500"}`}>
+            <Truck className="w-3.5 h-3.5" /> On the road · چل رہی ہیں ({activeCount})
+          </button>
+          <button onClick={() => { setView("history"); setOpenId(null); setSelected(new Set()); }} className={`text-xs px-3 py-2 -mb-px border-b-2 inline-flex items-center gap-1.5 ${view === "history" ? "border-emerald-600 text-emerald-700 font-semibold" : "border-transparent text-slate-500"}`}>
+            <History className="w-3.5 h-3.5" /> History · مکمل ({historyCount})
+          </button>
+        </div>
         <div className="p-3 flex items-center gap-2 border-b border-slate-100 flex-wrap">
           <Search className="w-4 h-4 text-slate-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search truck, driver, route, customer… · تلاش" className="text-sm flex-1 min-w-[140px] outline-none" />
@@ -420,7 +465,7 @@ export default function TripDesk({
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={11} className="p-6 text-center text-slate-400 text-sm">{loading ? "Loading…" : "No trips yet. · ابھی کوئی ٹرپ نہیں۔"}</td></tr>
+                <tr><td colSpan={11} className="p-6 text-center text-slate-400 text-sm">{loading ? "Loading…" : view === "history" ? "No finished trips yet — a trip comes here when it is Completed. · ابھی کوئی مکمل ٹرپ نہیں" : "No trip on the road. · ابھی کوئی ٹرپ نہیں چل رہی"}</td></tr>
               )}
               {filtered.map((j) => {
                 const open = openId === j.root;
@@ -468,6 +513,16 @@ export default function TripDesk({
                             ? "Closed · money pending · باقی"
                             : "Close trip · ٹرپ کا حساب"}
                         </button>
+                        {j.completed && (
+                          <>
+                            <div className={`text-[10px] mt-0.5 whitespace-nowrap ${j.pending > 0 ? "text-[#B91C1C]" : "text-[#166534]"}`}>
+                              {j.pending > 0 ? `Pending ${fmt(j.pending)} · باقی` : j.freight > 0 ? "All freight received · سب وصول" : ""}
+                            </div>
+                            <button onClick={() => newTripFrom(j)} className="mt-1 block text-[11px] rounded-lg border border-emerald-600 bg-emerald-600 text-white px-2 py-0.5 whitespace-nowrap hover:bg-emerald-700">
+                              <Plus className="w-3 h-3 inline -mt-0.5" /> New trip · اسی ٹرک کی
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                     {open && (
@@ -475,8 +530,21 @@ export default function TripDesk({
                         <td colSpan={11} className="px-4 py-3 space-y-3">
                           <div className="text-xs font-semibold text-slate-700">
                             Whole trip · پورا سفر: freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>
-                            {j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} already in this truck's ledger since the trip started)</span>}
+                            {j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} from this truck's ledger in this trip's days — listed below)</span>}
                           </div>
+                          {j.first.spanFrom && (
+                            <div className="text-[11px] text-slate-600 rounded-lg bg-white border border-slate-200 px-3 py-1.5">
+                              This trip's days · اس ٹرپ کے دن: <b>{dmy(j.first.spanFrom)}</b> →{" "}
+                              {j.first.spanUntil ? (
+                                <>
+                                  <b>{dmy(j.first.spanUntil)}</b> (the next trip of {j.first.vehicleNumber} started — money from that day on is the next trip's · اس دن سے اگلی ٹرپ کا)
+                                </>
+                              ) : (
+                                <b>now · ابھی تک</b>
+                              )}
+                              . Cash / diesel typed through the trip always stays with it.
+                            </div>
+                          )}
 
                           <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
                             <table className="w-full text-xs">
@@ -603,6 +671,32 @@ export default function TripDesk({
                               </div>
                             )}
                           </div>
+
+                          {khata && khata.rows.length > 0 && (
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                              <div className="text-[11px] font-semibold text-slate-500">
+                                Truck ledger entries in this trip's days · ٹرک کھاتے کی انٹریاں جو اس ٹرپ کی ہیں ({khata.rows.length}) — counted in "given" above (out) / to tie to a customer in Close trip (in)
+                              </div>
+                              <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="text-[10px] uppercase text-slate-500 bg-slate-50 sticky top-0">
+                                    <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">Detail · تفصیل</th><th className="text-left px-2">Khata</th><th className="text-right px-2">In · وصول</th><th className="text-right px-2">Out · ادائیگی</th></tr>
+                                  </thead>
+                                  <tbody>
+                                    {khata.rows.map((r: any) => (
+                                      <tr key={r.id} className="border-t border-slate-100">
+                                        <td className="px-2 py-1 whitespace-nowrap">{r.entryDate ? new Date(r.entryDate).toLocaleDateString("en-GB") : "—"}</td>
+                                        <td className="px-2" dir="auto">{r.description || r.category}</td>
+                                        <td className="px-2 text-slate-500 whitespace-nowrap">{r.ledgerTitle}</td>
+                                        <td className="px-2 text-right tabular-nums text-emerald-700">{r.received ? fmt(r.received) : ""}</td>
+                                        <td className="px-2 text-right tabular-nums text-red-700">{r.paid ? fmt(r.paid) : ""}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
 
                           <AttachmentPanel entityType="trip" entityId={j.root} title="Receipts & proof · رسیدیں اور ثبوت" />
                         </td>

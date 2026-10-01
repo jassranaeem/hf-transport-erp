@@ -771,6 +771,11 @@ export default function TruckLedgers({
                               {(e.routeFrom || e.routeTo) && (
                                 <div className="text-[10px] text-slate-400">{e.routeFrom} → {e.routeTo}{e.cargo ? ` · ${e.cargo}` : ""}</div>
                               )}
+                              {e.trip && (
+                                <div className="text-[10px] text-[#24539B] whitespace-nowrap" title={e.trip.tagged ? "Typed through this trip" : "Dated inside this trip's days (from the day it left until the truck's next trip)"}>
+                                  🚚 Trip {e.trip.label}{e.trip.tagged ? "" : " · دنوں میں"}
+                                </div>
+                              )}
                               {e.needsReview && (
                                 <div className="text-[10px] text-red-600 flex items-start gap-1 mt-0.5">
                                   <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />

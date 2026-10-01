@@ -24,7 +24,7 @@ import { logAudit } from "../src/db/audit.ts";
 import { recompute } from "./ledgers.ts";
 import { applyLatestGpsToTrip, distanceToDestinationKm, matchPlate } from "./trip_progress.ts";
 import { partnershipLedgerForPlate, partnershipPreviewForPlate, closePartnershipCycle, reopenLastCycle } from "./partnership.ts";
-import { journeyMoney, journeyStops, rootOf, syncStopInvoice, resyncStopInvoice, deleteStopInvoice } from "./trip_close.ts";
+import { journeyMoney, journeyStops, rootOf, syncStopInvoice, resyncStopInvoice, deleteStopInvoice, spansFromTrips, tripSpansForTruck, inSpan, type TripSpan } from "./trip_close.ts";
 import { createCashEntry } from "./cash_book.ts";
 import { triggerAutoInvoicing } from "./finance_engine.ts";
 
@@ -133,17 +133,30 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
             tripId: schema.truckLedgerEntries.derivedTripId,
             category: schema.truckLedgerEntries.category,
             paid: sql<number>`coalesce(sum(${schema.truckLedgerEntries.paid}),0)::bigint`,
+            received: sql<number>`coalesce(sum(${schema.truckLedgerEntries.received}),0)::bigint`,
           })
           .from(schema.truckLedgerEntries)
           .where(and(inArray(schema.truckLedgerEntries.derivedTripId, ids), eq(schema.truckLedgerEntries.isDeleted, false)))
           .groupBy(schema.truckLedgerEntries.derivedTripId, schema.truckLedgerEntries.category)
       : [];
     const byTrip = new Map<number, Record<string, number>>();
+    const receivedBy = new Map<number, number>(); // kiraya received, tagged to the stop
     for (const m of money) {
       if (m.tripId == null) continue;
       const cur = byTrip.get(m.tripId) || {};
       cur[m.category] = Number(m.paid);
       byTrip.set(m.tripId, cur);
+      receivedBy.set(m.tripId, (receivedBy.get(m.tripId) || 0) + Number(m.received || 0));
+    }
+
+    // each truck's journeys and their spans (a journey's days end when the truck's next trip left)
+    const truckKey = (r: (typeof rows)[number]) => normPlate(r.vehicleNumber || "") || `v${r.trip.vehicleId}`;
+    const byTruck = new Map<string, (typeof rows)[number][]>();
+    for (const r of rows) byTruck.set(truckKey(r), [...(byTruck.get(truckKey(r)) || []), r]);
+    const spanByRoot = new Map<number, TripSpan>();
+    for (const list of byTruck.values()) {
+      const spans = spansFromTrips(list.map((r) => ({ id: r.trip.id, parent: r.trip.parentTripId, legNo: r.trip.legNo, tripNumber: r.trip.tripNumber, departure: r.trip.departureTime, origin: r.origin, destination: r.destination })));
+      for (const s of spans) spanByRoot.set(s.rootId, s);
     }
 
     // Money the truck's own ledger already holds for this journey (e.g. an imported Excel khata) but
@@ -162,7 +175,7 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
               eq(schema.truckLedgers.isDeleted, false),
               eq(schema.truckLedgerEntries.isDeleted, false),
               isNull(schema.truckLedgerEntries.derivedTripId),
-              sql`${schema.truckLedgerEntries.entryDate} >= ${r.trip.departureTime}`,
+              spanByRoot.has(r.trip.id) ? inSpan(spanByRoot.get(r.trip.id)!) : sql`${schema.truckLedgerEntries.entryDate} >= ${r.trip.departureTime}`,
               sql`(${schema.truckLedgers.vehicleId} = ${r.trip.vehicleId} or regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate})`,
             ),
           );
@@ -233,6 +246,10 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
           otherExpense: total - (m.TripCash || 0) - (m.Diesel || 0),
           totalGiven: total,
           ledgerPaid: ledgerPaid.get(r.trip.id) || 0,
+          received: receivedBy.get(r.trip.id) || 0,
+          // the days whose khata money counts for this journey (kept on the first stop)
+          spanFrom: spanByRoot.get(r.trip.id)?.fromDay ?? null,
+          spanUntil: spanByRoot.get(r.trip.id)?.untilDay ?? null,
           // "Close trip" state (kept on the first stop of the journey)
           closedAt: r.trip.closedAt,
           splitAt: r.trip.splitAt,
@@ -616,6 +633,49 @@ router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Resp
       .where(and(inArray(schema.truckLedgerEntries.derivedTripId, stopIds), eq(schema.truckLedgerEntries.isDeleted, false)))
       .orderBy(schema.truckLedgerEntries.entryDate, schema.truckLedgerEntries.id);
     res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** A journey's other khata rows: the truck's entries dated inside its span (not typed through the trip). */
+router.get("/:id/khata-rows", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const rootId = (await rootOf(parseInt(req.params.id))) ?? 0;
+    const legs = await journeyStops(rootId);
+    if (!legs.length) return res.status(404).json({ error: "Trip not found" });
+    const root = legs.find((l) => l.trip.id === rootId)?.trip ?? legs[0].trip;
+    const vehicleNumber = legs[0].vehicleNumber || "";
+    const spans = await tripSpansForTruck(root.vehicleId, vehicleNumber);
+    const span = spans.find((s) => s.rootId === rootId);
+    if (!span) return res.json({ span: null, rows: [] });
+    const plate = normPlate(vehicleNumber);
+    const rows = await db
+      .select({
+        id: schema.truckLedgerEntries.id,
+        ledgerId: schema.truckLedgerEntries.ledgerId,
+        ledgerTitle: schema.truckLedgers.title,
+        entryDate: schema.truckLedgerEntries.entryDate,
+        description: schema.truckLedgerEntries.description,
+        category: schema.truckLedgerEntries.category,
+        received: schema.truckLedgerEntries.received,
+        paid: schema.truckLedgerEntries.paid,
+      })
+      .from(schema.truckLedgerEntries)
+      .innerJoin(schema.truckLedgers, eq(schema.truckLedgerEntries.ledgerId, schema.truckLedgers.id))
+      .where(
+        and(
+          eq(schema.truckLedgers.isDeleted, false),
+          eq(schema.truckLedgerEntries.isDeleted, false),
+          isNull(schema.truckLedgerEntries.derivedTripId),
+          inSpan(span),
+          sql`(${schema.truckLedgers.vehicleId} = ${root.vehicleId} or regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate})`,
+        ),
+      )
+      .orderBy(desc(schema.truckLedgerEntries.entryDate), desc(schema.truckLedgerEntries.id))
+      .limit(300);
+    const next = span.nextRootId ? spans.find((s) => s.rootId === span.nextRootId) : null;
+    res.json({ span: { fromDay: span.fromDay, untilDay: span.untilDay, label: span.label, next: next ? next.label : null }, rows });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
