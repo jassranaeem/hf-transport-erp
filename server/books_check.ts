@@ -376,7 +376,7 @@ const CHECKS: Check[] = [
         select * from b where stmt is not null and stmt <> books and ${notDismissed("BANK_BALANCE", sql`'bank:' || b.id`)}`);
       return {
         total: list.length,
-        items: list.map((r) => ({ key: `bank:${r.id}`, date: day(r.last), title: `${r.bank_name} ${r.account_number}`, detail: `statement ${num(r.stmt).toLocaleString()} · books ${num(r.books).toLocaleString()}`, amount: num(r.stmt) - num(r.books), link: { wb: "finance", sheet: "banks" } })),
+        items: list.map((r) => ({ key: `bank:${r.id}`, date: day(r.last), title: `${r.bank_name} ${r.account_number}`, detail: `statement ${num(r.stmt).toLocaleString()} · books ${num(r.books).toLocaleString()}`, amount: num(r.stmt) - num(r.books), link: { wb: "accounting", sheet: "banks" } })),
       };
     },
   },
@@ -394,7 +394,7 @@ const CHECKS: Check[] = [
           from bank_statement_lines s join bank_accounts b on b.id = s.bank_account_id
           where not s.is_deleted and s.matched_key is null and s.kind is null and ${notDismissed("BANK_UNEXPLAINED", sql`'bs:' || s.id`)}
           order by s.txn_date desc limit ${LIMIT}`),
-        (r) => ({ key: `bs:${r.id}`, date: day(r.txn_date), title: r.bank_name, detail: r.description || "—", amount: num(r.deposit) || -num(r.withdrawal), link: { wb: "finance", sheet: "banks" } }),
+        (r) => ({ key: `bs:${r.id}`, date: day(r.txn_date), title: r.bank_name, detail: r.description || "—", amount: num(r.deposit) || -num(r.withdrawal), link: { wb: "accounting", sheet: "banks" } }),
       ),
   },
   {
@@ -437,7 +437,7 @@ const CHECKS: Check[] = [
           p as (select for_month m, sum(tax_amount) p from tax_entries where not is_deleted and kind = 'deposited' group by 1)
         select d.m, d.w, coalesce(p.p, 0) p from d left join p on p.m = d.m
         where d.w > coalesce(p.p, 0) and d.m < to_char(now(), 'YYYY-MM') and ${notDismissed("TAX_NOT_DEPOSITED", sql`'month:' || d.m`)} order by d.m desc`);
-      return { total: list.length, items: list.map((r) => ({ key: `month:${r.m}`, date: `${r.m}-01`, title: `Month ${r.m}`, detail: `deducted ${num(r.w).toLocaleString()} · paid to FBR ${num(r.p).toLocaleString()}`, amount: num(r.w) - num(r.p), link: { wb: "finance", sheet: "tax" } })) };
+      return { total: list.length, items: list.map((r) => ({ key: `month:${r.m}`, date: `${r.m}-01`, title: `Month ${r.m}`, detail: `deducted ${num(r.w).toLocaleString()} · paid to FBR ${num(r.p).toLocaleString()}`, amount: num(r.w) - num(r.p), link: { wb: "accounting", sheet: "tax" } })) };
     },
   },
   {
@@ -454,7 +454,7 @@ const CHECKS: Check[] = [
           from tax_entries t left join contractors c on c.id = t.contractor_id left join parties p on p.id = t.party_id
           where not t.is_deleted and t.kind = 'deducted_from_us' and coalesce(t.certificate_no, '') = '' and t.entry_date < now() - interval '30 days'
             and ${notDismissed("TAX_NO_CERTIFICATE", sql`'tax:' || t.id`)} order by t.entry_date desc limit ${LIMIT}`),
-        (r) => ({ key: `tax:${r.id}`, date: day(r.entry_date), title: r.nm || "—", detail: "no certificate no.", amount: num(r.tax_amount), link: { wb: "finance", sheet: "tax" } }),
+        (r) => ({ key: `tax:${r.id}`, date: day(r.entry_date), title: r.nm || "—", detail: "no certificate no.", amount: num(r.tax_amount), link: { wb: "accounting", sheet: "tax" } }),
       ),
   },
   {
@@ -467,7 +467,7 @@ const CHECKS: Check[] = [
     fix: "Ask the tax consultant to fill Tax → Rates (rate and section for each line).",
     run: async () => {
       const list = await rows(sql`select code, label from tax_rates where rate is null and ${notDismissed("TAX_RATES_MISSING", sql`'rate:' || code`)} order by id`).catch(() => [] as any[]);
-      return { total: list.length, items: list.map((r) => ({ key: `rate:${r.code}`, date: null, title: String(r.label).split(" · ")[0], detail: "rate not set", amount: null, link: { wb: "finance", sheet: "tax" } })) };
+      return { total: list.length, items: list.map((r) => ({ key: `rate:${r.code}`, date: null, title: String(r.label).split(" · ")[0], detail: "rate not set", amount: null, link: { wb: "accounting", sheet: "tax" } })) };
     },
   },
 
@@ -610,7 +610,7 @@ const CHECKS: Check[] = [
           from journal_entries j join (select journal_entry_id, sum(debit)::bigint d, sum(credit)::bigint c from journal_lines group by 1) x on x.journal_entry_id = j.id
           where not j.is_deleted and x.d <> x.c and ${notDismissed("JOURNAL_UNBALANCED", sql`'je:' || j.id`)}
           order by j.entry_date desc limit ${LIMIT}`),
-        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: `debit ${num(r.d).toLocaleString()} · credit ${num(r.c).toLocaleString()} · ${r.description || ""}`, amount: num(r.d) - num(r.c), link: { wb: "finance", sheet: "journal_entries" } }),
+        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: `debit ${num(r.d).toLocaleString()} · credit ${num(r.c).toLocaleString()} · ${r.description || ""}`, amount: num(r.d) - num(r.c), link: { wb: "accounting", sheet: "journal_entries" } }),
       ),
   },
   {
@@ -631,7 +631,7 @@ const CHECKS: Check[] = [
             or (j.entry_number like 'JE-MNT-%' and not exists (select 1 from vehicle_maintenance m where m.id = j.source_id and not m.is_deleted)))
             and ${notDismissed("JOURNAL_ORPHAN", sql`'je:' || j.id`)}
           order by j.entry_date desc limit ${LIMIT}`),
-        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: r.description || "—", amount: null, link: { wb: "finance", sheet: "journal_entries" } }),
+        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: r.description || "—", amount: null, link: { wb: "accounting", sheet: "journal_entries" } }),
       ),
   },
   {
@@ -650,7 +650,7 @@ const CHECKS: Check[] = [
         group by a.code, a.name having coalesce(sum(l.debit - l.credit), 0) <> 0 order by a.code`);
       return {
         total: list.length,
-        items: list.map((r) => ({ key: `acc:${r.code}`, date: null, title: `${r.code} · ${r.name}`, detail: `${r.n.toLocaleString()} lines`, amount: num(r.bal), link: { wb: "finance", sheet: "books" } })),
+        items: list.map((r) => ({ key: `acc:${r.code}`, date: null, title: `${r.code} · ${r.name}`, detail: `${r.n.toLocaleString()} lines`, amount: num(r.bal), link: { wb: "accounting", sheet: "books" } })),
       };
     },
   },

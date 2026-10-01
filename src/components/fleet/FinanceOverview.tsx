@@ -24,9 +24,7 @@ const LINKS = [
   { sheet: "invoices", label: "Invoices", icon: FileText },
   { sheet: "quotations", label: "Quotations", icon: ClipboardList },
   { sheet: "bills_payments_expenses", label: "Bills / Payments / Expenses", icon: Receipt },
-  { sheet: "bank_accounts", label: "Bank Accounts", icon: Landmark },
-  { sheet: "accounts", label: "Chart of Accounts", icon: BookOpen },
-  { sheet: "journal_entries", label: "Journal Entries", icon: ListChecks },
+  { sheet: "home", wb: "accounting", label: "Accounting · اکاؤنٹنگ", icon: BookOpen },
   { sheet: "partners", label: "Partners", icon: Handshake },
 ];
 
@@ -113,10 +111,10 @@ export default function FinanceOverview({
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Go to · جائیں</div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3">
-          {LINKS.map(({ sheet, label, icon: Icon }) => (
+          {LINKS.map(({ sheet, label, icon: Icon, ...l }: any) => (
             <button
               key={sheet}
-              onClick={() => onNavigate?.("finance", sheet)}
+              onClick={() => onNavigate?.(l.wb || "finance", sheet)}
               className="flex items-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-xs font-semibold text-[#374151] hover:border-[#24539B] hover:bg-[#F2F5FA] transition-colors"
             >
               <Icon className="w-4 h-4 text-[#6B7280] shrink-0" />

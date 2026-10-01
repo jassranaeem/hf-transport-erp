@@ -19,6 +19,7 @@ import {
   Globe,
   BarChart3,
   ShieldCheck,
+  Calculator,
 } from "lucide-react";
 
 export type SheetKind = "entity" | "component" | "embed";
@@ -113,11 +114,6 @@ export const WORKBOOKS: WorkbookDef[] = [
     // into Daily Cash Book.
     sheets: [
       c("overview", "Overview", "FinanceOverview", "finance"),
-      c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
-      c("books", "Books · کتاب", "Books", "finance"),
-      c("banks", "Banks · بینک", "Banks", "finance"),
-      c("statements", "Statements · حسابات", "Statements", "finance"),
-      c("tax", "Tax · ٹیکس", "Tax", "finance"),
       c("company_profile", "Company Profile (Letterhead)", "CompanyProfile", "settings"),
       c("cash_book", "Daily Cash Book", "CashBook", "finance"),
       c("partners", "Partners", "Partners", "finance"),
@@ -128,10 +124,26 @@ export const WORKBOOKS: WorkbookDef[] = [
       c("invoices", "Invoices", "InvoicesList", "finance"),
       c("quotations", "Quotations", "QuotationsList", "finance"),
       c("bills_payments_expenses", "Bills / Payments / Expenses", "BillsPaymentsExpenses", "finance"),
-      e("bank_accounts", "Bank Accounts (Accounting)", "bank_accounts", "finance"),
-      e("accounts", "Chart of Accounts", "accounts", "finance"),
-      e("journal_entries", "Journal Entries", "journal_entries", "finance"),
+    ],
+  },
+  {
+    id: "accounting",
+    label: "Accounting",
+    icon: Calculator,
+    // the company's accounts, kept by the system: home (what each tab is, in English and Urdu,
+    // with live figures), then the order of the work — find mistakes, the book, banks, the year's
+    // statements, tax — and the accounting internals last
+    sheets: [
+      c("home", "Accounting Home · اکاؤنٹنگ", "AccountingHome", "finance"),
+      c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
+      c("books", "Books · کتاب", "Books", "finance"),
+      c("banks", "Banks · بینک", "Banks", "finance"),
+      c("statements", "Statements · حسابات", "Statements", "finance"),
+      c("tax", "Tax · ٹیکس", "Tax", "finance"),
+      e("accounts", "Chart of Accounts · کھاتوں کی فہرست", "accounts", "finance"),
+      e("journal_entries", "Journal Entries · جرنل", "journal_entries", "finance"),
       e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
+      e("bank_accounts", "Bank Accounts (setup)", "bank_accounts", "finance"),
     ],
   },
   {
