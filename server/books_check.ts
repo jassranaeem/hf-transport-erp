@@ -324,6 +324,72 @@ const CHECKS: Check[] = [
     },
   },
 
+  // ---------------------------------------------------------------- banks
+  {
+    code: "BANK_BALANCE",
+    level: "red",
+    area: "Banks",
+    title: "Bank: statement balance differs from the books",
+    urdu: "بینک: اسٹیٹمنٹ کا بیلنس کتاب سے مختلف",
+    why: "The books start from the bank's opening balance and add every statement line. If the statement's own balance is different, a statement (or part of one) is missing, or the opening balance is wrong.",
+    fix: "Open Banks: enter the balance on the books' first day, and upload the missing statement months.",
+    run: async () => {
+      const list = await rows(sql`with st as (select to_char(books_start, 'YYYY-MM-DD') d from books_settings where id = 1),
+        b as (select b.id, b.bank_name, b.account_number,
+            (select s.balance from bank_statement_lines s where s.bank_account_id = b.id and not s.is_deleted order by s.txn_date desc, s.id desc limit 1) stmt,
+            (select max(s.txn_date) from bank_statement_lines s where s.bank_account_id = b.id and not s.is_deleted) last,
+            b.opening_balance + coalesce((select sum(deposit - withdrawal) from bank_statement_lines s, st where s.bank_account_id = b.id and not s.is_deleted and s.txn_date >= st.d::timestamp), 0) books
+          from bank_accounts b where not b.is_deleted)
+        select * from b where stmt is not null and stmt <> books and ${notDismissed("BANK_BALANCE", sql`'bank:' || b.id`)}`);
+      return {
+        total: list.length,
+        items: list.map((r) => ({ key: `bank:${r.id}`, date: day(r.last), title: `${r.bank_name} ${r.account_number}`, detail: `statement ${num(r.stmt).toLocaleString()} · books ${num(r.books).toLocaleString()}`, amount: num(r.stmt) - num(r.books), link: { wb: "finance", sheet: "banks" } })),
+      };
+    },
+  },
+  {
+    code: "BANK_UNEXPLAINED",
+    level: "amber",
+    area: "Banks",
+    title: "Bank statement lines not yet explained",
+    urdu: "بینک اسٹیٹمنٹ کی لائنیں جن کی وضاحت نہیں",
+    why: "Every line on the statement is either a ledger entry (a payment / receipt by bank) or something else (charges, a transfer between our banks, profit, tax). Until it is one of these, the books cannot say what the money was.",
+    fix: "Open Banks → the line: match it to its ledger entry, or say what it is.",
+    run: async () =>
+      out(
+        await rows(sql`select s.id, s.txn_date, s.description, s.withdrawal, s.deposit, b.bank_name, count(*) over() total
+          from bank_statement_lines s join bank_accounts b on b.id = s.bank_account_id
+          where not s.is_deleted and s.matched_key is null and s.kind is null and ${notDismissed("BANK_UNEXPLAINED", sql`'bs:' || s.id`)}
+          order by s.txn_date desc limit ${LIMIT}`),
+        (r) => ({ key: `bs:${r.id}`, date: day(r.txn_date), title: r.bank_name, detail: r.description || "—", amount: num(r.deposit) || -num(r.withdrawal), link: { wb: "finance", sheet: "banks" } }),
+      ),
+  },
+  {
+    code: "BANK_NOT_ON_STATEMENT",
+    level: "amber",
+    area: "Banks",
+    title: "Paid / received by bank, but not on any statement",
+    urdu: "بینک سے ادائیگی / وصولی جو کسی اسٹیٹمنٹ میں نہیں",
+    why: "A ledger entry says the money went through the bank, but no imported statement line is matched to it — either the statement for that date is missing, or the entry is wrong.",
+    fix: "Upload that bank's statement for the date, or correct the entry's payment method.",
+    run: async () => {
+      const [r] = await rows(sql`select min(txn_date) a, max(txn_date) b from bank_statement_lines where not is_deleted`);
+      if (!r?.a) return { total: 0, items: [] };
+      return out(
+        await rows(sql`select e.id, e.party_id, p.name, e.entry_date, e.debit, e.credit, e.method, e.description, e.ref_no, count(*) over() total
+          from party_ledger_entries e join parties p on p.id = e.party_id
+          where not e.is_deleted and e.method in ('Bank', 'Online', 'Cheque', 'Card', 'Bank Transfer', 'Online Transfer')
+            and e.entry_date between ${new Date(r.a).toISOString()}::timestamp and ${new Date(r.b).toISOString()}::timestamp
+            and e.entry_date < now() - interval '7 days'
+            and not exists (select 1 from bank_statement_lines s where not s.is_deleted and s.matched_key = (case when e.ref_no like 'PSHIP-%' then 'pship:' else 'ple:' end) || e.id)
+            and not exists (select 1 from cash_transactions t where t.link_type = 'party' and t.derived_entry_id = e.id and not t.is_deleted)
+            and ${notDismissed("BANK_NOT_ON_STATEMENT", sql`'ple:' || e.id`)}
+          order by e.entry_date desc limit ${LIMIT}`),
+        (x) => ({ key: `ple:${x.id}`, date: day(x.entry_date), title: x.name, detail: `${x.method} · ${x.description || "—"}`, amount: num(x.debit) || num(x.credit), link: partyLink(x) }),
+      );
+    },
+  },
+
   // ---------------------------------------------------------------- bills and invoices
   {
     code: "INVOICE_FIGURES",

@@ -34,6 +34,7 @@ import Zakat from "../fleet/Zakat.tsx";
 import CashBook from "../fleet/CashBook.tsx";
 import BooksCheck from "../fleet/BooksCheck.tsx";
 import Books from "../fleet/Books.tsx";
+import Banks from "../fleet/Banks.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -276,6 +277,8 @@ export default function WorkbookShell({
         return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} focusDate={focus?.date} />;
       case "Books":
         return <Books showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "Banks":
+        return <Banks showFeedback={showFeedback} />;
       case "BooksCheck":
         return <BooksCheck showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":

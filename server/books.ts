@@ -54,7 +54,10 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "1095", name: "Cash paid / received outside the cash book (trace)", type: "Asset", category: "Cash", review: true },
   { code: "1096", name: "Ledger entries with no payment method (review)", type: "Asset", category: "Miscellaneous", review: true },
   { code: "1097", name: "Cash book entries not linked (review)", type: "Asset", category: "Miscellaneous", review: true },
+  { code: "1098", name: "Bank lines not yet explained (review)", type: "Asset", category: "Bank", review: true },
+  { code: "1099", name: "Transfers between our own banks (should be zero)", type: "Asset", category: "Bank", review: true },
   { code: "1100", name: "Accounts Receivable", type: "Asset", category: "Accounts Receivable" },
+  { code: "1102", name: "Advance Income Tax (WHT) Receivable", type: "Asset", category: "Miscellaneous" },
   { code: "1150", name: "Parties — naam / jama", type: "Asset", category: "Accounts Receivable" },
   { code: "1500", name: "Trucks & capital items (review)", type: "Asset", category: "Miscellaneous", review: true },
   { code: "2000", name: "Accounts Payable", type: "Liability", category: "Accounts Payable" },
@@ -63,6 +66,7 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "3900", name: "Opening balance equity (accountant to split)", type: "Equity", category: "Equity", review: true },
   { code: "4000", name: "Freight Revenue", type: "Income", category: "Revenue" },
   { code: "4001", name: "Other Operating Revenue", type: "Income", category: "Revenue" },
+  { code: "4002", name: "Bank profit", type: "Income", category: "Revenue" },
   { code: "4098", name: "Truck income — not classified", type: "Income", category: "Revenue", review: true },
   { code: "5001", name: "Fuel Expense", type: "Expense", category: "Fuel" },
   { code: "5002", name: "Salary Expense", type: "Expense", category: "Salary" },
@@ -73,6 +77,7 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "5008", name: "Border, permits, carnet & visas", type: "Expense", category: "Miscellaneous" },
   { code: "5010", name: "Trip expenses (driver trip cash)", type: "Expense", category: "Miscellaneous" },
   { code: "5095", name: "Cash shortage / excess (cash count)", type: "Expense", category: "Miscellaneous" },
+  { code: "5096", name: "Bank charges", type: "Expense", category: "Miscellaneous" },
   { code: "5098", name: "Truck expenses — not classified", type: "Expense", category: "Miscellaneous", review: true },
   { code: "5100", name: "Hired transport / freight paid", type: "Expense", category: "Miscellaneous" },
   { code: "5900", name: "Partners' share of truck profit", type: "Expense", category: "Miscellaneous" },
@@ -288,7 +293,12 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
         union all
         select 'zk:' || id, entry_date, left('Zakat: ' || descr, 300), ${methodCode(sql`e.method`)}, 0, amt, null::int, null::int, null::int, null::int from e`);
 
-      // 4f. opening balances on the books' first day
+      // 4f. each bank account has its own account in the books (12xx), named after it
+      await run(sql`insert into accounts (code, name, type, category, is_active)
+        select '12' || lpad(id::text, 2, '0'), left('Bank · ' || bank_name || ' ' || account_number, 120), 'Asset', 'Bank', true from bank_accounts where not is_deleted
+        on conflict (code) do update set name = excluded.name`);
+
+      // 4g. opening balances on the books' first day
       await run(sql`insert into _p
         with cash as (select coalesce(sum(case when direction = 'In' then amount else -amount end), 0)::bigint b from cash_transactions where not is_deleted and entry_date < ${START}),
         pb as (
@@ -297,12 +307,36 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
         lines as (
           select '1001' code, b, null::int party_id from cash where b <> 0
           union all
-          select case role when 'partner' then '2200' else '1150' end, b, party_id from pb where b <> 0 and coalesce(role, '') <> 'hfk')
+          select case role when 'partner' then '2200' else '1150' end, b, party_id from pb where b <> 0 and coalesce(role, '') <> 'hfk'
+          union all
+          select '12' || lpad(id::text, 2, '0'), opening_balance::bigint, null::int from bank_accounts where not is_deleted and opening_balance <> 0)
         select 'opening', ${START}, 'Opening balances on the first day of the books', code, greatest(b, 0), greatest(-b, 0), null::int, null::int, party_id, null::int from lines
         union all
         select 'opening', ${START}, 'Opening balances on the first day of the books', '3900',
                greatest(-(select coalesce(sum(b), 0) from lines), 0), greatest((select coalesce(sum(b), 0) from lines), 0), null::int, null::int, null::int, null::int
         where exists (select 1 from lines)`);
+
+      // 4h. bank statement lines: the bank's own account ↔ what the line was matched to (the account
+      // that entry used for its money: bank to match 1009, the truck account 1060, the cash book's
+      // other side, an invoice payment's cash/bank) or what it was explained as
+      await run(sql`insert into _p
+        with s as (
+          select s.id, s.txn_date, s.withdrawal, s.deposit, s.matched_key, s.kind, '12' || lpad(s.bank_account_id::text, 2, '0') bank,
+                 left(coalesce(s.description, s.ref, 'Bank statement'), 300) descr
+          from bank_statement_lines s join bank_accounts b on b.id = s.bank_account_id and not b.is_deleted
+          where not s.is_deleted and s.txn_date >= ${START} and (s.withdrawal > 0 or s.deposit > 0)),
+        k as (
+          select s.*, coalesce(
+            case s.kind when 'charges' then '5096' when 'transfer' then '1099' when 'profit' then '4002' when 'tax' then '1102' when 'cash' then '1095' end,
+            (select p.code from _p p where s.matched_key is not null and p.source_key = s.matched_key
+               and case when s.matched_key like 'ct:%' then p.code <> '1001' else p.code in ('1009', '1060', '1095', '1096') end limit 1),
+            (select a.code from journal_entries j join journal_lines l on l.journal_entry_id = j.id join accounts a on a.id = l.account_id
+               where s.matched_key like 'pay:%' and j.entry_number = 'JE-PAY-' || lpad(split_part(s.matched_key, ':', 2), 4, '0') and l.debit > 0 limit 1),
+            '1098') counter
+          from s)
+        select 'bs:' || id, txn_date, descr, bank, deposit, withdrawal, null::int, null::int, null::int, null::int from k
+        union all
+        select 'bs:' || id, txn_date, descr, counter, withdrawal, deposit, null::int, null::int, null::int, null::int from k`);
 
       // 5. write: one entry per source row, its lines under it
       const missing = await run(sql`select distinct code from _p where code not in (select code from accounts)`);
@@ -358,6 +392,8 @@ async function booksSignature(): Promise<string> {
       ${part("zakat_payments", "amount")},
       ${part("truck_ledgers", "0")},
       ${part("partnership_accounts", "0")},
+      ${part("bank_statement_lines", "deposit + withdrawal + coalesce(length(matched_key), 0) + coalesce(length(kind), 0)")},
+      ${part("bank_accounts", "opening_balance")},
       (select count(*) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) from posting_rules),
       (select count(*) || '/' || coalesce(max(id), 0) from journal_entries where not is_auto),
       (select to_char(books_start, 'YYYY-MM-DD') from books_settings where id = 1))) sig`);

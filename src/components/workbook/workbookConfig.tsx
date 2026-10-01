@@ -115,6 +115,7 @@ export const WORKBOOKS: WorkbookDef[] = [
       c("overview", "Overview", "FinanceOverview", "finance"),
       c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
       c("books", "Books · کتاب", "Books", "finance"),
+      c("banks", "Banks · بینک", "Banks", "finance"),
       c("company_profile", "Company Profile (Letterhead)", "CompanyProfile", "settings"),
       c("cash_book", "Daily Cash Book", "CashBook", "finance"),
       c("partners", "Partners", "Partners", "finance"),

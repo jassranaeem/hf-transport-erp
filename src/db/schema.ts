@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision, bigint } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -2543,3 +2543,39 @@ export const booksSettings = pgTable("books_settings", {
   lastRebuild: jsonb("last_rebuild"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// ---------------------------------------------------------
+// BANK STATEMENTS — lines imported from each bank's statement (Excel / CSV), matched to the
+// ledger entry they are (matched_key = a books source key, e.g. "ple:12", "tle:9", "pay:3"),
+// or explained (kind: charges | transfer | profit | tax | cash)
+// ---------------------------------------------------------
+export const bankStatementLines = pgTable(
+  "bank_statement_lines",
+  {
+    id: serial("id").primaryKey(),
+    bankAccountId: integer("bank_account_id").notNull(),
+    txnDate: timestamp("txn_date").notNull(),
+    description: text("description"),
+    ref: text("ref"),
+    withdrawal: bigint("withdrawal", { mode: "number" }).default(0).notNull(),
+    deposit: bigint("deposit", { mode: "number" }).default(0).notNull(),
+    balance: bigint("balance", { mode: "number" }),
+    rowHash: text("row_hash").notNull(),
+    sourceFile: text("source_file"),
+    batch: text("batch"),
+    matchedKey: text("matched_key"),
+    matchKind: text("match_kind"), // auto | manual
+    kind: text("kind"),
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdBy: integer("created_by"),
+    updatedBy: integer("updated_by"),
+    deletedAt: timestamp("deleted_at"),
+    isDeleted: boolean("is_deleted").default(false).notNull(),
+  },
+  (table) => ({
+    bankDateIdx: index("bsl_bank_date_idx").on(table.bankAccountId, table.txnDate),
+    matchedIdx: index("bsl_matched_idx").on(table.matchedKey),
+  }),
+);
