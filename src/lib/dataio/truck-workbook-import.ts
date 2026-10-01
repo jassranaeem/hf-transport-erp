@@ -37,6 +37,8 @@ const EXPENSE_GL_CODE: Record<string, string> = {
  * khata import; `scripts/backfill-gl-postings.ts` exists precisely to catch
  * up any entries that couldn't post here.
  */
+const POSTING_OWNED_BY_BOOKS_ENGINE = true;
+
 async function postJournalEntry(
   entryNumber: string,
   description: string,
@@ -47,6 +49,10 @@ async function postJournalEntry(
   amount: number,
   ctx: { userId?: number }
 ) {
+  // The books engine (server/books.ts) now posts every khata row into the double-entry books
+  // from the row itself, and removes these older per-import postings when it rebuilds — so
+  // posting here as well would only be undone. Kept as a no-op so the callers stay simple.
+  if (POSTING_OWNED_BY_BOOKS_ENGINE) return;
   try {
     const [existingJE] = await db
       .select({ id: schema.journalEntries.id })

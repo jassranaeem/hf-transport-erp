@@ -29,6 +29,7 @@ import partnershipRouter from "./server/partnership.ts";
 import personalExpensesRouter from "./server/personal_expenses.ts";
 import zakatRouter from "./server/zakat.ts";
 import booksCheckRouter from "./server/books_check.ts";
+import booksRouter, { startBooksKeeper } from "./server/books.ts";
 import { cashBookRouter } from "./server/cash_book.ts";
 import { tripDeskRouter } from "./server/trip_desk.ts";
 import quotationsRouter from "./server/quotations.ts";
@@ -110,6 +111,7 @@ async function startServer() {
   app.use("/api/personal-expenses", personalExpensesRouter);
   app.use("/api/zakat", zakatRouter);
   app.use("/api/books-check", booksCheckRouter);
+  app.use("/api/books", booksRouter);
   app.use("/api/cash-book", cashBookRouter);
   app.use("/api/trip-desk", tripDeskRouter);
   app.use("/api/quotations", quotationsRouter);
@@ -159,6 +161,8 @@ async function startServer() {
   app.use(centralErrorHandler);
 
   await new Promise<void>((resolve) => httpServer.listen(PORT, "0.0.0.0", resolve));
+  // the double-entry books keep themselves current from every module (server/books.ts)
+  startBooksKeeper();
   console.log(
     `[ERP] listening on 0.0.0.0:${PORT} | env=${process.env.NODE_ENV || "development"} | jwt=${jwtSecretFingerprint()}`
   );

@@ -22,6 +22,7 @@ import { and, eq, sql, SQL } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
+import { rebuildIfStale, REVIEW_CODES } from "./books.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -434,27 +435,23 @@ const CHECKS: Check[] = [
       ),
   },
   {
-    code: "BOOKS_COVERAGE",
-    level: "info",
-    area: "Accounts",
-    title: "Khata money not yet in the double-entry books",
-    urdu: "کھاتے کی رقم جو ابھی پکے حساب (ڈبل انٹری) میں نہیں",
-    why: "Party ledgers, the cash book and part of the truck khata are kept like the paper, but not yet posted as debit/credit — so the Balance Sheet does not show them yet.",
-    fix: "Next step of the accounting work: every module will post into the books by itself.",
+    code: "BOOKS_REVIEW",
+    level: "amber",
+    area: "Books",
+    title: "Money in the books' review accounts",
+    urdu: "کتاب کے جانچ والے کھاتوں میں رقم",
+    why: "These accounts hold money the system could not place with certainty — truck expenses with no category, ledger entries with no payment method, cash book entries not linked, truck capital items, Toman, bank not yet matched, opening equity. The Balance Sheet is only final once they are cleared.",
+    fix: "Open Books · کتاب and click the account to see its entries; give the khata rows a category / the entries a method or link (or set the account for a category in 'Which account'). The accountant splits opening equity.",
     run: async () => {
-      const [t] = await rows(sql`select count(*)::int n from truck_ledger_entries e
-        where not e.is_deleted and (e.received > 0 or e.paid > 0)
-          and not exists (select 1 from journal_entries j where j.entry_number = 'JE-REV-' || e.id)
-          and not exists (select 1 from expenses x where x.source_entry_id = e.id and not x.is_deleted)
-          and not exists (select 1 from vehicle_maintenance m where m.source_entry_id = e.id and not m.is_deleted)`);
-      const [p] = await rows(sql`select count(*)::int n from party_ledger_entries where not is_deleted and (debit > 0 or credit > 0)`);
-      const [c] = await rows(sql`select count(*)::int n from cash_transactions where not is_deleted`);
-      const items: Item[] = [
-        { key: "cov:truck", date: null, title: "Truck khata rows", detail: `${num(t?.n).toLocaleString()} rows`, amount: null, link: null },
-        { key: "cov:party", date: null, title: "Party ledger rows", detail: `${num(p?.n).toLocaleString()} rows`, amount: null, link: null },
-        { key: "cov:cash", date: null, title: "Cash book entries", detail: `${num(c?.n).toLocaleString()} entries`, amount: null, link: null },
-      ];
-      return { total: num(t?.n) + num(p?.n) + num(c?.n), items };
+      const list = await rows(sql`select a.code, a.name, coalesce(sum(l.debit - l.credit), 0)::bigint bal, count(l.id)::int n
+        from accounts a join journal_lines l on l.account_id = a.id and not l.is_deleted
+        join journal_entries j on j.id = l.journal_entry_id and not j.is_deleted
+        where a.code = any(${`{${REVIEW_CODES.join(",")}}`}::text[])
+        group by a.code, a.name having coalesce(sum(l.debit - l.credit), 0) <> 0 order by a.code`);
+      return {
+        total: list.length,
+        items: list.map((r) => ({ key: `acc:${r.code}`, date: null, title: `${r.code} · ${r.name}`, detail: `${r.n.toLocaleString()} lines`, amount: num(r.bal), link: { wb: "finance", sheet: "books" } })),
+      };
     },
   },
 ];
@@ -464,6 +461,7 @@ const byCode = new Map(CHECKS.map((c) => [c.code, c]));
 // ---------------------------------------------------------------------------------------------
 router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
+    await rebuildIfStale("books check opened"); // the books checks read the books as they are now
     const results = await Promise.all(
       CHECKS.map(async (c) => {
         try {

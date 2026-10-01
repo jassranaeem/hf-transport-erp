@@ -673,6 +673,10 @@ export const journalEntries = pgTable("journal_entries", {
   description: text("description").notNull(),
   sourceType: text("source_type").notNull(), // Invoice, Payment, Bill, Expense, Manual, Closing
   sourceId: integer("source_id"), // Generic reference ID
+  // books engine (server/books.ts): the row this entry was posted from, e.g. "tle:123", "ct:9",
+  // "opening:2025-07-01" — and whether the engine owns it (rebuilt from the source every time)
+  sourceKey: text("source_key"),
+  isAuto: boolean("is_auto").default(false).notNull(),
   fiscalYearId: integer("fiscal_year_id").references(() => fiscalYears.id),
   accountingPeriodId: integer("accounting_period_id").references(() => accountingPeriods.id),
 
@@ -694,6 +698,11 @@ export const journalLines = pgTable("journal_lines", {
   journalEntryId: integer("journal_entry_id").references(() => journalEntries.id).notNull(),
   accountId: integer("account_id").references(() => accounts.id).notNull(),
   description: text("description"),
+  // which truck / party / customer the line is about (per-truck P&L, party balances)
+  vehicleId: integer("vehicle_id"),
+  truckLedgerId: integer("truck_ledger_id"),
+  partyId: integer("party_id"),
+  contractorId: integer("contractor_id"),
   debit: integer("debit").default(0).notNull(), // In PKR (or cents/paisa, let's keep as standard integers, representing PKR)
   credit: integer("credit").default(0).notNull(),
 
@@ -2503,3 +2512,32 @@ export const checkDismissals = pgTable(
     codeKeyIdx: uniqueIndex("check_dismissals_code_key_idx").on(table.code, table.itemKey),
   }),
 );
+
+// ---------------------------------------------------------
+// BOOKS ENGINE — which account each kind of ledger row posts to (editable), and the
+// engine's own settings (books start date, last rebuild)
+// ---------------------------------------------------------
+export const postingRules = pgTable(
+  "posting_rules",
+  {
+    id: serial("id").primaryKey(),
+    source: text("source").notNull(), // truck | party | cash | personal | zakat
+    category: text("category").notNull(), // the row's category (truck khata) or "*"
+    side: text("side").notNull().default("any"), // in | out | any
+    accountCode: text("account_code").notNull(),
+    note: text("note"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: integer("updated_by"),
+  },
+  (table) => ({
+    keyIdx: uniqueIndex("posting_rules_key_idx").on(table.source, table.category, table.side),
+  }),
+);
+
+export const booksSettings = pgTable("books_settings", {
+  id: integer("id").primaryKey(),
+  booksStart: timestamp("books_start").notNull(),
+  lastRebuildAt: timestamp("last_rebuild_at"),
+  lastRebuild: jsonb("last_rebuild"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

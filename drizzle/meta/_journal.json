@@ -197,6 +197,13 @@
       "when": 1790870000000,
       "tag": "0027_check_dismissals",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790880000000,
+      "tag": "0028_books_engine",
+      "breakpoints": true
     }
   ]
 }
