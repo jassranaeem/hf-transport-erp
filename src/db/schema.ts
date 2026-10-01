@@ -2540,6 +2540,7 @@ export const booksSettings = pgTable("books_settings", {
   id: integer("id").primaryKey(),
   booksStart: timestamp("books_start").notNull(),
   lastRebuildAt: timestamp("last_rebuild_at"),
+  lockedThrough: timestamp("locked_through"), // books closed through this day: those entries no longer change
   lastRebuild: jsonb("last_rebuild"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

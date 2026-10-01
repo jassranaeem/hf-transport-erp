@@ -218,6 +218,13 @@
       "when": 1790900000000,
       "tag": "0030_bank_statements",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790910000000,
+      "tag": "0031_books_lock",
+      "breakpoints": true
     }
   ]
 }

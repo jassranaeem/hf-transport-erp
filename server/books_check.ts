@@ -324,6 +324,39 @@ const CHECKS: Check[] = [
     },
   },
 
+  {
+    code: "LOCKED_CHANGED",
+    level: "red",
+    area: "Books",
+    title: "An entry in a closed month was changed",
+    urdu: "بند مہینے کی انٹری بدلی گئی",
+    why: "The books are closed through a date, so those months no longer change — but a ledger entry dated in them was added, edited or deleted afterwards. The closed books and the ledgers now disagree.",
+    fix: "If the change is right, open the books again (Statements → books closed through) so it goes in, then close again; otherwise undo the change in the ledger.",
+    run: async () => {
+      const [r] = await rows(sql`select last_rebuild -> 'lockedChanges' k from books_settings where id = 1`);
+      const keys: string[] = Array.isArray(r?.k) ? r.k : [];
+      const items: Item[] = [];
+      for (const k of keys.slice(0, LIMIT)) {
+        const [kind, idText] = k.split(":");
+        const id = Number(idText);
+        let link: Link | null = null;
+        let title = k;
+        if (kind === "tle" && id) {
+          const [e] = await rows(sql`select e.ledger_id, l.registration from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id where e.id = ${id}`);
+          if (e) { link = { wb: "khata", sheet: "truck_ledgers", focus: { ledgerId: e.ledger_id, entryId: id } }; title = `Truck khata · ${e.registration}`; }
+        } else if ((kind === "ple" || kind === "pship") && id) {
+          const [e] = await rows(sql`select e.party_id, p.name from party_ledger_entries e join parties p on p.id = e.party_id where e.id = ${id}`);
+          if (e) { link = { wb: "khata", sheet: "parties", focus: { partyId: e.party_id, entryId: id } }; title = `Party ledger · ${e.name}`; }
+        } else if (kind === "ct" && id) {
+          const [e] = await rows(sql`select to_char(entry_date, 'YYYY-MM-DD') d from cash_transactions where id = ${id}`);
+          if (e) { link = cashLink(e.d); title = "Cash book"; }
+        }
+        items.push({ key: `locked:${k}`, date: null, title, detail: k, amount: null, link });
+      }
+      return { total: keys.length, items };
+    },
+  },
+
   // ---------------------------------------------------------------- banks
   {
     code: "BANK_BALANCE",

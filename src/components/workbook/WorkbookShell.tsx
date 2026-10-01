@@ -35,6 +35,7 @@ import CashBook from "../fleet/CashBook.tsx";
 import BooksCheck from "../fleet/BooksCheck.tsx";
 import Books from "../fleet/Books.tsx";
 import Banks from "../fleet/Banks.tsx";
+import Statements from "../fleet/Statements.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -279,6 +280,8 @@ export default function WorkbookShell({
         return <Books showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "Banks":
         return <Banks showFeedback={showFeedback} />;
+      case "Statements":
+        return <Statements showFeedback={showFeedback} />;
       case "BooksCheck":
         return <BooksCheck showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":

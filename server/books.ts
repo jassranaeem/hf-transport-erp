@@ -159,12 +159,15 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
     const stats = await db.transaction(async (tx) => {
       const run = (q: SQL) => rows(q, tx as any);
       // the books' first day, read as text so no time zone can move it
-      const [st] = await run(sql`select to_char(books_start, 'YYYY-MM-DD') d from books_settings where id = 1`);
+      const [st] = await run(sql`select to_char(books_start, 'YYYY-MM-DD') d, to_char(locked_through, 'YYYY-MM-DD') l from books_settings where id = 1`);
       const START = sql`${st.d}::timestamp`;
+      // books closed through a day: entries up to it stay exactly as they were (frozen)
+      const LOCKEND = st.l ? sql`(${st.l}::date + 1)::timestamp` : sql`'1900-01-01'::timestamp`;
 
-      // 1. the engine's own entries go; they are rebuilt below from the source rows
-      await run(sql`delete from journal_lines where journal_entry_id in (select id from journal_entries where is_auto)`);
-      await run(sql`delete from journal_entries where is_auto`);
+      // 1. the engine's own entries go (except closed months); they are rebuilt below from the source rows
+      await run(sql`delete from journal_lines where journal_entry_id in (select id from journal_entries where is_auto and entry_date >= ${LOCKEND})`);
+      await run(sql`delete from journal_entries where is_auto and entry_date >= ${LOCKEND}`);
+      await run(sql`create temp table _frozen on commit drop as select source_key from journal_entries where is_auto`);
 
       // 2. older automatic postings the engine now owns (they would count the same money twice)
       const legacy = await run(sql`select id from journal_entries j where
@@ -257,8 +260,9 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
       await run(sql`insert into _p
         with e as (
           select e.id, e.entry_date, e.party_id, e.debit::bigint d, e.credit::bigint c, e.description descr, e.method, e.section_label lbl,
-                 (select role from _who w where w.party_id = e.party_id limit 1) role
-          from party_ledger_entries e
+                 (select role from _who w where w.party_id = e.party_id limit 1) role,
+                 pa.truck_ledger_id tl, (select vehicle_id from truck_ledgers where id = pa.truck_ledger_id) veh
+          from party_ledger_entries e left join partnership_accounts pa on 'PSHIP-' || pa.id = e.ref_no
           where not e.is_deleted and e.entry_date >= ${START} and (e.debit > 0 or e.credit > 0) and e.ref_no like 'PSHIP-%'),
         k as (
           select e.*,
@@ -271,9 +275,9 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
           from e
           where (role = 'partner' and not (method = 'Adjustment' and lbl like 'Shakhsi%'))
              or (role = 'hfk' and lbl like 'Shakhsi%' and coalesce(method, '') <> 'Adjustment'))
-        select 'pship:' || id, entry_date, left(descr, 300), acc, d, c, null::int, null::int, party_id, null::int from k
+        select 'pship:' || id, entry_date, left(descr, 300), acc, d, c, veh, tl, party_id, null::int from k
         union all
-        select 'pship:' || id, entry_date, left(descr, 300), via, c, d, null::int, null::int, party_id, null::int from k`);
+        select 'pship:' || id, entry_date, left(descr, 300), via, c, d, veh, tl, party_id, null::int from k`);
 
       // 4e. household and zakat not typed through the cash book
       await run(sql`insert into _p
@@ -344,6 +348,17 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
       const bad = await run(sql`select source_key, sum(debit) d, sum(credit) c from _p group by 1 having sum(debit) <> sum(credit) limit 5`);
       if (bad.length) throw new Error(`Unbalanced posting for ${bad.map((b) => b.source_key).join(", ")}`);
 
+      // what the ledgers now say about closed months, against what the closed books hold
+      const lockedChanges = st.l
+        ? await run(sql`with want as (select source_key, code, sum(debit) d, sum(credit) c from _p where entry_date < ${LOCKEND} or source_key in (select source_key from _frozen) group by 1, 2),
+            have as (select j.source_key, a.code, sum(l.debit) d, sum(l.credit) c from journal_entries j join journal_lines l on l.journal_entry_id = j.id join accounts a on a.id = l.account_id
+                     where j.is_auto group by 1, 2)
+            select coalesce(w.source_key, h.source_key) k from want w full join have h on w.source_key = h.source_key and w.code = h.code
+            where coalesce(w.d, 0) <> coalesce(h.d, 0) or coalesce(w.c, 0) <> coalesce(h.c, 0) group by 1 order by 1 limit 500`)
+        : [];
+
+      await run(sql`delete from _p where entry_date < ${LOCKEND} or source_key in (select source_key from _frozen)`);
+
       await run(sql`insert into journal_entries (entry_number, entry_date, description, source_type, source_id, source_key, is_auto, fiscal_year_id, accounting_period_id, created_by)
         select 'A-' || upper(p.source_key), p.entry_date, p.descr, 'Auto', case when p.source_key ~ ':[0-9]+$' then substring(p.source_key from ':([0-9]+)$')::int end, p.source_key, true,
                (select id from fiscal_years f where p.entry_date between f.start_date and f.end_date and not f.is_deleted limit 1),
@@ -359,6 +374,8 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
       const [tb] = await run(sql`select coalesce(sum(debit), 0)::bigint d, coalesce(sum(credit), 0)::bigint c from journal_lines`);
       return {
         reason,
+        lockedThrough: st.l || null,
+        lockedChanges: lockedChanges.map((x) => x.k),
         legacyRemoved: legacy.length,
         bySource: Object.fromEntries(bySource.map((b) => [b.src, b.entries])),
         totalDebit: Number(tb.d),
@@ -396,7 +413,7 @@ async function booksSignature(): Promise<string> {
       ${part("bank_accounts", "opening_balance")},
       (select count(*) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) from posting_rules),
       (select count(*) || '/' || coalesce(max(id), 0) from journal_entries where not is_auto),
-      (select to_char(books_start, 'YYYY-MM-DD') from books_settings where id = 1))) sig`);
+      (select to_char(books_start, 'YYYY-MM-DD') || '/' || coalesce(to_char(locked_through, 'YYYY-MM-DD'), '') from books_settings where id = 1))) sig`);
   return r.sig;
 }
 
@@ -428,9 +445,9 @@ export function startBooksKeeper() {
 router.get("/status", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
     await ensureSetup();
-    const [s] = await rows(sql`select to_char(books_start, 'YYYY-MM-DD') books_start, last_rebuild_at, last_rebuild from books_settings where id = 1`);
+    const [s] = await rows(sql`select to_char(books_start, 'YYYY-MM-DD') books_start, to_char(locked_through, 'YYYY-MM-DD') locked_through, last_rebuild_at, last_rebuild from books_settings where id = 1`);
     const [c] = await rows(sql`select count(*)::int auto from journal_entries where is_auto`);
-    res.json({ booksStart: s.books_start, lastRebuildAt: s.last_rebuild_at, lastRebuild: s.last_rebuild, autoEntries: c.auto, stale: await booksStale(), running: !!running });
+    res.json({ booksStart: s.books_start, lockedThrough: s.locked_through, lastRebuildAt: s.last_rebuild_at, lastRebuild: s.last_rebuild, autoEntries: c.auto, stale: await booksStale(), running: !!running });
   } catch (e: any) {
     res.status(500).json({ error: e.cause?.message || e.message });
   }
@@ -474,6 +491,25 @@ router.put("/rules", requireRole(WRITE), async (req: AuthRequest, res: Response)
         on conflict (source, category, side) do update set account_code = excluded.account_code, note = excluded.note, updated_at = now(), updated_by = excluded.updated_by`);
     }
     res.json(await rebuildBooks("rules changed", req.user?.id));
+  } catch (e: any) {
+    res.status(500).json({ error: e.cause?.message || e.message });
+  }
+});
+
+/** Close the books through a day (entries up to it stop changing), or open them again. */
+router.put("/lock", requireRole(["Super Admin", "Admin", "Finance Manager"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const d = req.body?.lockedThrough;
+    if (d !== null && !(typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d))) return res.status(400).json({ error: "Give a date (YYYY-MM-DD) or null to open the books" });
+    const [old] = await rows(sql`select to_char(locked_through, 'YYYY-MM-DD') l from books_settings where id = 1`);
+    if (d) {
+      // closing: bring the books up to date first, so what is frozen is the latest
+      await rebuildBooks("before closing", req.user?.id);
+    }
+    await db.execute(sql`update books_settings set locked_through = ${d ? sql`${d}::timestamp` : sql`null`}, updated_at = now() where id = 1`);
+    await logAudit({ action: "UPDATE", tableName: "books_settings", recordId: 1, oldValues: { lockedThrough: old?.l || null }, newValues: { lockedThrough: d }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+    const r = d ? null : await rebuildBooks("books opened", req.user?.id);
+    res.json({ ok: true, lockedThrough: d, rebuild: r });
   } catch (e: any) {
     res.status(500).json({ error: e.cause?.message || e.message });
   }
