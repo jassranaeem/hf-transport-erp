@@ -32,7 +32,8 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
   const [tab, setTab] = useState<(typeof TABS)[number]["k"]>("pnl");
   const [range, setRange] = useState({ from: years[0].from, to: years[0].to });
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
-  const [data, setData] = useState<any>(null);
+  // the figures together with the request they answer — a tab never draws another tab's figures
+  const [loaded, setLoaded] = useState<{ url: string; body: any } | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<any>(null);
   const [lockDate, setLockDate] = useState("");
@@ -47,13 +48,17 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
     `/api/statements/partners?from=${range.from}&to=${range.to}`;
 
   useEffect(() => {
+    let live = true;
     setLoading(true);
-    setData(null);
     enterpriseFetch(url)
-      .then(setData)
-      .catch((e) => showFeedback("error", e.message))
-      .finally(() => setLoading(false));
+      .then((body) => live && setLoaded({ url, body }))
+      .catch((e) => live && showFeedback("error", e.message))
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false; // a slower answer for a tab left behind is dropped
+    };
   }, [url, showFeedback]);
+  const data = loaded?.url === url ? loaded.body : null;
   const loadStatus = () => enterpriseFetch("/api/books/status").then((s) => { setStatus(s); setLockDate(s.lockedThrough || ""); }).catch(() => {});
   useEffect(() => { loadStatus(); }, []);
 
