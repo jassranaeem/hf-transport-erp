@@ -8,6 +8,7 @@ import { Router, Response } from "express";
 import multer from "multer";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
+import { rowIssues } from "./books_check.ts";
 import { and, eq, desc, asc, sql, inArray } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
@@ -670,11 +671,14 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
           return { ...e, trip: s ? { rootId: s.rootId, label: s.label, tagged: e.derivedTripId != null } : null };
         })
       : entries;
+    // a row the books check says is wrong shows red right here, until it is corrected
+    const issues = await rowIssues("tle", entries.map((e) => e.id)).catch(() => new Map<number, string>());
+    const flagged = (withTrip as any[]).map((e) => (issues.has(e.id) ? { ...e, issue: issues.get(e.id) } : e));
 
     res.json({
       ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber },
       partnerAgreement,
-      entries: withTrip,
+      entries: flagged,
       pnl: {
         totalReceived: totReceived,
         totalPaid: totPaid,

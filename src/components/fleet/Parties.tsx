@@ -95,8 +95,10 @@ export default function Parties({
   useEffect(() => {
     if (selId != null) {
       loadDetail(selId);
-      setShowLedger(false); // each newly-picked party starts on quick-entry, not the full ledger
+      // each newly-picked party starts on quick-entry — unless a link asked for one of its rows
+      setShowLedger(!!focusEntryId && selId === focusPartyId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId, loadDetail]);
 
   // deep-link: open a specific party's ledger (from an alert / dues link)
@@ -540,10 +542,16 @@ export default function Parties({
                     <tbody>
                       {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : (e as any).issue ? "bg-red-50" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600">{e.rawDate || "—"}</span>}</td>
                             <td className="px-2 py-1.5 max-w-[260px]">
                               <div className="truncate" dir="auto" title={e.description || ""}>{e.description || "—"}{e.refNo ? ` · ${e.refNo}` : ""}</div>
+                              {(e as any).issue && (
+                                <div className="text-[10px] text-red-700 font-semibold flex items-start gap-1 mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />
+                                  <span>{(e as any).issue}</span>
+                                </div>
+                              )}
                               {e.needsReview && (
                                 <div className="text-[10px] text-red-600 flex items-start gap-1 mt-0.5">
                                   <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />

@@ -13,6 +13,7 @@ import { Router, Response } from "express";
 import multer from "multer";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
+import { rowIssues } from "./books_check.ts";
 import { and, eq, desc, asc, sql, ilike, or, inArray, ne } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
@@ -577,7 +578,8 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
           .groupBy(schema.attachments.entityId)
       : [];
     const attBy = new Map(attCounts.map((a) => [a.entityId, a.n]));
-    const entries = entriesRaw.map((e) => ({ ...e, attachmentCount: attBy.get(e.id) || 0 }));
+    const issues = await rowIssues("ple", entryIds).catch(() => new Map<number, string>());
+    const entries = entriesRaw.map((e) => ({ ...e, attachmentCount: attBy.get(e.id) || 0, ...(issues.has(e.id) ? { issue: issues.get(e.id) } : {}) }));
 
     const [agg] = await db
       .select({

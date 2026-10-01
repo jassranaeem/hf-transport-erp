@@ -32,6 +32,7 @@ import PartnerPnL from "../fleet/PartnerPnL.tsx";
 import PersonalExpenses from "../fleet/PersonalExpenses.tsx";
 import Zakat from "../fleet/Zakat.tsx";
 import CashBook from "../fleet/CashBook.tsx";
+import BooksCheck from "../fleet/BooksCheck.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -124,16 +125,18 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number } | null => {
+  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
     const e = Number(u.get("focusEntry")) || undefined;
+    const d = u.get("focusDate");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d };
     if (l) return { ledgerId: l, entryId: e };
     if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number } | null>(readFocus);
+  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -172,9 +175,11 @@ export default function WorkbookShell({
     url.searchParams.delete("focusLedger");
     url.searchParams.delete("focusParty");
     url.searchParams.delete("focusEntry");
+    url.searchParams.delete("focusDate");
     if (focus?.ledgerId) url.searchParams.set("focusLedger", String(focus.ledgerId));
     if (focus?.partyId) url.searchParams.set("focusParty", String(focus.partyId));
     if (focus?.entryId) url.searchParams.set("focusEntry", String(focus.entryId));
+    if (focus?.date) url.searchParams.set("focusDate", focus.date);
     window.history.replaceState(null, "", url.toString());
   }, [nav, focus]);
 
@@ -183,7 +188,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -267,7 +272,9 @@ export default function WorkbookShell({
       case "Zakat":
         return <Zakat showFeedback={showFeedback} />;
       case "CashBook":
-        return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+        return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} focusDate={focus?.date} />;
+      case "BooksCheck":
+        return <BooksCheck showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":

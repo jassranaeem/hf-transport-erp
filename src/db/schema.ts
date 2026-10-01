@@ -2485,4 +2485,21 @@ export const zakatPayments = pgTable("zakat_payments", {
   };
 });
 
-
+// ---------------------------------------------------------
+// BOOKS CHECK — a flagged item the user looked at and marked "this is correct"
+// (code = which check, item_key = which row, e.g. "tle:123")
+// ---------------------------------------------------------
+export const checkDismissals = pgTable(
+  "check_dismissals",
+  {
+    id: serial("id").primaryKey(),
+    code: text("code").notNull(),
+    itemKey: text("item_key").notNull(),
+    note: text("note"),
+    createdBy: integer("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    codeKeyIdx: uniqueIndex("check_dismissals_code_key_idx").on(table.code, table.itemKey),
+  }),
+);

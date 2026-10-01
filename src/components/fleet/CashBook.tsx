@@ -23,11 +23,16 @@ interface LinkOptions { trucks: { id: number; registration: string }[]; parties:
 export default function CashBook({
   showFeedback,
   onNavigate,
+  focusDate,
 }: {
+  focusDate?: string; // open on this day (a link from the books check)
   showFeedback: (t: "success" | "error", m: string) => void;
   onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
 }) {
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(focusDate || today());
+  useEffect(() => {
+    if (focusDate) setDate(focusDate);
+  }, [focusDate]);
   const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
   const [data, setData] = useState<any>(null);
   const [newestFirst, toggleNewest] = useNewestFirst();

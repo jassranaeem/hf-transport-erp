@@ -762,7 +762,7 @@ export default function TruckLedgers({
                     <tbody>
                       {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr id={`truck-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr id={`truck-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : (e as any).issue ? "bg-red-50" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">
                               {e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600" title={e.rawDate || ""}>{e.rawDate || "—"}</span>}
                             </td>
@@ -774,6 +774,12 @@ export default function TruckLedgers({
                               {e.trip && (
                                 <div className="text-[10px] text-[#24539B] whitespace-nowrap" title={e.trip.tagged ? "Typed through this trip" : "Dated inside this trip's days (from the day it left until the truck's next trip)"}>
                                   🚚 Trip {e.trip.label}{e.trip.tagged ? "" : " · دنوں میں"}
+                                </div>
+                              )}
+                              {(e as any).issue && (
+                                <div className="text-[10px] text-red-700 font-semibold flex items-start gap-1 mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />
+                                  <span>{(e as any).issue}</span>
                                 </div>
                               )}
                               {e.needsReview && (

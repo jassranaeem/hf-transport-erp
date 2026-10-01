@@ -1,0 +1,640 @@
+/**
+ * Books check · حساب صحت — the system looks for mistakes in the books by itself.
+ *
+ * Every check is a live question asked of the data each time the page opens, so an item stays
+ * on the list (red / amber) until the data is actually corrected — nothing to tick off by hand.
+ * Something that looks wrong but is right (a genuine repeat payment, say) can be marked
+ * "this is correct" and then stays off the list (check_dismissals).
+ *
+ *   red    a definite mistake — wrong date in the future, both sides on one row, money the books
+ *          count twice or not at all, a bill whose figures don't add up, cash below zero…
+ *   amber  look at it once — money with no date, the paper's balance differs, a possible repeat…
+ *   info   what is not done yet (khata money not yet in the double-entry books)
+ *
+ *   GET    /api/books-check                   every check, with up to 300 items each
+ *   POST   /api/books-check/fix/:code         the safe automatic fixes (fixable checks only)
+ *   POST   /api/books-check/dismiss           { code, key, note }  "this is correct"
+ *   DELETE /api/books-check/dismiss           { code, key }        put it back on the list
+ *   GET    /api/books-check/dismissed         what was marked correct, by whom
+ */
+import { Router, Response } from "express";
+import { and, eq, sql, SQL } from "drizzle-orm";
+import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
+import { db, schema } from "../src/db/index.ts";
+import { logAudit } from "../src/db/audit.ts";
+
+const router = Router();
+router.use(requireAuth, requireApproved);
+
+const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Auditor"];
+const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
+const LIMIT = 300;
+
+type Level = "red" | "amber" | "info";
+type Link = { wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string } };
+type Item = { key: string; date: string | null; title: string; detail: string; amount: number | null; link: Link | null };
+interface Check {
+  code: string;
+  level: Level;
+  area: string; // which module
+  title: string;
+  urdu: string;
+  why: string; // why it matters, in plain words
+  fix: string; // what to do
+  fixable?: string; // label of the automatic fix, when there is one
+  run: () => Promise<{ total: number; items: Item[] }>;
+}
+
+const rows = async (q: SQL) => ((await db.execute(q)) as any).rows as any[];
+const day = (d: any) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+const num = (n: any) => Math.round(Number(n || 0));
+/** "and this item was not marked correct" */
+const notDismissed = (code: string, keyExpr: SQL) => sql`not exists (select 1 from check_dismissals cd_ where cd_.code = ${code} and cd_.item_key = ${keyExpr})`;
+const out = (list: any[], map: (r: any) => Item) => ({ total: list.length ? num(list[0].total) : 0, items: list.map(map) });
+
+const truckLink = (r: any): Link => ({ wb: "khata", sheet: "truck_ledgers", focus: { ledgerId: r.ledger_id, entryId: r.id } });
+const partyLink = (r: any): Link => ({ wb: "khata", sheet: "parties", focus: { partyId: r.party_id, entryId: r.id } });
+const cashLink = (d: string | null): Link => ({ wb: "finance", sheet: "cash_book", focus: d ? { date: d } : undefined });
+const money = (r: any) => (num(r.received) ? `in ${num(r.received).toLocaleString()}` : "") + (num(r.received) && num(r.paid) ? " · " : "") + (num(r.paid) ? `out ${num(r.paid).toLocaleString()}` : "");
+
+// a khata row that is only a side-box figure on the paper page (not counted in the balance)
+const NOT_BOX = sql`not (e.sr_no is null and e.source_row is not null and e.sheet_balance is null)`;
+
+const CHECKS: Check[] = [
+  // ---------------------------------------------------------------- dates
+  {
+    code: "KHATA_FUTURE_DATE",
+    level: "red",
+    area: "Truck Ledgers",
+    title: "Truck khata: date in the future",
+    urdu: "ٹرک کھاتہ: آنے والی تاریخ",
+    why: "A date that has not come yet (often a typing slip: 2027 for 2026, 2206) puts the entry in the wrong month and year, and on top of every list.",
+    fix: "Open the entry and correct the year.",
+    run: async () =>
+      out(
+        await rows(sql`select e.id, e.ledger_id, l.registration, e.entry_date, e.description, e.received, e.paid, count(*) over() total
+          from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+          where not e.is_deleted and not l.is_deleted and e.entry_date > now() + interval '1 day' and (e.received > 0 or e.paid > 0)
+            and ${notDismissed("KHATA_FUTURE_DATE", sql`'tle:' || e.id`)}
+          order by e.entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `tle:${r.id}`, date: day(r.entry_date), title: r.registration, detail: `${r.description || "—"} · ${money(r)}`, amount: num(r.received) || num(r.paid), link: truckLink(r) }),
+      ),
+  },
+  {
+    code: "PARTY_FUTURE_DATE",
+    level: "red",
+    area: "Party Ledgers",
+    title: "Party ledger: date in the future",
+    urdu: "پارٹی کھاتہ: آنے والی تاریخ",
+    why: "Same as above — the entry sits in the wrong month.",
+    fix: "Open the entry and correct the date.",
+    run: async () =>
+      out(
+        await rows(sql`select e.id, e.party_id, p.name, e.entry_date, e.description, e.debit, e.credit, count(*) over() total
+          from party_ledger_entries e join parties p on p.id = e.party_id
+          where not e.is_deleted and e.entry_date > now() + interval '1 day' and (e.debit > 0 or e.credit > 0)
+            and ${notDismissed("PARTY_FUTURE_DATE", sql`'ple:' || e.id`)}
+          order by e.entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `ple:${r.id}`, date: day(r.entry_date), title: r.name, detail: r.description || "—", amount: num(r.debit) || num(r.credit), link: partyLink(r) }),
+      ),
+  },
+  {
+    code: "CASH_FUTURE_DATE",
+    level: "red",
+    area: "Daily Cash Book",
+    title: "Cash book: date in the future",
+    urdu: "کیش بک: آنے والی تاریخ",
+    why: "Cash that has not moved yet changes today's and every later day's cash in hand.",
+    fix: "Open that day and correct the date.",
+    run: async () =>
+      out(
+        await rows(sql`select id, entry_date, direction, amount, person, description, count(*) over() total from cash_transactions
+          where not is_deleted and entry_date > now() + interval '1 day' and ${notDismissed("CASH_FUTURE_DATE", sql`'ct:' || id`)}
+          order by entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `ct:${r.id}`, date: day(r.entry_date), title: `${r.direction} · ${r.person || ""}`, detail: r.description || "—", amount: num(r.amount), link: cashLink(day(r.entry_date)) }),
+      ),
+  },
+  {
+    code: "KHATA_NO_DATE",
+    level: "amber",
+    area: "Truck Ledgers",
+    title: "Truck khata: money with no date",
+    urdu: "ٹرک کھاتہ: رقم ہے مگر تاریخ نہیں",
+    why: "Without a date the money cannot go into a month, a trip or the year's accounts.",
+    fix: "Open the entry and give it the date from the paper (the rows around it show roughly when).",
+    run: async () =>
+      out(
+        await rows(sql`select e.id, e.ledger_id, l.registration, e.raw_date, e.description, e.received, e.paid, count(*) over() total
+          from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+          where not e.is_deleted and not l.is_deleted and (e.entry_date is null or e.entry_date < '2000-01-01') and (e.received > 0 or e.paid > 0) and ${NOT_BOX}
+            and ${notDismissed("KHATA_NO_DATE", sql`'tle:' || e.id`)}
+          order by l.registration, e.id limit ${LIMIT}`),
+        (r) => ({ key: `tle:${r.id}`, date: null, title: r.registration, detail: `${r.raw_date ? `paper says "${r.raw_date}" · ` : ""}${r.description || "—"} · ${money(r)}`, amount: num(r.received) || num(r.paid), link: truckLink(r) }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- one row, both sides
+  {
+    code: "KHATA_BOTH_SIDES",
+    level: "red",
+    area: "Truck Ledgers",
+    title: "Truck khata: one row has money both in and out",
+    urdu: "ٹرک کھاتہ: ایک لائن میں وصول اور ادائیگی دونوں",
+    why: "A row is either money received or money paid. Both on one row usually means the import misread the paper.",
+    fix: "Open it and keep the right side (or split it into two entries).",
+    run: async () =>
+      out(
+        await rows(sql`select e.id, e.ledger_id, l.registration, e.entry_date, e.description, e.received, e.paid, count(*) over() total
+          from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+          where not e.is_deleted and not l.is_deleted and e.received > 0 and e.paid > 0 and ${notDismissed("KHATA_BOTH_SIDES", sql`'tle:' || e.id`)}
+          order by e.entry_date desc nulls last limit ${LIMIT}`),
+        (r) => ({ key: `tle:${r.id}`, date: day(r.entry_date), title: r.registration, detail: `${r.description || "—"} · ${money(r)}`, amount: num(r.received), link: truckLink(r) }),
+      ),
+  },
+  {
+    code: "PARTY_BOTH_SIDES",
+    level: "red",
+    area: "Party Ledgers",
+    title: "Party ledger: one row is both naam and jama",
+    urdu: "پارٹی کھاتہ: ایک لائن میں نام اور جمع دونوں",
+    why: "A row is either given to the party or got from the party, not both.",
+    fix: "Open it and keep the right side.",
+    run: async () =>
+      out(
+        await rows(sql`select e.id, e.party_id, p.name, e.entry_date, e.description, e.debit, e.credit, count(*) over() total
+          from party_ledger_entries e join parties p on p.id = e.party_id
+          where not e.is_deleted and e.debit > 0 and e.credit > 0 and ${notDismissed("PARTY_BOTH_SIDES", sql`'ple:' || e.id`)}
+          order by e.entry_date desc nulls last limit ${LIMIT}`),
+        (r) => ({ key: `ple:${r.id}`, date: day(r.entry_date), title: r.name, detail: `${r.description || "—"} · naam ${num(r.debit).toLocaleString()} · jama ${num(r.credit).toLocaleString()}`, amount: num(r.debit), link: partyLink(r) }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- paper vs computed
+  {
+    code: "KHATA_PAPER_BALANCE",
+    level: "amber",
+    area: "Truck Ledgers",
+    title: "Truck khata: the paper's balance differs from the sum",
+    urdu: "ٹرک کھاتہ: کاغذ کا بقایا جمع سے مختلف",
+    why: "When the paper's balance and the added-up balance differ, either the paper was miscounted or a row is missing / misread.",
+    fix: "Open it and compare with the paper page; fix the row that is wrong, or mark correct if the paper was miscounted.",
+    run: async () =>
+      out(
+        await rows(sql`with x as (
+            select e.id, e.ledger_id, l.registration, e.entry_date, e.description, e.received, e.paid, e.running_balance, e.sheet_balance, e.section_label,
+              coalesce(e.sort_key, e.id) k,
+              least(abs(e.running_balance - e.sheet_balance), abs(e.running_balance + e.sheet_balance)) gap
+            from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+            where not e.is_deleted and not l.is_deleted and e.sheet_balance is not null and ${NOT_BOX}),
+          y as (select *, lag(gap) over (partition by ledger_id, section_label order by k) prev from x)
+          select *, count(*) over() total from y
+          where gap > 1 and (prev is null or prev <> gap) and ${notDismissed("KHATA_PAPER_BALANCE", sql`'tle:' || y.id`)}
+          order by registration, k limit ${LIMIT}`),
+        (r) => ({ key: `tle:${r.id}`, date: day(r.entry_date), title: r.registration, detail: `${r.section_label ? r.section_label + " · " : ""}paper ${num(r.sheet_balance).toLocaleString()} · sum ${num(r.running_balance).toLocaleString()} · ${r.description || "—"}`, amount: num(r.gap), link: truckLink(r) }),
+      ),
+  },
+  {
+    code: "KHATA_OLD_FLAGS",
+    level: "amber",
+    area: "Truck Ledgers",
+    title: "Old import warnings that are no longer true",
+    urdu: "امپورٹ کی پرانی تنبیہیں جو اب درست نہیں",
+    why: "At import these rows were marked 'balance differs from the paper'; the balance has since been worked out again and now matches, but the yellow mark stayed.",
+    fix: "Use “Clear them” — only the stale balance warning is removed; any other warning on the row stays.",
+    fixable: "Clear them",
+    run: async () => {
+      const [r] = await rows(sql`select count(*)::int n from truck_ledger_entries e
+        where not e.is_deleted and e.needs_review and e.review_reason like 'running balance%'
+          and (e.sheet_balance is null or least(abs(e.running_balance - e.sheet_balance), abs(e.running_balance + e.sheet_balance)) <= 1)`);
+      return { total: num(r?.n), items: [] };
+    },
+  },
+  {
+    code: "KHATA_DUPLICATE",
+    level: "amber",
+    area: "Truck Ledgers",
+    title: "Truck khata: the same entry twice?",
+    urdu: "ٹرک کھاتہ: ایک ہی انٹری دو بار؟",
+    why: "Same truck, same day, same amount, same words — usually the same slip entered twice, so the expense is counted double.",
+    fix: "Delete the extra one, or mark correct if it really happened twice.",
+    run: async () =>
+      out(
+        await rows(sql`select min(e.id) id, e.ledger_id, l.registration, e.entry_date::date d, max(e.description) description, e.received, e.paid, count(*)::int n, count(*) over() total
+          from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+          where not e.is_deleted and not l.is_deleted and e.entry_date is not null and (e.received > 0 or e.paid > 0) and ${NOT_BOX}
+          group by e.ledger_id, l.registration, e.entry_date::date, e.received, e.paid, lower(trim(coalesce(e.description, '')))
+          having count(*) > 1 and ${notDismissed("KHATA_DUPLICATE", sql`'tle:' || min(e.id)`)}
+          order by d desc limit ${LIMIT}`),
+        (r) => ({ key: `tle:${r.id}`, date: day(r.d), title: r.registration, detail: `${r.n}× ${r.description || "—"} · ${money(r)}`, amount: num(r.received) || num(r.paid), link: truckLink(r) }),
+      ),
+  },
+  {
+    code: "CASH_DUPLICATE",
+    level: "amber",
+    area: "Daily Cash Book",
+    title: "Cash book: the same entry twice?",
+    urdu: "کیش بک: ایک ہی انٹری دو بار؟",
+    why: "Same day, same person, same amount, same side — cash in hand would be wrong by that amount.",
+    fix: "Delete the extra one, or mark correct.",
+    run: async () =>
+      out(
+        await rows(sql`select min(t.id) id, t.entry_date::date d, t.direction, t.amount, max(t.person) person, count(*)::int n, count(*) over() total
+          from cash_transactions t where not t.is_deleted
+          group by t.entry_date::date, t.direction, t.amount, lower(trim(coalesce(t.person, ''))), lower(trim(coalesce(t.description, '')))
+          having count(*) > 1 and ${notDismissed("CASH_DUPLICATE", sql`'ct:' || min(t.id)`)}
+          order by d desc limit ${LIMIT}`),
+        (r) => ({ key: `ct:${r.id}`, date: day(r.d), title: `${r.direction} · ${r.person || ""}`, detail: `${r.n}× the same entry`, amount: num(r.amount), link: cashLink(day(r.d)) }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- cash
+  {
+    code: "CASH_BELOW_ZERO",
+    level: "red",
+    area: "Daily Cash Book",
+    title: "Cash book: cash in hand goes below zero",
+    urdu: "کیش بک: نقد صفر سے کم",
+    why: "You cannot pay out more cash than you have. A minus means money that came in was not written, or the opening cash was never entered.",
+    fix: "Open that day and add the missing 'In' entry (or the opening cash on the first day).",
+    run: async () =>
+      out(
+        await rows(sql`with d as (
+            select entry_date::date d, sum(case when direction = 'In' then amount else -amount end) net
+            from cash_transactions where not is_deleted group by 1),
+          r as (select d, net, sum(net) over (order by d) bal from d),
+          s as (select d, bal, lag(bal) over (order by d) prev from r)
+          select d, bal, count(*) over() total from s
+          where bal < 0 and (prev is null or prev >= 0) and ${notDismissed("CASH_BELOW_ZERO", sql`'day:' || d`)}
+          order by d desc limit ${LIMIT}`),
+        (r) => ({ key: `day:${day(r.d)}`, date: day(r.d), title: "Cash went below zero from this day", detail: `cash in hand ${num(r.bal).toLocaleString()}`, amount: num(r.bal), link: cashLink(day(r.d)) }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- bills and invoices
+  {
+    code: "INVOICE_FIGURES",
+    level: "red",
+    area: "Invoices",
+    title: "Invoice: paid / balance / status don't add up",
+    urdu: "انوائس: ادا، بقایا اور حالت آپس میں نہیں ملتے",
+    why: "Balance must be total − paid, and 'Paid' only when nothing is left. Otherwise the customer's dues and the reports are wrong.",
+    fix: "Use “Put right” — it sets the balance and status from what has been paid.",
+    fixable: "Put right",
+    run: async () =>
+      out(
+        await rows(sql`select i.id, i.invoice_number, c.company, i.invoice_date, i.total_amount, i.paid_amount, i.outstanding_balance, i.status, count(*) over() total
+          from invoices i left join contractors c on c.id = i.contractor_id
+          where not i.is_deleted and (
+            i.outstanding_balance <> greatest(0, i.total_amount - i.paid_amount)
+            or (i.status = 'Paid' and i.paid_amount < i.total_amount)
+            or (i.status in ('Unpaid', 'Overdue') and i.paid_amount > 0)
+            or (i.status = 'Partially Paid' and (i.paid_amount = 0 or i.paid_amount >= i.total_amount)))
+            and ${notDismissed("INVOICE_FIGURES", sql`'inv:' || i.id`)}
+          order by i.invoice_date desc limit ${LIMIT}`),
+        (r) => ({ key: `inv:${r.id}`, date: day(r.invoice_date), title: `${r.invoice_number} · ${r.company || ""}`, detail: `total ${num(r.total_amount).toLocaleString()} · paid ${num(r.paid_amount).toLocaleString()} · balance ${num(r.outstanding_balance).toLocaleString()} · ${r.status}`, amount: num(r.total_amount), link: { wb: "finance", sheet: "invoices" } }),
+      ),
+  },
+  {
+    code: "INVOICE_PAYMENTS",
+    level: "red",
+    area: "Invoices",
+    title: "Invoice: 'paid' differs from the payments recorded",
+    urdu: "انوائس: لکھا ہوا ادا اور درج ادائیگیاں مختلف",
+    why: "The invoice says one amount was paid, but its payment list adds up to another — one of them is wrong.",
+    fix: "Open Invoices → Payments: add the missing payment or undo the wrong one.",
+    run: async () =>
+      out(
+        await rows(sql`select i.id, i.invoice_number, c.company, i.invoice_date, i.paid_amount, coalesce(p.s, 0) recorded, count(*) over() total
+          from invoices i left join contractors c on c.id = i.contractor_id
+          left join (select invoice_id, sum(amount)::bigint s from invoice_payments group by 1) p on p.invoice_id = i.id
+          where not i.is_deleted and i.paid_amount <> coalesce(p.s, 0) and ${notDismissed("INVOICE_PAYMENTS", sql`'inv:' || i.id`)}
+          order by i.invoice_date desc limit ${LIMIT}`),
+        (r) => ({ key: `inv:${r.id}`, date: day(r.invoice_date), title: `${r.invoice_number} · ${r.company || ""}`, detail: `invoice says paid ${num(r.paid_amount).toLocaleString()} · payments recorded ${num(r.recorded).toLocaleString()}`, amount: num(r.paid_amount) - num(r.recorded), link: { wb: "finance", sheet: "invoices" } }),
+      ),
+  },
+  {
+    code: "BILL_FIGURES",
+    level: "red",
+    area: "Bills",
+    title: "Vendor bill: paid / balance / status don't add up",
+    urdu: "بل: ادا، بقایا اور حالت آپس میں نہیں ملتے",
+    why: "Balance must be amount − paid; otherwise what you owe vendors is wrong.",
+    fix: "Use “Put right” — it sets the balance and status from what has been paid.",
+    fixable: "Put right",
+    run: async () =>
+      out(
+        await rows(sql`select id, bill_number, vendor_name, bill_date, amount, paid_amount, outstanding_balance, status, count(*) over() total from bills
+          where not is_deleted and (
+            outstanding_balance <> greatest(0, amount - paid_amount)
+            or (status = 'Paid' and paid_amount < amount)
+            or (status in ('Unpaid', 'Overdue') and paid_amount > 0)
+            or (status = 'Partially Paid' and (paid_amount = 0 or paid_amount >= amount)))
+            and ${notDismissed("BILL_FIGURES", sql`'bill:' || id`)}
+          order by bill_date desc limit ${LIMIT}`),
+        (r) => ({ key: `bill:${r.id}`, date: day(r.bill_date), title: `${r.bill_number} · ${r.vendor_name}`, detail: `amount ${num(r.amount).toLocaleString()} · paid ${num(r.paid_amount).toLocaleString()} · balance ${num(r.outstanding_balance).toLocaleString()} · ${r.status}`, amount: num(r.amount), link: { wb: "finance", sheet: "bills_payments_expenses" } }),
+      ),
+  },
+  {
+    code: "CUSTOMER_BALANCE",
+    level: "amber",
+    area: "Invoices",
+    title: "Customer's balance differs from their unpaid invoices",
+    urdu: "کسٹمر کا بقایا اس کی انوائسوں سے مختلف",
+    why: "What a customer owes should equal what is left on their invoices. A difference can be an old opening balance — or a payment that never reached an invoice.",
+    fix: "If the customer has no old opening balance, use “Put right” to set it from the invoices.",
+    fixable: "Put right",
+    run: async () =>
+      out(
+        await rows(sql`select c.id, c.company, c.outstanding_balance, coalesce(i.s, 0) from_invoices, count(*) over() total
+          from contractors c left join (select contractor_id, sum(outstanding_balance)::bigint s from invoices where not is_deleted group by 1) i on i.contractor_id = c.id
+          where not c.is_deleted and c.outstanding_balance <> coalesce(i.s, 0) and ${notDismissed("CUSTOMER_BALANCE", sql`'con:' || c.id`)}
+          order by abs(c.outstanding_balance - coalesce(i.s, 0)) desc limit ${LIMIT}`),
+        (r) => ({ key: `con:${r.id}`, date: null, title: r.company, detail: `balance ${num(r.outstanding_balance).toLocaleString()} · unpaid invoices ${num(r.from_invoices).toLocaleString()}`, amount: num(r.outstanding_balance) - num(r.from_invoices), link: { wb: "finance", sheet: "invoices" } }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- trips
+  {
+    code: "TRIP_NO_INVOICE",
+    level: "red",
+    area: "Fleet Desk",
+    title: "Completed trip with freight but no invoice",
+    urdu: "مکمل ٹرپ جس کا کرایہ ہے مگر انوائس نہیں",
+    why: "The customer was never billed, so the freight is missing from what customers owe.",
+    fix: "Open the trip in Fleet Desk and set it to Completed again (it makes the invoice), or make the invoice by hand.",
+    run: async () =>
+      out(
+        await rows(sql`select t.id, t.trip_number, v.vehicle_number, t.departure_time, t.revenue, c.company, count(*) over() total
+          from trips t left join vehicles v on v.id = t.vehicle_id left join contractors c on c.id = t.contractor_id
+          where not t.is_deleted and t.status = 'Completed' and t.revenue > 0
+            and not exists (select 1 from invoices i where i.trip_id = t.id and not i.is_deleted)
+            and ${notDismissed("TRIP_NO_INVOICE", sql`'trip:' || t.id`)}
+          order by t.departure_time desc limit ${LIMIT}`),
+        (r) => ({ key: `trip:${r.id}`, date: day(r.departure_time), title: `${r.vehicle_number || ""} · ${r.trip_number}`, detail: `${r.company || "no customer"} · freight ${num(r.revenue).toLocaleString()}`, amount: num(r.revenue), link: { wb: "fleet", sheet: "fleet_desk" } }),
+      ),
+  },
+  {
+    code: "TRIP_STUCK",
+    level: "amber",
+    area: "Fleet Desk",
+    title: "Trip still 'on the road' after 30 days",
+    urdu: "30 دن سے زیادہ پرانی ٹرپ ابھی تک چل رہی ہے",
+    why: "Probably finished but never marked Completed — its customers are not billed and its money is not settled.",
+    fix: "Open it in Fleet Desk and mark it Completed (or delete it if it never happened).",
+    run: async () =>
+      out(
+        await rows(sql`select t.id, t.trip_number, v.vehicle_number, t.departure_time, t.status, count(*) over() total
+          from trips t left join vehicles v on v.id = t.vehicle_id
+          where not t.is_deleted and t.parent_trip_id is null and t.status in ('Scheduled', 'Started', 'In Transit', 'Arrived')
+            and t.departure_time < now() - interval '30 days'
+            and not exists (select 1 from trips n where n.parent_trip_id = t.id and not n.is_deleted and n.status = 'Completed')
+            and ${notDismissed("TRIP_STUCK", sql`'trip:' || t.id`)}
+          order by t.departure_time limit ${LIMIT}`),
+        (r) => ({ key: `trip:${r.id}`, date: day(r.departure_time), title: `${r.vehicle_number || ""} · ${r.trip_number}`, detail: r.status, amount: null, link: { wb: "fleet", sheet: "fleet_desk" } }),
+      ),
+  },
+
+  // ---------------------------------------------------------------- the double-entry books
+  {
+    code: "JOURNAL_UNBALANCED",
+    level: "red",
+    area: "Accounts",
+    title: "Journal entry: debit and credit not equal",
+    urdu: "جرنل انٹری: ڈیبٹ اور کریڈٹ برابر نہیں",
+    why: "In double-entry books every entry must balance, or the trial balance and balance sheet will not.",
+    fix: "Open Journal Entries and correct the lines.",
+    run: async () =>
+      out(
+        await rows(sql`select j.id, j.entry_number, j.entry_date, j.description, x.d, x.c, count(*) over() total
+          from journal_entries j join (select journal_entry_id, sum(debit)::bigint d, sum(credit)::bigint c from journal_lines group by 1) x on x.journal_entry_id = j.id
+          where not j.is_deleted and x.d <> x.c and ${notDismissed("JOURNAL_UNBALANCED", sql`'je:' || j.id`)}
+          order by j.entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: `debit ${num(r.d).toLocaleString()} · credit ${num(r.c).toLocaleString()} · ${r.description || ""}`, amount: num(r.d) - num(r.c), link: { wb: "finance", sheet: "journal_entries" } }),
+      ),
+  },
+  {
+    code: "JOURNAL_ORPHAN",
+    level: "red",
+    area: "Accounts",
+    title: "Journal entry left behind by a deleted entry",
+    urdu: "حذف شدہ انٹری کی بچی ہوئی جرنل انٹری",
+    why: "The khata row / expense it came from was deleted, but the books still count the money.",
+    fix: "Use “Remove them” — it takes these entries out of the books.",
+    fixable: "Remove them",
+    run: async () =>
+      out(
+        await rows(sql`select j.id, j.entry_number, j.entry_date, j.description, count(*) over() total from journal_entries j
+          where not j.is_deleted and (
+            (j.entry_number like 'JE-REV-%' and not exists (select 1 from truck_ledger_entries e where e.id = j.source_id and not e.is_deleted))
+            or (j.entry_number like 'JE-EXP-%' and not exists (select 1 from expenses e where e.id = j.source_id and not e.is_deleted))
+            or (j.entry_number like 'JE-MNT-%' and not exists (select 1 from vehicle_maintenance m where m.id = j.source_id and not m.is_deleted)))
+            and ${notDismissed("JOURNAL_ORPHAN", sql`'je:' || j.id`)}
+          order by j.entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `je:${r.id}`, date: day(r.entry_date), title: r.entry_number, detail: r.description || "—", amount: null, link: { wb: "finance", sheet: "journal_entries" } }),
+      ),
+  },
+  {
+    code: "BOOKS_COVERAGE",
+    level: "info",
+    area: "Accounts",
+    title: "Khata money not yet in the double-entry books",
+    urdu: "کھاتے کی رقم جو ابھی پکے حساب (ڈبل انٹری) میں نہیں",
+    why: "Party ledgers, the cash book and part of the truck khata are kept like the paper, but not yet posted as debit/credit — so the Balance Sheet does not show them yet.",
+    fix: "Next step of the accounting work: every module will post into the books by itself.",
+    run: async () => {
+      const [t] = await rows(sql`select count(*)::int n from truck_ledger_entries e
+        where not e.is_deleted and (e.received > 0 or e.paid > 0)
+          and not exists (select 1 from journal_entries j where j.entry_number = 'JE-REV-' || e.id)
+          and not exists (select 1 from expenses x where x.source_entry_id = e.id and not x.is_deleted)
+          and not exists (select 1 from vehicle_maintenance m where m.source_entry_id = e.id and not m.is_deleted)`);
+      const [p] = await rows(sql`select count(*)::int n from party_ledger_entries where not is_deleted and (debit > 0 or credit > 0)`);
+      const [c] = await rows(sql`select count(*)::int n from cash_transactions where not is_deleted`);
+      const items: Item[] = [
+        { key: "cov:truck", date: null, title: "Truck khata rows", detail: `${num(t?.n).toLocaleString()} rows`, amount: null, link: null },
+        { key: "cov:party", date: null, title: "Party ledger rows", detail: `${num(p?.n).toLocaleString()} rows`, amount: null, link: null },
+        { key: "cov:cash", date: null, title: "Cash book entries", detail: `${num(c?.n).toLocaleString()} entries`, amount: null, link: null },
+      ];
+      return { total: num(t?.n) + num(p?.n) + num(c?.n), items };
+    },
+  },
+];
+
+const byCode = new Map(CHECKS.map((c) => [c.code, c]));
+
+// ---------------------------------------------------------------------------------------------
+router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const results = await Promise.all(
+      CHECKS.map(async (c) => {
+        try {
+          const r = await c.run();
+          return { code: c.code, level: c.level, area: c.area, title: c.title, urdu: c.urdu, why: c.why, fix: c.fix, fixable: c.fixable || null, total: r.total, items: r.items };
+        } catch (e: any) {
+          return { code: c.code, level: c.level, area: c.area, title: c.title, urdu: c.urdu, why: c.why, fix: c.fix, fixable: null, total: 0, items: [], error: e.message };
+        }
+      }),
+    );
+    const count = (l: Level) => results.filter((r) => r.level === l).reduce((s, r) => s + r.total, 0);
+    res.json({ checkedAt: new Date().toISOString(), red: count("red"), amber: count("amber"), checks: results });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Just the counts (for a badge). */
+router.get("/summary", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const results = await Promise.all(CHECKS.filter((c) => c.level !== "info").map(async (c) => ({ level: c.level, total: (await c.run().catch(() => ({ total: 0 }))).total })));
+    res.json({ red: results.filter((r) => r.level === "red").reduce((s, r) => s + r.total, 0), amber: results.filter((r) => r.level === "amber").reduce((s, r) => s + r.total, 0) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------- safe automatic fixes
+const FIXES: Record<string, () => Promise<number>> = {
+  // the import's "balance differs" mark on rows whose balance now matches the paper
+  KHATA_OLD_FLAGS: async () =>
+    (
+      await rows(sql`update truck_ledger_entries e set
+          review_reason = nullif(regexp_replace(e.review_reason, '^running balance [^;]*(; )?', ''), ''),
+          needs_review = coalesce(regexp_replace(e.review_reason, '^running balance [^;]*(; )?', ''), '') <> ''
+        where not e.is_deleted and e.needs_review and e.review_reason like 'running balance%'
+          and (e.sheet_balance is null or least(abs(e.running_balance - e.sheet_balance), abs(e.running_balance + e.sheet_balance)) <= 1)
+        returning e.id`)
+    ).length,
+  // balance and status from what has been paid
+  INVOICE_FIGURES: async () =>
+    (
+      await rows(sql`update invoices set
+          outstanding_balance = greatest(0, total_amount - paid_amount),
+          status = case when paid_amount >= total_amount then 'Paid' when paid_amount > 0 then 'Partially Paid'
+                        when status = 'Overdue' then 'Overdue' else 'Unpaid' end,
+          updated_at = now()
+        where not is_deleted and (
+          outstanding_balance <> greatest(0, total_amount - paid_amount)
+          or (status = 'Paid' and paid_amount < total_amount)
+          or (status in ('Unpaid', 'Overdue') and paid_amount > 0)
+          or (status = 'Partially Paid' and (paid_amount = 0 or paid_amount >= total_amount)))
+          and ${notDismissed("INVOICE_FIGURES", sql`'inv:' || id`)}
+        returning id`)
+    ).length,
+  BILL_FIGURES: async () =>
+    (
+      await rows(sql`update bills set
+          outstanding_balance = greatest(0, amount - paid_amount),
+          status = case when paid_amount >= amount then 'Paid' when paid_amount > 0 then 'Partially Paid'
+                        when status = 'Overdue' then 'Overdue' else 'Unpaid' end,
+          updated_at = now()
+        where not is_deleted and (
+          outstanding_balance <> greatest(0, amount - paid_amount)
+          or (status = 'Paid' and paid_amount < amount)
+          or (status in ('Unpaid', 'Overdue') and paid_amount > 0)
+          or (status = 'Partially Paid' and (paid_amount = 0 or paid_amount >= amount)))
+          and ${notDismissed("BILL_FIGURES", sql`'bill:' || id`)}
+        returning id`)
+    ).length,
+  CUSTOMER_BALANCE: async () =>
+    (
+      await rows(sql`update contractors c set outstanding_balance = coalesce((select sum(outstanding_balance) from invoices i where i.contractor_id = c.id and not i.is_deleted), 0)
+        where not c.is_deleted and c.outstanding_balance <> coalesce((select sum(outstanding_balance) from invoices i where i.contractor_id = c.id and not i.is_deleted), 0)
+          and ${notDismissed("CUSTOMER_BALANCE", sql`'con:' || c.id`)}
+        returning c.id`)
+    ).length,
+  JOURNAL_ORPHAN: async () => {
+    const gone = await rows(sql`select j.id from journal_entries j
+      where not j.is_deleted and (
+        (j.entry_number like 'JE-REV-%' and not exists (select 1 from truck_ledger_entries e where e.id = j.source_id and not e.is_deleted))
+        or (j.entry_number like 'JE-EXP-%' and not exists (select 1 from expenses e where e.id = j.source_id and not e.is_deleted))
+        or (j.entry_number like 'JE-MNT-%' and not exists (select 1 from vehicle_maintenance m where m.id = j.source_id and not m.is_deleted)))
+        and ${notDismissed("JOURNAL_ORPHAN", sql`'je:' || j.id`)}`);
+    const ids = gone.map((g) => Number(g.id));
+    if (!ids.length) return 0;
+    await db.execute(sql`delete from journal_lines where journal_entry_id = any(${`{${ids.join(",")}}`}::int[])`);
+    await db.execute(sql`delete from journal_entries where id = any(${`{${ids.join(",")}}`}::int[])`);
+    return ids.length;
+  },
+};
+
+router.post("/fix/:code", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const code = req.params.code;
+    const fix = FIXES[code];
+    if (!fix || !byCode.get(code)?.fixable) return res.status(400).json({ error: "This one cannot be fixed automatically — open each item and correct it" });
+    const n = await fix();
+    await logAudit({ action: "UPDATE", tableName: "books_check", recordId: 0, oldValues: { code }, newValues: { fixed: n }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+    res.json({ ok: true, fixed: n });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------- "this is correct"
+router.post("/dismiss", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const { code, key, note } = req.body || {};
+    if (!byCode.has(code) || !key) return res.status(400).json({ error: "Which check and which item?" });
+    if (byCode.get(code)!.level === "info") return res.status(400).json({ error: "Nothing to mark here" });
+    await db
+      .insert(schema.checkDismissals)
+      .values({ code, itemKey: String(key), note: note ? String(note).slice(0, 500) : null, createdBy: req.user?.id })
+      .onConflictDoNothing();
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete("/dismiss", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const { code, key } = req.body || {};
+    await db.delete(schema.checkDismissals).where(and(eq(schema.checkDismissals.code, String(code)), eq(schema.checkDismissals.itemKey, String(key))));
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/dismissed", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    res.json(
+      await rows(sql`select d.id, d.code, d.item_key, d.note, d.created_at, u.name as by_name from check_dismissals d left join users u on u.id = d.created_by order by d.created_at desc limit 500`).catch(async () =>
+        rows(sql`select id, code, item_key, note, created_at from check_dismissals order by created_at desc limit 500`),
+      ),
+    );
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Row flags for one truck khata / party ledger, so its rows show red right there. */
+export async function rowIssues(kind: "tle" | "ple", ids: number[]): Promise<Map<number, string>> {
+  const m = new Map<number, string>();
+  if (!ids.length) return m;
+  const arr = `{${ids.join(",")}}`;
+  const list =
+    kind === "tle"
+      ? await rows(sql`select e.id,
+            case when e.entry_date > now() + interval '1 day' and (e.received > 0 or e.paid > 0) then 'KHATA_FUTURE_DATE'
+                 when e.received > 0 and e.paid > 0 then 'KHATA_BOTH_SIDES' end as code
+          from truck_ledger_entries e where e.id = any(${arr}::int[]) and not e.is_deleted`)
+      : await rows(sql`select e.id,
+            case when e.entry_date > now() + interval '1 day' and (e.debit > 0 or e.credit > 0) then 'PARTY_FUTURE_DATE'
+                 when e.debit > 0 and e.credit > 0 then 'PARTY_BOTH_SIDES' end as code
+          from party_ledger_entries e where e.id = any(${arr}::int[]) and not e.is_deleted`);
+  const flagged = list.filter((r) => r.code);
+  if (!flagged.length) return m;
+  const dismissed = new Set(
+    (await rows(sql`select code || '|' || item_key k from check_dismissals where item_key = any(${`{${flagged.map((r) => `"${kind}:${r.id}"`).join(",")}}`}::text[])`)).map((r) => r.k),
+  );
+  const TEXT: Record<string, string> = {
+    KHATA_FUTURE_DATE: "Date in the future — correct the year · غلط تاریخ",
+    PARTY_FUTURE_DATE: "Date in the future — correct the year · غلط تاریخ",
+    KHATA_BOTH_SIDES: "Money both in and out on one row · ایک لائن میں دونوں طرف",
+    PARTY_BOTH_SIDES: "Both naam and jama on one row · ایک لائن میں دونوں طرف",
+  };
+  for (const r of flagged) if (!dismissed.has(`${r.code}|${kind}:${r.id}`)) m.set(Number(r.id), TEXT[r.code]);
+  return m;
+}
+
+export default router;
