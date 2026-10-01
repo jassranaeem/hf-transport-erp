@@ -10,13 +10,18 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { Handshake, RefreshCw, Loader2, Plus, X, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, FileText, Pencil, Trash2, Undo2 } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
+const pkr = (n: number) => (n < 0 ? "−" : "") + PKR(n); // keeps the minus
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function Partners({ showFeedback }: { showFeedback: (t: "success" | "error", m: string) => void }) {
+type Nav = (wb: string, sheet: string, focus?: { ledgerId?: number }) => void;
+
+export default function Partners({ showFeedback, onNavigate }: { showFeedback: (t: "success" | "error", m: string) => void; onNavigate?: Nav }) {
   const [partners, setPartners] = useState<any[]>([]);
+  const [truckPartners, setTruckPartners] = useState<any[]>([]); // shared trucks from Partner P&L
   const [agreements, setAgreements] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -46,6 +51,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
     setLoading(true);
     Promise.all([
       enterpriseFetch("/api/partnerships/partners").then(setPartners),
+      enterpriseFetch("/api/partnership").then((r) => setTruckPartners(Array.isArray(r) ? r : [])).catch(() => setTruckPartners([])),
       enterpriseFetch("/api/partnerships/agreements").then(setAgreements),
       enterpriseFetch("/api/operations/vehicles?limit=500").then((r) => setVehicles(r?.data || r?.rows || [])).catch(() => {}),
       enterpriseFetch("/api/partnerships/summary").then(setSummary).catch(() => {}),
@@ -232,9 +238,51 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
         </div>
       )}
 
+      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+          Truck partners · ٹرک کے شریک · {truckPartners.length}
+          <span className="font-normal text-[#6B7280]"> — shared trucks (50/50 etc.) from Partner P&amp;L; open one to see, edit or delete its entries</span>
+        </div>
+        {truckPartners.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-[#6B7280]">
+            No shared truck yet — set one up in{" "}
+            <button onClick={() => onNavigate?.("finance", "partner_pnl")} className="underline text-[#24539B]">Partner P&amp;L</button>.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-[#6B7280]">
+                <tr>
+                  <th className="text-left px-3 py-1.5">Partner · شریک</th>
+                  <th className="text-left px-2 py-1.5">Truck</th>
+                  <th className="text-right px-2 py-1.5">Share</th>
+                  <th className="text-right px-2 py-1.5">His money in the pool · مشترکہ جمع</th>
+                  <th className="text-right px-2 py-1.5">Qarz on him · قرض</th>
+                  <th className="text-right px-2 py-1.5">This cycle · موجودہ</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {truckPartners.map((a) => (
+                  <tr key={a.id} onClick={() => onNavigate?.("finance", "partner_pnl", { ledgerId: a.truckLedgerId })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
+                    <td className="px-3 py-1.5 font-semibold" dir="auto">{a.partnerName}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{a.truck || a.truckTitle}</td>
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">{a.partnerPercent}% / {100 - a.partnerPercent}%</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums ${(a.partner?.inPool || 0) < 0 ? "text-[#B91C1C]" : ""}`}>{pkr(a.partner?.inPool || 0)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{a.partner?.debt ? pkr(a.partner.debt) : "—"}</td>
+                    <td className={`px-2 py-1.5 text-right tabular-nums ${(a.cycleNet || 0) < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>{pkr(a.cycleNet || 0)}</td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap text-[#24539B]">Open ↗</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {partners.length > 0 && (
         <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-          <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Partners · {partners.length}</div>
+          <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Lease-to-own partners · {partners.length} <span className="font-normal text-[#6B7280]">— buying a truck from HFK in instalments</span></div>
           <table className="w-full text-xs">
             <tbody>
               {partners.map((pt) =>
@@ -382,6 +430,7 @@ export default function Partners({ showFeedback }: { showFeedback: (t: "success"
 
 function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving, onUndoSettlement }: any) {
   const lastId = data.settlements.length ? Math.max(...data.settlements.map((x: any) => x.id)) : null;
+  const [newestFirst, toggleNewest] = useNewestFirst();
   const t = data.totals;
   return (
     <div className="space-y-3 pt-1">
@@ -429,10 +478,10 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
       <div className="rounded-lg border border-[#E5E7EB] bg-white overflow-hidden">
         <table className="w-full text-[11px]">
           <thead className="bg-[#F9FAFB] text-[#6B7280]">
-            <tr><th className="text-left px-2 py-1.5">Settlement</th><th className="text-left px-2 py-1.5">Period</th><th className="text-right px-2 py-1.5">Revenue</th><th className="text-right px-2 py-1.5">Expenses</th><th className="text-right px-2 py-1.5">To Company</th><th className="text-left px-2 py-1.5">Flags</th><th /></tr>
+            <tr><th className="text-left px-2 py-1.5">Settlement</th><th className="text-left px-2 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Period" /></th><th className="text-right px-2 py-1.5">Revenue</th><th className="text-right px-2 py-1.5">Expenses</th><th className="text-right px-2 py-1.5">To Company</th><th className="text-left px-2 py-1.5">Flags</th><th /></tr>
           </thead>
           <tbody>
-            {data.settlements.map((s: any) => (
+            {inOrder(data.settlements, newestFirst).map((s: any) => (
               <tr key={s.id} className="border-t border-[#F3F4F6]">
                 <td className="px-2 py-1.5 font-mono">{s.settlementNumber}</td>
                 <td className="px-2 py-1.5 text-[#6B7280]">{s.periodFrom?.slice(0, 10)} → {s.periodTo?.slice(0, 10)}</td>

@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronDown, ChevronRight, Upload } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
@@ -29,6 +30,7 @@ export default function CashBook({
   const [date, setDate] = useState(today());
   const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
   const [data, setData] = useState<any>(null);
+  const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<any>(BLANK);
@@ -238,7 +240,7 @@ export default function CashBook({
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center justify-between gap-2 flex-wrap">
-          <span>{date} — Entries ({withRunning.length})</span>
+          <span className="flex items-center gap-3">{date} — Entries ({withRunning.length}) <DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Order" /></span>
           {withRunning.length > 0 && (
             <button
               onClick={async () => {
@@ -276,7 +278,7 @@ export default function CashBook({
               </tr>
             </thead>
             <tbody>
-              {withRunning.map((r: any) => (
+              {inOrder(withRunning, newestFirst).map((r: any) => (
                 <React.Fragment key={r.id}>
                   <tr
                     onClick={() => startEdit(r)}

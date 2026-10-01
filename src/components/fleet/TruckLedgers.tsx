@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronRight, Handshake, Upload, FileSpreadsheet, CheckCircle, RefreshCw,
   Pencil, Trash2,
 } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
 
 const CATS = ["Freight","Diesel","TripCash","Tyre","Visa","Carnet","TomanFX","PartsBill","Garage","Salary","Battery","Insurance","MobilOil","Permit","OnlineTransfer","Capital","SafiBachat","Other"];
@@ -81,6 +82,7 @@ export default function TruckLedgers({
   const [q, setQ] = useState("");
   const [selId, setSelId] = useState<number | null>(null);
   const [detail, setDetail] = useState<LedgerDetail | null>(null);
+  const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [catFilter, setCatFilter] = useState("");
   const [reviewOnly, setReviewOnly] = useState(false);
@@ -748,7 +750,7 @@ export default function TruckLedgers({
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
-                        <th className="text-left px-2 py-1.5">Date</th>
+                        <th className="text-left px-2 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} /></th>
                         <th className="text-left px-2 py-1.5">Description</th>
                         <th className="text-left px-2 py-1.5">Cat</th>
                         <th className="text-right px-2 py-1.5">In</th>
@@ -758,7 +760,7 @@ export default function TruckLedgers({
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.entries.map((e) => (
+                      {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
                           <tr id={`truck-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">

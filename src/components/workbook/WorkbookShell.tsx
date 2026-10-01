@@ -231,7 +231,7 @@ export default function WorkbookShell({
       case "KhataOverview":
         return <KhataOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "Partners":
-        return <Partners showFeedback={showFeedback} />;
+        return <Partners showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} />;
       case "HRMSDashboard":
         return <HRMSDashboard dbUser={dbUser} showFeedback={showFeedback} />;
       case "FuelIntelligence":
@@ -261,7 +261,7 @@ export default function WorkbookShell({
       case "TripFuelHistory":
         return <TripFuelHistory showFeedback={showFeedback} />;
       case "PartnerPnL":
-        return <PartnerPnL showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} />;
+        return <PartnerPnL showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} focusLedgerId={focus?.ledgerId} />;
       case "PersonalExpenses":
         return <PersonalExpenses showFeedback={showFeedback} />;
       case "Zakat":

@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { Handshake, RefreshCw, Loader2, Plus, Undo2, Trash2, ExternalLink, Lock, Paperclip, X, ChevronDown, ChevronRight, Search, Upload, Pencil } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
 
@@ -53,12 +54,15 @@ type Detail =
   | { type: "khata"; ledgerId: number; row: any; edit?: boolean }
   | { type: "party"; partyId: number; partyName: string; row: any; accountId?: number; edit?: boolean };
 
-export default function PartnerPnL({ showFeedback, onNavigate }: { showFeedback: Feedback; onNavigate?: Nav }) {
+export default function PartnerPnL({ showFeedback, onNavigate, focusLedgerId }: { showFeedback: Feedback; onNavigate?: Nav; focusLedgerId?: number }) {
   const [list, setList] = useState<any[] | null>(null);
   const [deleted, setDeleted] = useState<any[]>([]);
   const [setupPreset, setSetupPreset] = useState<{ partnerName?: string; hfkName?: string; partnerPercent?: number } | null>(null);
   const [opts, setOpts] = useState<{ ledgers: any[]; parties: any[] } | null>(null);
-  const [ledgerId, setLedgerId] = useState<number | null>(null);
+  const [ledgerId, setLedgerId] = useState<number | null>(focusLedgerId ?? null);
+  useEffect(() => {
+    if (focusLedgerId) setLedgerId(focusLedgerId); // opened from Partners / a link: that truck
+  }, [focusLedgerId]);
   const [tab, setTab] = useState<"cycle" | "history" | "report">("cycle");
   const [showNew, setShowNew] = useState<number | "blank" | null>(null);
   const [truckQ, setTruckQ] = useState("");
@@ -415,11 +419,12 @@ function Clip({ n }: { n: number }) {
 
 /** A khata table whose rows open their detail. */
 function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: any[]; ledgerId: number; onOpen: (d: Detail) => void; showBalance?: boolean }) {
+  const [newestFirst, toggleNewest] = useNewestFirst();
   return (
     <table className="w-full text-xs">
       <thead className="text-[#6B7280] sticky top-0 bg-white">
         <tr>
-          <th className="text-left px-3 py-1.5">Date · تاریخ</th>
+          <th className="text-left px-3 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Date · تاریخ" /></th>
           <th className="text-left px-3 py-1.5">Detail · تفصیل</th>
           <th className="text-right px-3 py-1.5">In · وصول</th>
           <th className="text-right px-3 py-1.5">Out · ادائیگی</th>
@@ -428,7 +433,7 @@ function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: an
         </tr>
       </thead>
       <tbody>
-        {lines.map((r: any) => (
+        {inOrder(lines, newestFirst).map((r: any) => (
           <tr key={r.id} onClick={() => onOpen({ type: "khata", ledgerId, row: r })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
             <td className="px-3 py-1.5 whitespace-nowrap">{rowDate(r)}</td>
             <td className="px-3 py-1.5" dir="auto">{r.description || <span className="text-[#9CA3AF]">—</span>}</td>

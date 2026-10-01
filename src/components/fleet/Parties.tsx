@@ -7,6 +7,7 @@ import {
   Users, Search, AlertTriangle, Plus, Loader2, ChevronDown, ChevronRight,
   FileSpreadsheet, Upload, CheckCircle, Save, Building2, Paperclip, Pencil, Trash2,
 } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 
 const TYPES = ["Customer", "Supplier", "Lender", "Borrower", "Transporter", "Agent", "Broker", "Bank", "Other"];
 const STATUSES = ["Active", "Inactive", "Blocked"];
@@ -51,6 +52,7 @@ export default function Parties({
 
   const [selId, setSelId] = useState<number | null>(null);
   const [detail, setDetail] = useState<{ party: Party; entries: Entry[]; totals: any } | null>(null);
+  const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [editParty, setEditParty] = useState<any>(null);
   // Quick entry (debit/credit) is now shown immediately once a party is
@@ -527,7 +529,7 @@ export default function Parties({
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
-                        <th className="text-left px-2 py-1.5">Date</th>
+                        <th className="text-left px-2 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} /></th>
                         <th className="text-left px-2 py-1.5">Description</th>
                         <th className="text-right px-2 py-1.5">Debit</th>
                         <th className="text-right px-2 py-1.5">Credit</th>
@@ -536,7 +538,7 @@ export default function Parties({
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.entries.map((e) => (
+                      {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
                           <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600">{e.rawDate || "—"}</span>}</td>
