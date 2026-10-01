@@ -62,6 +62,7 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "1500", name: "Trucks & capital items (review)", type: "Asset", category: "Miscellaneous", review: true },
   { code: "2000", name: "Accounts Payable", type: "Liability", category: "Accounts Payable" },
   { code: "2200", name: "Partners' accounts", type: "Liability", category: "Miscellaneous" },
+  { code: "2300", name: "Withholding tax deducted — payable to FBR", type: "Liability", category: "Miscellaneous" },
   { code: "3100", name: "Director's current account (household, zakat)", type: "Equity", category: "Equity" },
   { code: "3900", name: "Opening balance equity (accountant to split)", type: "Equity", category: "Equity", review: true },
   { code: "4000", name: "Freight Revenue", type: "Income", category: "Revenue" },
@@ -320,7 +321,32 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
                greatest(-(select coalesce(sum(b), 0) from lines), 0), greatest((select coalesce(sum(b), 0) from lines), 0), null::int, null::int, null::int, null::int
         where exists (select 1 from lines)`);
 
-      // 4h. bank statement lines: the bank's own account ↔ what the line was matched to (the account
+      // 4h. tax register: advance tax kept by customers, tax we kept (owed to FBR), and deposits to FBR
+      await run(sql`insert into _p
+        with t as (
+          select t.id, t.kind, t.entry_date, t.tax_amount::bigint amt, t.party_id, t.invoice_id,
+                 coalesce(t.contractor_id, (select contractor_id from invoices i where i.id = t.invoice_id)) con,
+                 left(coalesce(t.party_name, '') || ' — ' || coalesce(t.notes, t.certificate_no, t.cpr_no, 'tax'), 300) descr,
+                 (select role from _who w where w.party_id = t.party_id limit 1) role
+          from tax_entries t where not t.is_deleted and t.entry_date >= ${START} and t.tax_amount > 0),
+        k as (
+          select t.*,
+            case
+              when kind = 'deposited' then '2300'
+              when kind = 'deducted_from_us' then '1102'
+              when con is not null then '1100' when party_id is not null then case role when 'partner' then '2200' when 'hfk' then '3100' else '1150' end
+              else '1096' end dr,
+            case
+              when kind = 'deposited' then '1009'
+              when kind = 'we_deducted' then '2300'
+              when con is not null then '1100' when party_id is not null then case role when 'partner' then '2200' when 'hfk' then '3100' else '1150' end
+              else '1096' end cr
+          from t)
+        select 'tax:' || id, entry_date, 'Tax: ' || descr, dr, amt, 0, null::int, null::int, party_id, case when dr = '1100' then con end from k
+        union all
+        select 'tax:' || id, entry_date, 'Tax: ' || descr, cr, 0, amt, null::int, null::int, party_id, case when cr = '1100' then con end from k`);
+
+      // 4i. bank statement lines: the bank's own account ↔ what the line was matched to (the account
       // that entry used for its money: bank to match 1009, the truck account 1060, the cash book's
       // other side, an invoice payment's cash/bank) or what it was explained as
       await run(sql`insert into _p
@@ -411,6 +437,7 @@ async function booksSignature(): Promise<string> {
       ${part("partnership_accounts", "0")},
       ${part("bank_statement_lines", "deposit + withdrawal + coalesce(length(matched_key), 0) + coalesce(length(kind), 0)")},
       ${part("bank_accounts", "opening_balance")},
+      ${part("tax_entries", "tax_amount + gross_amount")},
       (select count(*) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) from posting_rules),
       (select count(*) || '/' || coalesce(max(id), 0) from journal_entries where not is_auto),
       (select to_char(books_start, 'YYYY-MM-DD') || '/' || coalesce(to_char(locked_through, 'YYYY-MM-DD'), '') from books_settings where id = 1))) sig`);

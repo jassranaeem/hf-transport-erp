@@ -87,6 +87,10 @@ export async function candidatesFor(lineId: number, days = 7) {
       from zakat_payments z
       where ${out} and not z.is_deleted and z.method in ${BANKISH} and z.amount = ${amt} and ${near(sql`z.entry_date`)}
       union all
+      select 'tax:' || x.id, x.entry_date, 'Tax paid to FBR · ' || coalesce(x.cpr_no, ''), coalesce(x.notes, ''), coalesce(x.method, 'Bank')
+      from tax_entries x
+      where ${out} and not x.is_deleted and x.kind = 'deposited' and x.tax_amount = ${amt} and ${near(sql`x.entry_date`)}
+      union all
       select 'pay:' || y.id, y.payment_date, 'Invoice payment · ' || coalesce(y.payment_number, ''), coalesce(y.reference_number, ''), y.payment_method
       from payments y
       where ${!out} and not y.is_deleted and y.payment_method <> 'Cash' and y.amount = ${amt} and ${near(sql`y.payment_date`)}
@@ -236,6 +240,7 @@ const WHAT = sql`case
     when s.matched_key like 'ct:%' then (select 'Cash book · ' || coalesce(t.description, t.person, '') from cash_transactions t where t.id = split_part(s.matched_key, ':', 2)::int)
     when s.matched_key like 'pe:%' then (select 'Household · ' || coalesce(x.description, x.payee, '') from personal_expenses x where x.id = split_part(s.matched_key, ':', 2)::int)
     when s.matched_key like 'zk:%' then (select 'Zakat · ' || coalesce(z.recipient, '') from zakat_payments z where z.id = split_part(s.matched_key, ':', 2)::int)
+    when s.matched_key like 'tax:%' then (select 'Tax paid to FBR · ' || coalesce(x.cpr_no, '') from tax_entries x where x.id = split_part(s.matched_key, ':', 2)::int)
     when s.matched_key like 'pay:%' then (select 'Invoice payment · ' || coalesce(y.payment_number, '') from payments y where y.id = split_part(s.matched_key, ':', 2)::int)
   end`;
 

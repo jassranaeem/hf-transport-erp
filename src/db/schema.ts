@@ -2580,3 +2580,54 @@ export const bankStatementLines = pgTable(
     matchedIdx: index("bsl_matched_idx").on(table.matchedKey),
   }),
 );
+
+// ---------------------------------------------------------
+// TAX — rates are entered by the company's tax consultant (never assumed by the system);
+// tax_entries is the register of withholding tax: deducted_from_us (by customers — our advance
+// tax, with certificate), we_deducted (from payments we made — owed to FBR) and deposited (paid
+// to FBR, with CPR / challan)
+// ---------------------------------------------------------
+export const taxRates = pgTable(
+  "tax_rates",
+  {
+    id: serial("id").primaryKey(),
+    code: text("code").notNull(),
+    label: text("label").notNull(),
+    section: text("section"),
+    rate: numeric("rate", { precision: 7, scale: 3 }),
+    notes: text("notes"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: integer("updated_by"),
+  },
+  (table) => ({ codeIdx: uniqueIndex("tax_rates_code_idx").on(table.code) }),
+);
+
+export const taxEntries = pgTable(
+  "tax_entries",
+  {
+    id: serial("id").primaryKey(),
+    kind: text("kind").notNull(), // deducted_from_us | we_deducted | deposited
+    entryDate: timestamp("entry_date").notNull(),
+    forMonth: text("for_month"), // YYYY-MM — which month's deductions a deposit is for
+    rateCode: text("rate_code"),
+    partyName: text("party_name"),
+    partyId: integer("party_id"),
+    contractorId: integer("contractor_id"),
+    invoiceId: integer("invoice_id"),
+    ntnCnic: text("ntn_cnic"),
+    grossAmount: bigint("gross_amount", { mode: "number" }).default(0).notNull(),
+    taxAmount: bigint("tax_amount", { mode: "number" }).default(0).notNull(),
+    certificateNo: text("certificate_no"),
+    cprNo: text("cpr_no"),
+    method: text("method"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdBy: integer("created_by"),
+    updatedBy: integer("updated_by"),
+    deletedAt: timestamp("deleted_at"),
+    deletedBy: integer("deleted_by"),
+    isDeleted: boolean("is_deleted").default(false).notNull(),
+  },
+  (table) => ({ kindDateIdx: index("tax_entries_kind_date_idx").on(table.kind, table.entryDate) }),
+);

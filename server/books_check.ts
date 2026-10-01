@@ -423,6 +423,54 @@ const CHECKS: Check[] = [
     },
   },
 
+  // ---------------------------------------------------------------- tax
+  {
+    code: "TAX_NOT_DEPOSITED",
+    level: "red",
+    area: "Tax",
+    title: "Tax we deducted but have not paid to FBR",
+    urdu: "کاٹا ہوا ٹیکس جو ایف بی آر کو جمع نہیں ہوا",
+    why: "Tax kept from a payment belongs to the government; paying it late brings default surcharge and penalty.",
+    fix: "Pay it to FBR and enter the deposit (with CPR / challan no) under Tax → We deducted & paid, for that month.",
+    run: async () => {
+      const list = await rows(sql`with d as (select to_char(entry_date, 'YYYY-MM') m, sum(tax_amount) w from tax_entries where not is_deleted and kind = 'we_deducted' group by 1),
+          p as (select for_month m, sum(tax_amount) p from tax_entries where not is_deleted and kind = 'deposited' group by 1)
+        select d.m, d.w, coalesce(p.p, 0) p from d left join p on p.m = d.m
+        where d.w > coalesce(p.p, 0) and d.m < to_char(now(), 'YYYY-MM') and ${notDismissed("TAX_NOT_DEPOSITED", sql`'month:' || d.m`)} order by d.m desc`);
+      return { total: list.length, items: list.map((r) => ({ key: `month:${r.m}`, date: `${r.m}-01`, title: `Month ${r.m}`, detail: `deducted ${num(r.w).toLocaleString()} · paid to FBR ${num(r.p).toLocaleString()}`, amount: num(r.w) - num(r.p), link: { wb: "finance", sheet: "tax" } })) };
+    },
+  },
+  {
+    code: "TAX_NO_CERTIFICATE",
+    level: "amber",
+    area: "Tax",
+    title: "Tax deducted from us without a certificate number",
+    urdu: "ہم سے کٹا ٹیکس جس کا سرٹیفیکیٹ نمبر نہیں",
+    why: "Tax a customer kept counts as the company's advance tax only with its withholding certificate.",
+    fix: "Ask the customer for the withholding certificate and enter its number.",
+    run: async () =>
+      out(
+        await rows(sql`select t.id, t.entry_date, coalesce(t.party_name, c.company, p.name, '') nm, t.tax_amount, count(*) over() total
+          from tax_entries t left join contractors c on c.id = t.contractor_id left join parties p on p.id = t.party_id
+          where not t.is_deleted and t.kind = 'deducted_from_us' and coalesce(t.certificate_no, '') = '' and t.entry_date < now() - interval '30 days'
+            and ${notDismissed("TAX_NO_CERTIFICATE", sql`'tax:' || t.id`)} order by t.entry_date desc limit ${LIMIT}`),
+        (r) => ({ key: `tax:${r.id}`, date: day(r.entry_date), title: r.nm || "—", detail: "no certificate no.", amount: num(r.tax_amount), link: { wb: "finance", sheet: "tax" } }),
+      ),
+  },
+  {
+    code: "TAX_RATES_MISSING",
+    level: "amber",
+    area: "Tax",
+    title: "Tax rates not entered yet",
+    urdu: "ٹیکس کی شرحیں ابھی درج نہیں",
+    why: "The system does not assume any tax rate. Until the consultant enters them, tax is typed as amounts and the year's estimate cannot be worked out.",
+    fix: "Ask the tax consultant to fill Tax → Rates (rate and section for each line).",
+    run: async () => {
+      const list = await rows(sql`select code, label from tax_rates where rate is null and ${notDismissed("TAX_RATES_MISSING", sql`'rate:' || code`)} order by id`).catch(() => [] as any[]);
+      return { total: list.length, items: list.map((r) => ({ key: `rate:${r.code}`, date: null, title: String(r.label).split(" · ")[0], detail: "rate not set", amount: null, link: { wb: "finance", sheet: "tax" } })) };
+    },
+  },
+
   // ---------------------------------------------------------------- bills and invoices
   {
     code: "INVOICE_FIGURES",
