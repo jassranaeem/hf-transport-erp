@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
-  MapContainer, TileLayer, LayersControl, Marker, Popup, Polyline, Circle, CircleMarker, useMap,
+  MapContainer, TileLayer, LayersControl, AttributionControl, Marker, Popup, Polyline, Circle, CircleMarker, useMap,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -39,11 +39,11 @@ interface TrailPoint { lat: number; lng: number; speed: number; at: string; sour
 interface AlertItem { id: string; kind: "lost" | "restored"; text: string; at: number }
 
 const COLOR: Record<Status, string> = {
-  Moving: "#16a34a",
-  Idle: "#d97706",
-  Stopped: "#64748b",
-  SignalLost: "#dc2626",
-  Unknown: "#94a3b8",
+  Moving: "#24539B",
+  Idle: "#6B7280",
+  Stopped: "#9CA3AF",
+  SignalLost: "#D70006",
+  Unknown: "#CBD5E1",
 };
 
 /** speed text that is honest about missing / stale data */
@@ -164,6 +164,7 @@ export default function LiveTrackingMap({
   const [fitTrigger, setFitTrigger] = useState(0);
   const [simulating, setSimulating] = useState(false);
   const [follow, setFollow] = useState(false);
+  const [q, setQ] = useState("");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const firstLoad = useRef(true);
@@ -191,7 +192,7 @@ export default function LiveTrackingMap({
         if (!withFix) {
           showFeedback("error", "No live GPS fix yet — connect the tracker in Console → GPS Provider (Eagle Tracker login), then Sync. · GPS Provider میں لاگ اِن کریں۔");
         } else {
-          showFeedback("success", `Refreshed — ${withFix}/${list.length} trucks ka fix${ageMin != null ? `, sabse naya ${ageMin} min purana` : ""}.`);
+          showFeedback("success", `Refreshed — ${withFix}/${list.length} trucks have a fix${ageMin != null ? `, newest is ${ageMin} min old` : ""}.`);
         }
       }
     } catch (err: any) {
@@ -274,6 +275,13 @@ export default function LiveTrackingMap({
     return c;
   }, [vehicles]);
 
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const filtered = useMemo(() => {
+    const n = norm(q);
+    if (!n) return vehicles;
+    return vehicles.filter((v) => norm(`${v.vehicleNumber || ""}${v.label || ""}${v.imei || ""}${v.trip?.origin || ""}${v.trip?.destination || ""}`).includes(n));
+  }, [vehicles, q]);
+
   const selected = vehicles.find((v) => v.deviceId === selectedId) || null;
   const followTarget = follow && selected ? (selected.projected || selected.lastFix) : null;
 
@@ -345,6 +353,20 @@ export default function LiveTrackingMap({
         {/* left column: vehicle list + alerts */}
         <div className="flex flex-col gap-3">
           <div className="rounded-xl border border-slate-200 bg-white max-h-[46vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-white p-2 border-b border-slate-100">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) selectVehicle(filtered[0]); }}
+                placeholder="Search truck number… e.g. TLD 918"
+                className="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500"
+              />
+            </div>
+            {q.trim() && filtered.length === 0 && vehicles.length > 0 && (
+              <div className="p-4 text-sm text-slate-500">
+                "{q}" is not in the GPS list. Its tracker is not linked to this truck under Tracker Devices, or the tracker has not sent any data yet. · یہ ٹرک GPS فہرست میں نہیں ہے۔
+              </div>
+            )}
             {vehicles.length === 0 && !loading && (
               <div className="p-4 text-sm text-slate-500 space-y-2">
                 <p className="font-medium text-slate-700">No trackers reporting yet.</p>
@@ -355,7 +377,7 @@ export default function LiveTrackingMap({
                 <p>Or press <b>Simulate movement</b> to demo with an active trip.</p>
               </div>
             )}
-            {vehicles.map((v) => {
+            {filtered.map((v) => {
               const est = v.signalLost && v.projected;
               return (
                 <button
@@ -434,7 +456,8 @@ export default function LiveTrackingMap({
 
         {/* map */}
         <div className="rounded-xl border border-slate-200 overflow-hidden h-[70vh] min-h-[420px]">
-          <MapContainer center={[30.3753, 69.3451]} zoom={6} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+          <MapContainer center={[30.3753, 69.3451]} zoom={6} style={{ height: "100%", width: "100%" }} scrollWheelZoom attributionControl={false}>
+            <AttributionControl prefix={false} />
             <LayersControl position="topright">
               <LayersControl.BaseLayer checked name="Streets">
                 {/* Esri's World Street Map service — NOT the raw OpenStreetMap
@@ -479,11 +502,11 @@ export default function LiveTrackingMap({
                 const path = v.trip!.path!.map((p) => [p.lat, p.lng] as [number, number]);
                 return (
                   <React.Fragment key={`route-${v.deviceId}`}>
-                    <Polyline positions={path} pathOptions={{ color: "#2563eb", weight: 3, opacity: 0.4, dashArray: "2 8" }} />
-                    <Marker position={path[0]} icon={endpointIcon("#2563eb", "O")}>
+                    <Polyline positions={path} pathOptions={{ color: "#24539B", weight: 3, opacity: 0.4, dashArray: "2 8" }} />
+                    <Marker position={path[0]} icon={endpointIcon("#24539B", "O")}>
                       <Popup><b>{v.trip!.origin}</b><br />route origin</Popup>
                     </Marker>
-                    <Marker position={path[path.length - 1]} icon={endpointIcon("#7c3aed", "D")}>
+                    <Marker position={path[path.length - 1]} icon={endpointIcon("#24539B", "D")}>
                       <Popup><b>{v.trip!.destination}</b><br />route destination</Popup>
                     </Marker>
                   </React.Fragment>
@@ -494,7 +517,7 @@ export default function LiveTrackingMap({
             {selected && trail.length > 1 && (
               <Polyline
                 positions={trail.map((p) => [p.lat, p.lng] as [number, number])}
-                pathOptions={{ color: "#0ea5e9", weight: 3, opacity: 0.75 }}
+                pathOptions={{ color: "#2C5CAE", weight: 3, opacity: 0.75 }}
               />
             )}
 
@@ -508,7 +531,7 @@ export default function LiveTrackingMap({
                   <Marker
                     key={`fix-${v.deviceId}`}
                     position={[v.lastFix.lat, v.lastFix.lng]}
-                    icon={truckIcon(v.signalLost ? "#dc2626" : COLOR[v.status], v.lastFix.heading, {
+                    icon={truckIcon(v.signalLost ? "#D70006" : COLOR[v.status], v.lastFix.heading, {
                       pulse: v.status === "Moving",
                       ghost: v.signalLost,
                       label,
@@ -538,7 +561,7 @@ export default function LiveTrackingMap({
                   <Polyline
                     key={`link-${v.deviceId}`}
                     positions={[[v.lastFix.lat, v.lastFix.lng], [v.projected.lat, v.projected.lng]]}
-                    pathOptions={{ color: "#dc2626", dashArray: "5 8", weight: 2, opacity: 0.8 }}
+                    pathOptions={{ color: "#D70006", dashArray: "5 8", weight: 2, opacity: 0.8 }}
                   />
                 );
                 nodes.push(
@@ -546,14 +569,14 @@ export default function LiveTrackingMap({
                     key={`unc-${v.deviceId}`}
                     center={[v.projected.lat, v.projected.lng]}
                     radius={v.projected.uncertaintyMeters}
-                    pathOptions={{ color: "#dc2626", weight: 1, opacity: 0.5, fillColor: "#dc2626", fillOpacity: 0.08 }}
+                    pathOptions={{ color: "#D70006", weight: 1, opacity: 0.5, fillColor: "#D70006", fillOpacity: 0.08 }}
                   />
                 );
                 nodes.push(
                   <Marker
                     key={`est-${v.deviceId}`}
                     position={[v.projected.lat, v.projected.lng]}
-                    icon={truckIcon("#dc2626", v.lastFix.heading, { pulse: true, ghost: true, label: `${label} (est.)` })}
+                    icon={truckIcon("#D70006", v.lastFix.heading, { pulse: true, ghost: true, label: `${label} (est.)` })}
                     eventHandlers={{ click: () => selectVehicle(v) }}
                   >
                     <Popup>

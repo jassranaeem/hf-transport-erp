@@ -16,6 +16,7 @@ import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, schema } from "../../db/index.ts";
 import { createBalancedJournalEntry } from "../../../server/finance_engine.ts";
 import type { ParsedLedger, WorkbookReport } from "./truck-workbook.ts";
+import { mainKhataForPlate, normPlate, planMerge } from "./khata-merge.ts";
 
 const PLATE = /^[A-Z]{2,4} ?\d{2,4}$/;
 
@@ -36,6 +37,8 @@ const EXPENSE_GL_CODE: Record<string, string> = {
  * khata import; `scripts/backfill-gl-postings.ts` exists precisely to catch
  * up any entries that couldn't post here.
  */
+const POSTING_OWNED_BY_BOOKS_ENGINE = true;
+
 async function postJournalEntry(
   entryNumber: string,
   description: string,
@@ -46,6 +49,10 @@ async function postJournalEntry(
   amount: number,
   ctx: { userId?: number }
 ) {
+  // The books engine (server/books.ts) now posts every khata row into the double-entry books
+  // from the row itself, and removes these older per-import postings when it rebuilds — so
+  // posting here as well would only be undone. Kept as a no-op so the callers stay simple.
+  if (POSTING_OWNED_BY_BOOKS_ENGINE) return;
   try {
     const [existingJE] = await db
       .select({ id: schema.journalEntries.id })
@@ -91,6 +98,18 @@ export interface ImportResult {
   failedSheets: Array<{ sheet: string; error: string }>;
   reconciliation: { matched: number; total: number };
   report: WorkbookReport;
+  // sheets added into a khata the truck already had (see khata-merge.ts)
+  merged: Array<{ sheet: string; ledgerId: number; added: number; already: number; unclear: number }>;
+  // khatas whose running balances must be recalculated (rows were placed into them)
+  touchedLedgerIds: number[];
+}
+
+export interface ImportOptions {
+  // per sheet: a khata id to add it into, "new" for a separate khata, or "auto" = the
+  // truck's main khata (or the one this same import started for it)
+  targets?: Record<string, number | "new" | "auto">;
+  // default for sheets not in `targets`: true = "auto", false = old behaviour (own khata)
+  merge?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +185,7 @@ async function syncEntryToModules(
   if (!e.paid || e.paid <= 0) return; // rest of this function only handles cash-out entries
   if (e.category === "Capital") return; // owner injection, not an expense
 
-  const noteHead = `Imported from truck khata (${registration})${e.rawDate ? ` · ${e.rawDate}` : ""}: `;
+  const noteHead = `Imported from truck ledger (${registration})${e.rawDate ? ` · ${e.rawDate}` : ""}: `;
   const notes = (noteHead + (e.description || "")).slice(0, 500);
 
   if (MAINTENANCE_CATEGORIES.has(e.category)) {
@@ -248,15 +267,31 @@ async function syncEntryToModules(
 }
 
 /** A truck-khata entry disappeared on re-import - retire whatever it had synced into as well. */
-async function retireSyncedRecords(entryId: number, userId: number | undefined) {
-  await db
+/**
+ * A khata row is gone (removed from its sheet, or the row / whole khata deleted): retire the
+ * Expense / Maintenance record it had filed, and take back the journal entry that record
+ * posted — otherwise Finance keeps counting money the khata no longer has.
+ */
+export async function retireSyncedRecords(entryId: number, userId: number | undefined) {
+  const exp = await db
     .update(schema.expenses)
     .set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId })
-    .where(eq(schema.expenses.sourceEntryId, entryId));
-  await db
+    .where(eq(schema.expenses.sourceEntryId, entryId))
+    .returning({ id: schema.expenses.id });
+  const mnt = await db
     .update(schema.vehicleMaintenance)
     .set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId })
-    .where(eq(schema.vehicleMaintenance.sourceEntryId, entryId));
+    .where(eq(schema.vehicleMaintenance.sourceEntryId, entryId))
+    .returning({ id: schema.vehicleMaintenance.id });
+  const numbers = [...exp.map((x) => `JE-EXP-${x.id}`), ...mnt.map((x) => `JE-MNT-${x.id}`)];
+  for (const n of numbers) {
+    const [je] = await db.select({ id: schema.journalEntries.id }).from(schema.journalEntries).where(eq(schema.journalEntries.entryNumber, n)).limit(1);
+    if (je) {
+      // same clean removal a re-import does when it reposts an entry
+      await db.delete(schema.journalLines).where(eq(schema.journalLines.journalEntryId, je.id));
+      await db.delete(schema.journalEntries).where(eq(schema.journalEntries.id, je.id));
+    }
+  }
 }
 
 function entryValues(e: ParsedLedger["entries"][number], ledgerId: number, userId?: number) {
@@ -291,8 +326,12 @@ function entryValues(e: ParsedLedger["entries"][number], ledgerId: number, userI
 export async function importParsedWorkbook(
   ledgers: ParsedLedger[],
   report: WorkbookReport,
-  ctx: { userId?: number } = {}
+  ctx: { userId?: number } = {},
+  opts: ImportOptions = {}
 ): Promise<ImportResult> {
+  const merged: ImportResult["merged"] = [];
+  const touched = new Set<number>();
+  const joinedThisRun = new Map<string, number>(); // plate -> khata this import put it in
   let vehiclesCreated = 0;
   let vehiclesLinked = 0;
   let partnersCreated = 0;
@@ -370,8 +409,34 @@ export async function importParsedWorkbook(
       let [existingLedger] = await db
         .select()
         .from(schema.truckLedgers)
-        .where(eq(schema.truckLedgers.sourceSheet, L.sourceSheet))
+        // a khata the user deleted stays deleted: its sheet is treated as new (and can join
+        // the truck's khata) instead of the import bringing the deleted khata back
+        .where(and(eq(schema.truckLedgers.sourceSheet, L.sourceSheet), eq(schema.truckLedgers.isDeleted, false)))
         .limit(1);
+
+      // ---- a sheet with no khata of its own yet: add it INTO the truck's khata? ----
+      if (!existingLedger && isPlate) {
+        const t = opts.targets?.[L.sourceSheet] ?? (opts.merge ? "auto" : "new");
+        let targetId: number | null = null;
+        if (typeof t === "number") targetId = t;
+        else if (t === "auto") targetId = joinedThisRun.get(normPlate(vnum)) ?? (await mainKhataForPlate(vnum))?.id ?? null;
+        if (targetId) {
+          const plan = await planMerge(targetId, L);
+          const [tl] = await db.select({ vehicleId: schema.truckLedgers.vehicleId }).from(schema.truckLedgers).where(eq(schema.truckLedgers.id, targetId)).limit(1);
+          for (const a of plan.add) {
+            const [inserted] = await db
+              .insert(schema.truckLedgerEntries)
+              .values({ ...entryValues(a.e, targetId, ctx.userId), sectionLabel: a.sectionLabel, sortKey: a.sortKey, mergedFrom: L.sourceSheet })
+              .returning({ id: schema.truckLedgerEntries.id });
+            entriesInserted++;
+            await syncEntryToModules(inserted.id, tl?.vehicleId ?? vehicleId, vnum, a.e, ctx, counters, glByCode);
+          }
+          merged.push({ sheet: L.sourceSheet, ledgerId: targetId, added: plan.add.length, already: plan.already, unclear: plan.unclear.length });
+          touched.add(targetId);
+          joinedThisRun.set(normPlate(vnum), targetId);
+          continue;
+        }
+      }
       if (!existingLedger) {
         [existingLedger] = await db
           .select()
@@ -482,11 +547,14 @@ export async function importParsedWorkbook(
         ledgersInserted++;
       }
 
+      if (isPlate && (opts.merge || opts.targets) && !joinedThisRun.has(normPlate(vnum))) joinedThisRun.set(normPlate(vnum), ledgerId);
+
       // ---- entries: match on (ledgerId, sourceRow) -----------------------
+      // (rows added into this khata from OTHER sheets are not this sheet's rows — never match them)
       const existing = await db
         .select({ id: schema.truckLedgerEntries.id, sourceRow: schema.truckLedgerEntries.sourceRow })
         .from(schema.truckLedgerEntries)
-        .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), isNotNull(schema.truckLedgerEntries.sourceRow)));
+        .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), isNotNull(schema.truckLedgerEntries.sourceRow), isNull(schema.truckLedgerEntries.mergedFrom)));
       const byRow = new Map<number, number>(); // sourceRow -> entry id
       for (const r of existing) if (r.sourceRow != null) byRow.set(r.sourceRow, r.id);
       const seenRows = new Set<number>();
@@ -550,5 +618,7 @@ export async function importParsedWorkbook(
     failedSheets,
     reconciliation: { matched, total: report.ledgers.length },
     report,
+    merged,
+    touchedLedgerIds: [...touched],
   };
 }

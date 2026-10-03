@@ -148,7 +148,7 @@ export default function EntitySheet({ entityKey, title, noImport, lockedFilters,
       )}
 
       {error && (
-        <div className="text-xs text-[#B91C1C] bg-[#FEF2F2] border border-[#FCA5A5] rounded px-3 py-2 shrink-0">
+        <div className="text-xs text-[#B00005] bg-[#FFF1F1] border border-[#FF9294] rounded px-3 py-2 shrink-0">
           {error}
         </div>
       )}

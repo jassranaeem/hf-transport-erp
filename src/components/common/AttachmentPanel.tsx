@@ -79,16 +79,16 @@ export default function AttachmentPanel({
           const others = res.duplicateOf.filter((d: any) => d.id !== res.id);
           if (others.length) {
             setDupWarn(
-              `⚠ "${f.name}" ki bilkul yehi copy pehle bhi lagi hai — ` +
+              `⚠ An identical copy of "${f.name}" is already attached — ` +
                 others.map((d: any) => `${d.entityType} #${d.entityId} (${new Date(d.createdAt).toLocaleDateString()})`).join(", ") +
-                `. Yeh double slip to nahi?`,
+                `. Possible duplicate slip? · ممکنہ دہری رسید؟`,
             );
           }
         } else if (res?.sameSlipCount > 0) {
           const others = (res.sameSlip || []).filter((d: any) => d.id !== res.id);
           if (others.length) {
             setDupWarn(
-              `⚠ Isi naam/size ki file pehle bhi lagi hai (${others.map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — same slip dobara to nahi lagayi?`,
+              `⚠ A file with the same name and size is already attached (${others.map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — possible duplicate slip? · ممکنہ دہری رسید؟`,
             );
           }
         }

@@ -1,6 +1,6 @@
 /**
  * Personal & Household Expenses — the owner's personal book.
- * Household kharcha, pocket money, personal spend, utilities, rent, medical …
+ * Household expenses, pocket money, personal spend, utilities, rent, medical …
  * Deliberately kept OUT of the business (truck) profit & loss.
  *
  * One register + a one-click monthly roll-up (by category, by person, by method),
@@ -146,7 +146,7 @@ export default function PersonalExpenses({
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    if (!Number(form.amount)) { showFeedback("error", "Amount daalein · رقم درج کریں"); return; }
+    if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setSaving(true);
     try {
       await enterpriseFetch("/api/personal-expenses", { method: "POST", body: JSON.stringify(form) });
@@ -216,7 +216,7 @@ export default function PersonalExpenses({
             <Wallet className="w-4 h-4" /> Personal &amp; Household <span className="text-[#9CA3AF] font-normal text-sm">· ذاتی و گھریلو اخراجات</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
-            Household kharcha, pocket money, personal spend — kept separate from the business P&amp;L. · کاروبار سے الگ ذاتی کھاتہ۔
+            Household expenses, pocket money, personal spend — kept separate from the business P&amp;L. · کاروبار سے الگ ذاتی کھاتہ۔
           </p>
         </div>
         <div className="flex-1" />
@@ -226,7 +226,7 @@ export default function PersonalExpenses({
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`px-3 py-2 ${mode === m ? "bg-[#16A34A] text-white font-semibold" : "bg-white text-[#374151] hover:bg-[#F3F4F6]"}`}
+              className={`px-3 py-2 ${mode === m ? "bg-[#24539B] text-white font-semibold" : "bg-white text-[#374151] hover:bg-[#F3F4F6]"}`}
             >
               {lbl}
             </button>
@@ -248,7 +248,7 @@ export default function PersonalExpenses({
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="personal_expenses" label="Personal Expenses" onImported={load} />
-        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> Add expense · نیا اندراج
         </button>
       </div>
@@ -268,7 +268,7 @@ export default function PersonalExpenses({
 
       {/* month-by-month history */}
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F3F7F4]">
+        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
           <span className="flex items-center gap-1.5"><History className="w-3.5 h-3.5" /> Month-by-month history · مہینہ وار ہسٹری (last 12)</span>
           {showTrend ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </button>
@@ -290,12 +290,12 @@ export default function PersonalExpenses({
                   <tr
                     key={mo.month}
                     onClick={() => { setMode("month"); setMonth(mo.month); }}
-                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F0FDF4] ${mode === "month" && month === mo.month ? "bg-[#ECFDF5]" : ""}`}
+                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${mode === "month" && month === mo.month ? "bg-[#F2F5FA]" : ""}`}
                     title="Open this month · یہ مہینہ کھولیں"
                   >
                     <td className="px-2 py-1.5 font-medium">{mo.month}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{PKR(mo.expense)}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#15803D]">{mo.income ? PKR(mo.income) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(mo.expense)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{mo.income ? PKR(mo.income) : "—"}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums font-semibold">{PKR(mo.net)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{mo.pocketMoney ? PKR(mo.pocketMoney) : "—"}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{mo.entries}</td>
@@ -309,8 +309,8 @@ export default function PersonalExpenses({
                 <tfoot className="border-t-2 border-[#E5E7EB] bg-[#F9FAFB] font-bold">
                   <tr>
                     <td className="px-2 py-1.5">12-month total</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{PKR(trend.reduce((s: number, m: any) => s + (m.expense || 0), 0))}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#15803D]">{PKR(trend.reduce((s: number, m: any) => s + (m.income || 0), 0))}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(trend.reduce((s: number, m: any) => s + (m.expense || 0), 0))}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(trend.reduce((s: number, m: any) => s + (m.income || 0), 0))}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{PKR(trend.reduce((s: number, m: any) => s + (m.net || 0), 0))}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{PKR(trend.reduce((s: number, m: any) => s + (m.pocketMoney || 0), 0))}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{trend.reduce((s: number, m: any) => s + (m.entries || 0), 0)}</td>
@@ -333,7 +333,7 @@ export default function PersonalExpenses({
             <Big label="Pocket money · جیب خرچ" value={PKR(t.pocketMoney)} tone="neutral" />
             <Big label="Entries · اندراجات" value={String(t.entries)} tone="neutral" />
           </div>
-          <p className="text-[11px] text-[#B45309] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2" dir="auto">
+          <p className="text-[11px] text-[#4B5563] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2" dir="auto">
             {view.note}
           </p>
         </>
@@ -343,7 +343,7 @@ export default function PersonalExpenses({
       {view && (
         <div className="grid md:grid-cols-2 gap-4">
           <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4] flex items-center gap-1.5">
+            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
               <TrendingDown className="w-3.5 h-3.5" /> By category · کس مد میں <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span>
             </div>
             <table className="w-full text-xs">
@@ -352,11 +352,11 @@ export default function PersonalExpenses({
                   <tr
                     key={c.category}
                     onClick={() => setFilterCategory((cur) => (cur === c.category ? null : c.category))}
-                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F0FDF4] ${filterCategory === c.category ? "bg-[#DCFCE7]" : ""}`}
+                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${filterCategory === c.category ? "bg-[#E6ECF6]" : ""}`}
                   >
                     <td className="px-2 py-1.5" dir="auto">{c.category}<span className="text-[#9CA3AF]"> · {CAT_UR[c.category] || ""}</span></td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{c.count}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${c.net >= 0 ? "text-[#B91C1C]" : "text-[#15803D]"}`}>
+                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${c.net >= 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                       {c.net >= 0 ? "" : "+"}{PKR(c.net)}
                     </td>
                   </tr>
@@ -369,7 +369,7 @@ export default function PersonalExpenses({
           </div>
 
           <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4] flex items-center gap-1.5">
+            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" /> By person · فرد کے حساب سے (pocket money etc.) <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span>
             </div>
             <table className="w-full text-xs">
@@ -378,11 +378,11 @@ export default function PersonalExpenses({
                   <tr
                     key={p.person}
                     onClick={() => setFilterPerson((cur) => (cur === p.person ? null : p.person))}
-                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F0FDF4] ${filterPerson === p.person ? "bg-[#DCFCE7]" : ""}`}
+                    className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${filterPerson === p.person ? "bg-[#E6ECF6]" : ""}`}
                   >
                     <td className="px-2 py-1.5" dir="auto">{p.person}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{p.count}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#B91C1C]">{PKR(p.spend)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#B00005]">{PKR(p.spend)}</td>
                   </tr>
                 ))}
                 {view.byPerson.length === 0 && (
@@ -405,15 +405,15 @@ export default function PersonalExpenses({
 
       {/* entries for the month */}
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4] flex items-center gap-2 flex-wrap" dir="auto">
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-2 flex-wrap" dir="auto">
           <span>Entries · {win.label} ({displayRows.length}{displayRows.length !== rows.length ? ` of ${rows.length}` : ""})</span>
           {filterCategory && (
-            <button onClick={() => setFilterCategory(null)} className="text-[10px] bg-[#DCFCE7] text-[#166534] rounded-full px-2 py-0.5 font-semibold">
+            <button onClick={() => setFilterCategory(null)} className="text-[10px] bg-[#E6ECF6] text-[#173563] rounded-full px-2 py-0.5 font-semibold">
               {filterCategory} ✕
             </button>
           )}
           {filterPerson && (
-            <button onClick={() => setFilterPerson(null)} className="text-[10px] bg-[#DCFCE7] text-[#166534] rounded-full px-2 py-0.5 font-semibold">
+            <button onClick={() => setFilterPerson(null)} className="text-[10px] bg-[#E6ECF6] text-[#173563] rounded-full px-2 py-0.5 font-semibold">
               {filterPerson} ✕
             </button>
           )}
@@ -439,13 +439,13 @@ export default function PersonalExpenses({
                     <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{r.entryDate?.slice(0, 10)}</td>
                     <td className="px-2 py-1.5" dir="auto">
                       {r.category}
-                      {r.direction === "income" && <span className="ml-1 text-[9px] bg-[#DCFCE7] text-[#166534] rounded px-1">funds in</span>}
+                      {r.direction === "income" && <span className="ml-1 text-[9px] bg-[#E6ECF6] text-[#173563] rounded px-1">funds in</span>}
                     </td>
                     <td className="px-2 py-1.5" dir="auto">{r.person || "—"}</td>
                     <td className="px-2 py-1.5 max-w-[220px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
                     <td className="px-2 py-1.5" dir="auto">{r.payee || "—"}</td>
                     <td className="px-2 py-1.5">{r.method}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "income" ? "text-[#15803D]" : "text-[#B91C1C]"}`}>
+                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "income" ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                       {r.direction === "income" ? "+" : "−"}{PKR(r.amount)}
                     </td>
                     <td className="px-1 whitespace-nowrap">
@@ -454,7 +454,7 @@ export default function PersonalExpenses({
                     </td>
                   </tr>
                   {editId === r.id && (
-                    <tr className="bg-[#F0FDF4]">
+                    <tr className="bg-[#F2F5FA]">
                       <td colSpan={8} className="px-3 py-3">
                         <EntryForm
                           value={editForm}
@@ -505,7 +505,7 @@ function EntryForm({
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   return (
-    <div className={`rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3 ${compact ? "" : "shadow-sm"}`}>
+    <div className={`rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 ${compact ? "" : "shadow-sm"}`}>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <label className="flex flex-col text-[10px] text-slate-500">Date · تاریخ
           <input type="date" value={value.entryDate} onChange={(e) => set("entryDate", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
@@ -550,7 +550,7 @@ function EntryForm({
         </label>
       </div>
       <div className="flex items-center gap-2 mt-3">
-        <button onClick={onSubmit} disabled={saving} className="bg-[#16A34A] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+        <button onClick={onSubmit} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} {submitLabel}
         </button>
         <button onClick={onCancel} className="border border-slate-300 rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -562,9 +562,9 @@ function EntryForm({
 function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
   const c =
     tone === "good"
-      ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]"
+      ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]"
       : tone === "bad"
-      ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]"
+      ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
       : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>

@@ -7,6 +7,7 @@ import {
   Users, Search, AlertTriangle, Plus, Loader2, ChevronDown, ChevronRight,
   FileSpreadsheet, Upload, CheckCircle, Save, Building2, Paperclip, Pencil, Trash2,
 } from "lucide-react";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 
 const TYPES = ["Customer", "Supplier", "Lender", "Borrower", "Transporter", "Agent", "Broker", "Bank", "Other"];
 const STATUSES = ["Active", "Inactive", "Blocked"];
@@ -36,9 +37,11 @@ interface Entry {
 export default function Parties({
   showFeedback,
   focusPartyId,
+  focusEntryId,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
   focusPartyId?: number;
+  focusEntryId?: number;
 }) {
   const [rows, setRows] = useState<Party[]>([]);
   const [total, setTotal] = useState(0);
@@ -49,6 +52,7 @@ export default function Parties({
 
   const [selId, setSelId] = useState<number | null>(null);
   const [detail, setDetail] = useState<{ party: Party; entries: Entry[]; totals: any } | null>(null);
+  const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [editParty, setEditParty] = useState<any>(null);
   // Quick entry (debit/credit) is now shown immediately once a party is
@@ -66,6 +70,7 @@ export default function Parties({
   const [newParty, setNewParty] = useState<any>(null);
 
   const [showImport, setShowImport] = useState(false);
+  const [importIsLender, setImportIsLender] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -90,14 +95,36 @@ export default function Parties({
   useEffect(() => {
     if (selId != null) {
       loadDetail(selId);
-      setShowLedger(false); // each newly-picked party starts on quick-entry, not the full ledger
+      // each newly-picked party starts on quick-entry — unless a link asked for one of its rows
+      setShowLedger(!!focusEntryId && selId === focusPartyId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId, loadDetail]);
 
-  // deep-link: open a specific party's khata (from an alert / dues link)
+  // deep-link: open a specific party's ledger (from an alert / dues link)
   useEffect(() => {
-    if (focusPartyId) { setSelId(focusPartyId); setExpanded(null); }
-  }, [focusPartyId]);
+    if (focusPartyId) {
+      setSelId(focusPartyId);
+      setExpanded(null);
+      if (focusEntryId) setShowLedger(true); // the full ledger is collapsed by default — force it open to reach the row
+    }
+  }, [focusPartyId, focusEntryId]);
+
+  // once that party's entries are loaded, scroll to and briefly highlight the exact row
+  // (e.g. jumped here from a Daily Cash Book entry's "opened this entry" link)
+  const [highlightEntryId, setHighlightEntryId] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focusEntryId || !detail || detail.party.id !== focusPartyId) return;
+    setHighlightEntryId(focusEntryId);
+    const t1 = setTimeout(() => {
+      document.getElementById(`party-entry-${focusEntryId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+    const t2 = setTimeout(() => setHighlightEntryId(null), 4000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [focusEntryId, focusPartyId, detail]);
 
   const saveParty = async () => {
     if (!editParty) return;
@@ -123,7 +150,7 @@ export default function Parties({
     if (!selId) return;
     const debit = Number(entryForm.debit) || 0;
     const credit = Number(entryForm.credit) || 0;
-    if (!debit && !credit) { showFeedback("error", "Enter an amount in Debit (Naam) or Credit (Jama) · نام یا جمع میں رقم درج کریں۔"); return; }
+    if (!debit && !credit) { showFeedback("error", "Enter an amount in Debit or Credit · ڈیبٹ یا کریڈٹ میں رقم درج کریں۔"); return; }
     // bank-routed money must have a receipt / proof attached
     if (BANK_METHODS.includes(entryForm.method) && !entryFile) {
       showFeedback("error", `A receipt / proof is required for a ${entryForm.method} entry · اس ادائیگی کے لیے رسید لازمی ہے۔`);
@@ -144,7 +171,7 @@ export default function Parties({
         try {
           const up: any = await uploadAttachment("party_ledger_entry", created.id, entryFile, "Entry receipt");
           if (up?.duplicate && (up.duplicateOf || []).some((d: any) => d.id !== up.id)) {
-            const w = `⚠ Yehi receipt file pehle bhi lagi hai (${(up.duplicateOf || []).filter((d: any) => d.id !== up.id).map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — double slip?`;
+            const w = `⚠ This receipt file is already attached (${(up.duplicateOf || []).filter((d: any) => d.id !== up.id).map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — duplicate slip? · دہری رسید؟`;
             setDupWarn((prev) => (prev ? prev + "\n" + w : w));
             showFeedback("error", "⚠ DUPLICATE receipt file");
           }
@@ -164,7 +191,7 @@ export default function Parties({
     finally { setEntryBusy(false); }
   };
 
-  // ---- edit / delete an existing khata entry ------------------------
+  // ---- edit / delete an existing ledger entry ------------------------
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
@@ -219,11 +246,32 @@ export default function Parties({
     }
   };
 
+  // Delete the whole party — every ledger entry in it, not just one at a time.
+  const deleteParty = async () => {
+    if (!selId || !detail) return;
+    const count = detail.entries.length;
+    const warning =
+      `Delete the entire party "${detail.party.name}"? This removes all ${count} entries permanently — not just one row.\n\n` +
+      `Type DELETE to confirm.`;
+    const typed = window.prompt(warning);
+    if (typed !== "DELETE") return;
+    try {
+      const r = await enterpriseFetch(`/api/parties/${selId}`, { method: "DELETE" });
+      showFeedback("success", r.message || "Party deleted");
+      setSelId(null);
+      setDetail(null);
+      loadList();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
   const doImport = async (file: File) => {
     setImportBusy(true); setImportResult(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (importIsLender) fd.append("partyType", "lender");
       const r = await uploadFile("/api/parties/import-workbook", fd);
       setImportResult(r);
       showFeedback("success", r.message);
@@ -248,10 +296,17 @@ export default function Parties({
         {showImport && (
           <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3">
             <p className="text-[12px] text-slate-500">
-              Upload your parties khata workbook (one sheet per party, same layout as the truck khatas). The system
-              reads every sheet, builds the running naam/jama balance and flags anything to review. Re-uploading is
+              Upload your parties ledger workbook (one sheet per party, same layout as the truck ledgers). The system
+              reads every sheet, builds the running debit / credit balance and flags anything to review. Re-uploading is
               non-destructive — it updates, it never wipes.
             </p>
+            <label
+              className="flex items-center gap-2 text-[12px] font-medium text-slate-700"
+              title="For someone who loaned HFK money (deposit + our own expenses paid from it) — this flips the balance to payable instead of receivable."
+            >
+              <input type="checkbox" checked={importIsLender} onChange={(e) => setImportIsLender(e.target.checked)} />
+              Lender sheet (they loaned us money)
+            </label>
             <button onClick={() => importRef.current?.click()} disabled={importBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg px-4 py-2 flex items-center gap-2 disabled:opacity-50">
               {importBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}{importBusy ? "Importing…" : "Choose .xlsx file"}
             </button>
@@ -272,7 +327,7 @@ export default function Parties({
         )}
       </div>
 
-      {/* dues & alerts — kisko dena / kis se lena / kisko NAHI dena */}
+      {/* dues & alerts — who to pay / who to collect from / do-not-pay */}
       <DuesAlerts compact showFeedback={showFeedback} onOpenParty={(id) => { setSelId(id); setExpanded(null); }} />
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -332,7 +387,7 @@ export default function Parties({
         {/* detail */}
         <div className="md:col-span-2 border border-slate-200 rounded-xl bg-white">
           {!detail ? (
-            <div className="p-10 text-center text-sm text-slate-400 flex flex-col items-center gap-2"><Users className="w-8 h-8" /> Pick a party to open its khata</div>
+            <div className="p-10 text-center text-sm text-slate-400 flex flex-col items-center gap-2"><Users className="w-8 h-8" /> Pick a party to open its ledger</div>
           ) : (
             <div className="p-4 space-y-4">
               <div className="flex items-start justify-between">
@@ -343,10 +398,19 @@ export default function Parties({
                     {balLabel(detail.party.closingBalance)}
                   </p>
                 </div>
-                <button onClick={() => setShowLedger((s) => !s)} className="text-xs font-semibold border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
-                  {showLedger ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  {showLedger ? "Hide full ledger" : `View full ledger (${detail.totals.entries ?? detail.entries.length})`}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowLedger((s) => !s)} className="text-xs font-semibold border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+                    {showLedger ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    {showLedger ? "Hide full ledger" : `View full ledger (${detail.totals.entries ?? detail.entries.length})`}
+                  </button>
+                  <button
+                    onClick={deleteParty}
+                    title="Delete this whole party (ledger) and all its entries"
+                    className="text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50 rounded-lg px-3 py-1.5 flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete party
+                  </button>
+                </div>
               </div>
 
               {/* party master form */}
@@ -376,10 +440,10 @@ export default function Parties({
                       <select value={editParty.status || "Active"} onChange={(e) => setEditParty({ ...editParty, status: e.target.value })} className="border rounded px-2 py-1">
                         {STATUSES.map((t) => <option key={t}>{t}</option>)}
                       </select>
-                      {editParty.status === "Blocked" && <span className="text-[10px] text-red-600 mt-0.5">Do-not-pay: alerts board pe "kisko NAHI dena" mein aaye gi.</span>}
+                      {editParty.status === "Blocked" && <span className="text-[10px] text-red-600 mt-0.5">Do-not-pay: this party will appear under "Do not pay" on the alerts board. · ادائیگی نہیں کرنی: الرٹس بورڈ پر "ادائیگی نہ کریں" میں آئے گی۔</span>}
                     </label>
                     <label className="flex flex-col">
-                      <span className="text-slate-400">Opening balance (+lena / −dena)</span>
+                      <span className="text-slate-400">Opening balance (+ receivable / − payable) · ابتدائی بیلنس</span>
                       <input type="number" value={editParty.openingBalance} onChange={(e) => setEditParty({ ...editParty, openingBalance: e.target.value })} className="border rounded px-2 py-1" />
                     </label>
                     <label className="flex items-center gap-2 col-span-2 md:col-span-3 mt-1">
@@ -394,8 +458,8 @@ export default function Parties({
               )}
 
               <div className="grid grid-cols-3 gap-3">
-                <Stat label="Total naam (debit)" value={fmt(detail.totals.totalDebit)} tone="bad" />
-                <Stat label="Total jama (credit)" value={fmt(detail.totals.totalCredit)} tone="good" />
+                <Stat label="Total debit · کل نام" value={fmt(detail.totals.totalDebit)} tone="bad" />
+                <Stat label="Total credit · کل جمع" value={fmt(detail.totals.totalCredit)} tone="good" />
                 <Stat label="Balance" value={fmt(detail.party.closingBalance)} tone={detail.party.closingBalance >= 0 ? "good" : "bad"} />
               </div>
 
@@ -419,8 +483,8 @@ export default function Parties({
                     {METHODS.map((m) => <option key={m}>{m}</option>)}
                   </select>
                   <input dir="auto" placeholder="Description · تفصیل" value={entryForm.description} onChange={(e) => setEntryForm({ ...entryForm, description: e.target.value })} className="border rounded px-2 py-1 col-span-2 md:col-span-3" />
-                  <input dir="auto" placeholder="Debit / Naam (نام)" value={entryForm.debit} onChange={(e) => setEntryForm({ ...entryForm, debit: e.target.value })} className="border rounded px-2 py-1" />
-                  <input dir="auto" placeholder="Credit / Jama (جمع)" value={entryForm.credit} onChange={(e) => setEntryForm({ ...entryForm, credit: e.target.value })} className="border rounded px-2 py-1" />
+                  <input dir="auto" placeholder="Debit · نام" value={entryForm.debit} onChange={(e) => setEntryForm({ ...entryForm, debit: e.target.value })} className="border rounded px-2 py-1" />
+                  <input dir="auto" placeholder="Credit · جمع" value={entryForm.credit} onChange={(e) => setEntryForm({ ...entryForm, credit: e.target.value })} className="border rounded px-2 py-1" />
                   <div className="col-span-2 md:col-span-3 flex flex-wrap items-center gap-2 border-t border-emerald-200 pt-2">
                     <button
                       type="button"
@@ -467,21 +531,27 @@ export default function Parties({
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
-                        <th className="text-left px-2 py-1.5">Date</th>
+                        <th className="text-left px-2 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} /></th>
                         <th className="text-left px-2 py-1.5">Description</th>
-                        <th className="text-right px-2 py-1.5">Naam</th>
-                        <th className="text-right px-2 py-1.5">Jama</th>
+                        <th className="text-right px-2 py-1.5">Debit</th>
+                        <th className="text-right px-2 py-1.5">Credit</th>
                         <th className="text-right px-2 py-1.5">Balance</th>
                         <th className="px-1"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.entries.map((e) => (
+                      {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr className={`border-t border-slate-50 ${e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : (e as any).issue ? "bg-red-50" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600">{e.rawDate || "—"}</span>}</td>
                             <td className="px-2 py-1.5 max-w-[260px]">
                               <div className="truncate" dir="auto" title={e.description || ""}>{e.description || "—"}{e.refNo ? ` · ${e.refNo}` : ""}</div>
+                              {(e as any).issue && (
+                                <div className="text-[10px] text-red-700 font-semibold flex items-start gap-1 mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />
+                                  <span>{(e as any).issue}</span>
+                                </div>
+                              )}
                               {e.needsReview && (
                                 <div className="text-[10px] text-red-600 flex items-start gap-1 mt-0.5">
                                   <AlertTriangle className="w-2.5 h-2.5 mt-0.5 shrink-0" />
@@ -538,10 +608,10 @@ export default function Parties({
                                     <label className="flex flex-col text-[10px] text-slate-500 col-span-2 md:col-span-3">Description
                                       <input dir="auto" value={editForm.description} onChange={(ev) => setEditForm({ ...editForm, description: ev.target.value })} className="border rounded px-2 py-1 text-slate-800" />
                                     </label>
-                                    <label className="flex flex-col text-[10px] text-slate-500">Debit / Naam (نام)
+                                    <label className="flex flex-col text-[10px] text-slate-500">Debit · نام
                                       <input value={editForm.debit} onChange={(ev) => setEditForm({ ...editForm, debit: ev.target.value })} className="border rounded px-2 py-1 text-red-600" />
                                     </label>
-                                    <label className="flex flex-col text-[10px] text-slate-500">Credit / Jama (جمع)
+                                    <label className="flex flex-col text-[10px] text-slate-500">Credit · جمع
                                       <input value={editForm.credit} onChange={(ev) => setEditForm({ ...editForm, credit: ev.target.value })} className="border rounded px-2 py-1 text-emerald-700" />
                                     </label>
                                     <label className="flex items-center gap-1 text-[10px] text-amber-700 mt-4">
@@ -559,7 +629,7 @@ export default function Parties({
                                     </button>
                                   </div>
                                   <p className="text-[10px] text-slate-400 mt-2" dir="auto">
-                                    Changing an amount or date rebuilds every later balance in this khata automatically. · رقم یا تاریخ بدلنے پر آگے کے تمام بیلنس خود دوبارہ بن جائیں گے۔
+                                    Changing an amount or date rebuilds every later balance in this ledger automatically. · رقم یا تاریخ بدلنے پر آگے کے تمام بیلنس خود دوبارہ بن جائیں گے۔
                                   </p>
                                 </div>
                               ) : null}
@@ -610,7 +680,7 @@ export default function Parties({
               ))}
               <label className="flex flex-col"><span className="text-slate-400">Type</span><select value={newParty.type} onChange={(e) => setNewParty({ ...newParty, type: e.target.value })} className="border rounded px-2 py-1">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></label>
               <label className="flex flex-col"><span className="text-slate-400">Status</span><select value={newParty.status} onChange={(e) => setNewParty({ ...newParty, status: e.target.value })} className="border rounded px-2 py-1">{STATUSES.map((t) => <option key={t}>{t}</option>)}</select></label>
-              <label className="flex flex-col"><span className="text-slate-400">Opening balance (+lena / −dena)</span><input type="number" value={newParty.openingBalance} onChange={(e) => setNewParty({ ...newParty, openingBalance: e.target.value })} className="border rounded px-2 py-1" /></label>
+              <label className="flex flex-col"><span className="text-slate-400">Opening balance (+ receivable / − payable) · ابتدائی بیلنس</span><input type="number" value={newParty.openingBalance} onChange={(e) => setNewParty({ ...newParty, openingBalance: e.target.value })} className="border rounded px-2 py-1" /></label>
             </div>
             <div className="mt-3 flex gap-2">
               <button onClick={createParty} disabled={!newParty.name} className="bg-emerald-600 text-white rounded px-4 py-1.5 text-xs font-semibold disabled:opacity-50">Create</button>

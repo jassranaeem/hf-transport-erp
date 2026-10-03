@@ -469,8 +469,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                         <YAxis stroke="#64748b" fontSize={11} />
                         <Tooltip contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155" }} />
                         <Legend />
-                        <Bar name="Consumption (L)" dataKey="totalLitres" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Bar name="Spent (PKR)" dataKey="totalSpent" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Bar name="Consumption (L)" dataKey="totalLitres" fill="#2C5CAE" radius={[4, 4, 0, 0]} />
+                        <Bar name="Spent (PKR)" dataKey="totalSpent" fill="#9CA3AF" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

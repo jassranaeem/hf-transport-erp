@@ -133,6 +133,9 @@ router.post("/", upload.single("file"), async (req: AuthRequest, res: Response) 
         createdBy: req.user?.id,
       })
       .returning();
+    // keep the bytes in Postgres so they survive redeploys, then drop the temp disk copy
+    await db.insert(schema.attachmentBlobs).values({ attachmentId: created.id, data: fs.readFileSync(req.file.path) });
+    fs.unlink(req.file.path, () => {});
     await logAudit({
       action: "CREATE",
       tableName: "attachments",
@@ -190,13 +193,15 @@ router.get("/:id/file", async (req: AuthRequest, res: Response) => {
       .where(and(eq(schema.attachments.id, id), eq(schema.attachments.isDeleted, false)))
       .limit(1);
     if (!row) return res.status(404).json({ error: "Attachment not found" });
+    const [blob] = await db.select().from(schema.attachmentBlobs).where(eq(schema.attachmentBlobs.attachmentId, id)).limit(1);
     const abs = path.join(UPLOADS_DIR, row.diskPath);
-    if (!abs.startsWith(UPLOADS_DIR) || !fs.existsSync(abs)) {
-      return res.status(404).json({ error: "File missing on disk" });
+    if (!blob && (!abs.startsWith(UPLOADS_DIR) || !fs.existsSync(abs))) {
+      return res.status(404).json({ error: "File is missing (it was uploaded before files were stored in the database)" });
     }
     if (row.mimeType) res.type(row.mimeType);
     const disp = /^image\//.test(row.mimeType || "") || row.mimeType === "application/pdf" ? "inline" : "attachment";
     res.setHeader("Content-Disposition", `${disp}; filename="${encodeURIComponent(row.fileName)}"`);
+    if (blob) return void res.end(blob.data);
     fs.createReadStream(abs).pipe(res);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -228,6 +233,7 @@ router.delete("/:id", async (req: AuthRequest, res: Response) => {
       .update(schema.attachments)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.attachments.id, id));
+    await db.delete(schema.attachmentBlobs).where(eq(schema.attachmentBlobs.attachmentId, id));
     const abs = path.join(UPLOADS_DIR, row.diskPath);
     if (abs.startsWith(UPLOADS_DIR)) fs.unlink(abs, () => {});
     await logAudit({

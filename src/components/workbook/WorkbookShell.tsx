@@ -31,6 +31,13 @@ import TripFuelHistory from "../fleet/TripFuelHistory.tsx";
 import PartnerPnL from "../fleet/PartnerPnL.tsx";
 import PersonalExpenses from "../fleet/PersonalExpenses.tsx";
 import Zakat from "../fleet/Zakat.tsx";
+import CashBook from "../fleet/CashBook.tsx";
+import BooksCheck from "../fleet/BooksCheck.tsx";
+import Books from "../fleet/Books.tsx";
+import Banks from "../fleet/Banks.tsx";
+import Statements from "../fleet/Statements.tsx";
+import Tax from "../fleet/Tax.tsx";
+import AccountingHome from "../fleet/AccountingHome.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -38,6 +45,7 @@ import CompanyProfile from "../fleet/CompanyProfile.tsx";
 
 import SmartDispatch from "../fleet/SmartDispatch.tsx";
 import LiveTrackingMap from "../fleet/LiveTrackingMap.tsx";
+import GpsTracking from "../fleet/GpsTracking.tsx";
 import DataPortal from "../fleet/DataPortal.tsx";
 import TruckLedgers from "../fleet/TruckLedgers.tsx";
 import Parties from "../fleet/Parties.tsx";
@@ -46,7 +54,9 @@ import DuesAlerts from "../fleet/DuesAlerts.tsx";
 import ReceiptSearch from "../fleet/ReceiptSearch.tsx";
 import KhataOverview from "../fleet/KhataOverview.tsx";
 import FinanceOverview from "../fleet/FinanceOverview.tsx";
+import BillsPaymentsExpenses from "../fleet/BillsPaymentsExpenses.tsx";
 import FleetSearch from "../fleet/FleetSearch.tsx";
+import FleetDesk from "../fleet/FleetDesk.tsx";
 import FleetAssetValue from "../fleet/FleetAssetValue.tsx";
 import SystemReset from "../fleet/SystemReset.tsx";
 import FinanceDashboard from "../fleet/FinanceDashboard.tsx";
@@ -120,15 +130,18 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number } | null => {
+  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
-    if (l) return { ledgerId: l };
-    if (p) return { partyId: p };
+    const e = Number(u.get("focusEntry")) || undefined;
+    const d = u.get("focusDate");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d };
+    if (l) return { ledgerId: l, entryId: e };
+    if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number } | null>(readFocus);
+  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -166,8 +179,12 @@ export default function WorkbookShell({
     url.searchParams.set("sheet", nav.sheet);
     url.searchParams.delete("focusLedger");
     url.searchParams.delete("focusParty");
+    url.searchParams.delete("focusEntry");
+    url.searchParams.delete("focusDate");
     if (focus?.ledgerId) url.searchParams.set("focusLedger", String(focus.ledgerId));
     if (focus?.partyId) url.searchParams.set("focusParty", String(focus.partyId));
+    if (focus?.entryId) url.searchParams.set("focusEntry", String(focus.entryId));
+    if (focus?.date) url.searchParams.set("focusDate", focus.date);
     window.history.replaceState(null, "", url.toString());
   }, [nav, focus]);
 
@@ -176,7 +193,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -190,12 +207,14 @@ export default function WorkbookShell({
         return <SmartDispatch showFeedback={showFeedback} />;
       case "LiveTrackingMap":
         return <LiveTrackingMap showFeedback={showFeedback} role={role} />;
+      case "GpsTracking":
+        return <GpsTracking showFeedback={showFeedback} role={role} />;
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
       case "TruckLedgers":
-        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} />;
+        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} />;
       case "Parties":
-        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} />;
+        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} focusEntryId={focus?.entryId} />;
       case "DuesAlerts":
         return <DuesAlerts showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "ReceiptSearch":
@@ -205,6 +224,8 @@ export default function WorkbookShell({
             onOpen={(f) => (f.partyId ? go("khata", "parties", { partyId: f.partyId }) : go("khata", "truck_ledgers", { ledgerId: f.ledgerId }))}
           />
         );
+      case "FleetDesk":
+        return <FleetDesk showFeedback={showFeedback} />;
       case "FleetSearch":
         return <FleetSearch showFeedback={showFeedback} onOpenLedger={(ledgerId) => go("khata", "truck_ledgers", { ledgerId })} />;
       case "FleetAssetValue":
@@ -215,10 +236,12 @@ export default function WorkbookShell({
         return <FinanceDashboard dbUser={dbUser} showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "FinanceOverview":
         return <FinanceOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
+      case "BillsPaymentsExpenses":
+        return <BillsPaymentsExpenses showFeedback={showFeedback} />;
       case "KhataOverview":
         return <KhataOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "Partners":
-        return <Partners showFeedback={showFeedback} />;
+        return <Partners showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} />;
       case "HRMSDashboard":
         return <HRMSDashboard dbUser={dbUser} showFeedback={showFeedback} />;
       case "FuelIntelligence":
@@ -248,11 +271,25 @@ export default function WorkbookShell({
       case "TripFuelHistory":
         return <TripFuelHistory showFeedback={showFeedback} />;
       case "PartnerPnL":
-        return <PartnerPnL showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
+        return <PartnerPnL showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} focusLedgerId={focus?.ledgerId} />;
       case "PersonalExpenses":
         return <PersonalExpenses showFeedback={showFeedback} />;
       case "Zakat":
         return <Zakat showFeedback={showFeedback} />;
+      case "CashBook":
+        return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} focusDate={focus?.date} />;
+      case "Books":
+        return <Books showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "Banks":
+        return <Banks showFeedback={showFeedback} />;
+      case "Statements":
+        return <Statements showFeedback={showFeedback} />;
+      case "Tax":
+        return <Tax showFeedback={showFeedback} />;
+      case "AccountingHome":
+        return <AccountingHome showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "BooksCheck":
+        return <BooksCheck showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":
@@ -304,7 +341,7 @@ export default function WorkbookShell({
   };
 
   return (
-    <div className="h-screen w-full flex flex-col bg-[#F8FBF9] overflow-hidden print:h-auto print:overflow-visible print:block">
+    <div className="h-screen w-full flex flex-col bg-[#F7F9FC] overflow-hidden print:h-auto print:overflow-visible print:block">
       {/* top bar */}
       <header className="h-12 shrink-0 border-b border-[#E5E7EB] bg-white px-3 flex items-center gap-3 print:hidden">
         <button
@@ -335,20 +372,20 @@ export default function WorkbookShell({
           title="Alerts"
           className={`relative flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold border ${
             alertCount && alertCount.total > 0
-              ? "bg-[#DC2626] border-[#B91C1C] text-white"
+              ? "bg-[#D70006] border-[#B00005] text-white"
               : "bg-white border-[#E5E7EB] text-[#4B5563]"
           }`}
         >
           <Bell className="w-3.5 h-3.5" style={alertCount && alertCount.total > 0 ? { color: "#fff", stroke: "#fff" } : undefined} />
           {alertCount ? alertCount.total : 0}
           {alertCount && alertCount.critical > 0 && (
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#991B1B] animate-pulse" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#8C0004] animate-pulse" />
           )}
         </button>
         <button
           onClick={fetchHealth}
           className={`flex items-center gap-1.5 border rounded-full px-2.5 py-1 font-mono text-[10px] ${
-            apiHealth ? "bg-[#DCFCE7] border-[#16A34A]" : "bg-[#FEE2E2] border-[#DC2626]"
+            apiHealth ? "bg-[#E6ECF6] border-[#24539B]" : "bg-[#FFE0E0] border-[#D70006]"
           }`}
         >
           <Activity className={`w-3 h-3 ${apiHealthLoading ? "animate-spin" : ""}`} />
@@ -364,7 +401,7 @@ export default function WorkbookShell({
           </div>
           <button
             onClick={handleLogout}
-            className="p-1.5 rounded-md hover:bg-[#FEE2E2] text-[#B91C1C]"
+            className="p-1.5 rounded-md hover:bg-[#FFE0E0] text-[#B00005]"
             title="Sign out"
           >
             <LogOut className="w-4 h-4" />
@@ -398,7 +435,7 @@ export default function WorkbookShell({
         )}
 
         {/* sheet content */}
-        <main className="flex-1 min-w-0 min-h-0 bg-[#F8FBF9] overflow-hidden print:h-auto print:overflow-visible print:block">
+        <main className="flex-1 min-w-0 min-h-0 bg-[#F7F9FC] overflow-hidden print:h-auto print:overflow-visible print:block">
           {activeSheet ? (
             renderSheet(activeSheet)
           ) : (
@@ -409,7 +446,7 @@ export default function WorkbookShell({
 
       {/* bottom sheet tabs (Excel style) */}
       {activeWb && (
-        <div className="h-9 shrink-0 border-t border-[#E5E7EB] bg-[#F3F7F4] flex items-stretch overflow-x-auto scrollbar-none print:hidden">
+        <div className="h-9 shrink-0 border-t border-[#E5E7EB] bg-[#F2F5FA] flex items-stretch overflow-x-auto scrollbar-none print:hidden">
           {activeWb.sheets.map((s) => {
             const on = s.id === activeSheet?.id;
             return (
@@ -438,7 +475,7 @@ export default function WorkbookShell({
             className="w-[460px] max-w-[94vw] bg-white h-full shadow-2xl border-l border-[#E5E7EB] flex flex-col"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 h-12 border-b border-[#E5E7EB] bg-[#DC2626]">
+            <div className="flex items-center justify-between px-4 h-12 border-b border-[#E5E7EB] bg-[#D70006]">
               <span className="font-bold text-white flex items-center gap-2">
                 <Bell className="w-4 h-4" style={{ color: "#fff", stroke: "#fff" }} /> Alerts
               </span>

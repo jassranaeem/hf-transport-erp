@@ -5,13 +5,16 @@
  *   GET  /api/finance/invoices            list
  *   GET  /api/finance/invoices/aging      AR buckets
  *   POST /api/finance/invoices/:id/payments   record a payment
+ *   GET  /api/finance/invoices/:id/payments   its payments (history)
+ *   DELETE /api/finance/invoices/:id/payments/:paymentId   undo one payment
+ *   DELETE /api/finance/invoices/:id          delete (only with no payments)
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import InvoiceDocument from "./InvoiceDocument.tsx";
 import NewInvoice from "./NewInvoice.tsx";
 import {
-  FileText, Plus, Printer, RefreshCw, Loader2, Search, Wallet, ArrowLeft, CheckCircle, Pencil,
+  FileText, Plus, Printer, RefreshCw, Loader2, Search, Wallet, ArrowLeft, CheckCircle, Pencil, Trash2, History, Undo2,
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 
@@ -19,9 +22,9 @@ const PKR = (n: number) => "Rs " + Math.round(n || 0).toLocaleString("en-PK");
 const d = (s: string) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
 
 const STATUS_STYLE: Record<string, string> = {
-  Paid: "bg-[#DCFCE7] text-[#166534]",
-  "Partially Paid": "bg-[#FEF3C7] text-[#92400E]",
-  Unpaid: "bg-[#FEE2E2] text-[#991B1B]",
+  Paid: "bg-[#E6ECF6] text-[#173563]",
+  "Partially Paid": "bg-[#F3F4F6] text-[#374151]",
+  Unpaid: "bg-[#FFE0E0] text-[#8C0004]",
 };
 
 export default function InvoicesList({
@@ -40,6 +43,8 @@ export default function InvoicesList({
   const [posting, setPosting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [histFor, setHistFor] = useState<number | null>(null);
+  const [hist, setHist] = useState<any[] | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,7 +77,7 @@ export default function InvoicesList({
   }, [rows]);
 
   const recordPayment = async (id: number) => {
-    if (!Number(payForm.amount)) { showFeedback("error", "Amount daalein"); return; }
+    if (!Number(payForm.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setPosting(true);
     try {
       await enterpriseFetch(`/api/finance/invoices/${id}/payments`, {
@@ -87,6 +92,55 @@ export default function InvoicesList({
       showFeedback("error", e.message);
     } finally {
       setPosting(false);
+    }
+  };
+
+  // one click: the whole outstanding balance received (cash) — "mark as paid"
+  const markPaid = async (r: any) => {
+    if (!window.confirm(`Mark ${r.invoiceNumber} as PAID — ${PKR(r.outstandingBalance)} received? (Undo is under “Payments”.) · مکمل وصول درج کریں؟`)) return;
+    setPosting(true);
+    try {
+      await enterpriseFetch(`/api/finance/invoices/${r.id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ paymentMethod: "Cash", amount: Number(r.outstandingBalance), referenceNumber: "", notes: "Marked paid" }),
+      });
+      showFeedback("success", `${r.invoiceNumber} marked paid · وصول درج`);
+      load();
+      if (histFor === r.id) openHistory(r.id, true);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const openHistory = (id: number, keepOpen = false) => {
+    if (histFor === id && !keepOpen) { setHistFor(null); return; }
+    setHistFor(id);
+    setHist(null);
+    enterpriseFetch(`/api/finance/invoices/${id}/payments`).then(setHist).catch((e) => { showFeedback("error", e.message); setHist([]); });
+  };
+
+  const undoPayment = async (invoiceId: number, p: any) => {
+    if (!window.confirm(`Undo the payment of ${PKR(p.amount)} (${p.paymentMethod}, ${d(p.paymentDate)})? The invoice becomes unpaid by that amount again. · یہ ادائیگی واپس لیں؟`)) return;
+    try {
+      const r = await enterpriseFetch(`/api/finance/invoices/${invoiceId}/payments/${p.id}`, { method: "DELETE" });
+      showFeedback("success", `Payment undone — invoice is now ${r.status} · واپس ہو گئی`);
+      load();
+      openHistory(invoiceId, true);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
+  const deleteInvoice = async (r: any) => {
+    if (!window.confirm(`Delete invoice ${r.invoiceNumber} (${PKR(r.totalAmount)}, ${r.contractorName || ""})? · یہ انوائس حذف کریں؟`)) return;
+    try {
+      const x = await enterpriseFetch(`/api/finance/invoices/${r.id}`, { method: "DELETE" });
+      showFeedback("success", `${x.message} · حذف ہو گئی`);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
     }
   };
 
@@ -113,14 +167,14 @@ export default function InvoicesList({
           <h2 className="text-base font-bold flex items-center gap-2">
             <FileText className="w-4 h-4" /> Invoices <span className="text-[#9CA3AF] font-normal text-sm">· انوائسز</span>
           </h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">Har invoice yahan — view / print, payment record, outstanding &amp; overdue.</p>
+          <p className="text-[12px] text-[#6B7280]" dir="auto">Every invoice in one place — view / print, record payments, outstanding &amp; overdue. · ہر انوائس ایک جگہ۔</p>
         </div>
         <div className="flex-1" />
         <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="invoices" label="Invoices" onImported={load} />
-        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#16A34A] text-white text-sm font-semibold flex items-center gap-1.5">
+        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
           <Plus className="w-4 h-4" /> New Invoice · نیا انوائس
         </button>
       </div>
@@ -174,9 +228,9 @@ export default function InvoicesList({
                       <td className="px-2 py-1.5" dir="auto">{r.contractorName || "—"}</td>
                       <td className="px-2 py-1.5 text-slate-500">{r.tripNumber || "—"}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{PKR(r.totalAmount)}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B91C1C]" : "text-[#15803D]"}`}>{PKR(r.outstandingBalance)}</td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>{PKR(r.outstandingBalance)}</td>
                       <td className="px-2 py-1.5">
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOverdue ? "bg-[#FEE2E2] text-[#991B1B]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOverdue ? "bg-[#FFE0E0] text-[#8C0004]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
                           {isOverdue ? "OVERDUE" : (r.status || "").toUpperCase()}
                         </span>
                       </td>
@@ -188,14 +242,58 @@ export default function InvoicesList({
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </button>
                         {r.outstandingBalance > 0 && (
-                          <button onClick={() => { setPayFor(payFor === r.id ? null : r.id); setPayForm((f: any) => ({ ...f, amount: String(r.outstandingBalance) })); }} className="text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1" title="Record payment">
+                          <button onClick={() => markPaid(r)} disabled={posting} className="text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 mr-2" title="The whole balance received — mark as paid">
+                            <CheckCircle className="w-3.5 h-3.5" /> Mark paid
+                          </button>
+                        )}
+                        {r.outstandingBalance > 0 && (
+                          <button onClick={() => { setPayFor(payFor === r.id ? null : r.id); setPayForm((f: any) => ({ ...f, amount: String(r.outstandingBalance) })); }} className="text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 mr-2" title="Record a (part) payment">
                             <Wallet className="w-3.5 h-3.5" /> Payment
                           </button>
                         )}
+                        <button onClick={() => openHistory(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="Payments received — undo a wrong one">
+                          <History className="w-3.5 h-3.5" /> Payments
+                        </button>
+                        <button
+                          onClick={() => deleteInvoice(r)}
+                          className="text-slate-400 hover:text-red-700 inline-flex items-center"
+                          title={(r.paidAmount || 0) > 0 ? "Undo its payments first, then delete" : "Delete this invoice"}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
+                    {histFor === r.id && (
+                      <tr className="bg-[#F9FAFB]">
+                        <td colSpan={8} className="px-3 py-2">
+                          {!hist ? (
+                            <span className="text-slate-500 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading payments…</span>
+                          ) : hist.length === 0 ? (
+                            <span className="text-slate-500">No payments on this invoice yet · ابھی کوئی ادائیگی نہیں</span>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <tbody>
+                                {hist.map((p: any) => (
+                                  <tr key={p.id} className="border-t border-[#EEF0F3]">
+                                    <td className="px-2 py-1 whitespace-nowrap">{d(p.paymentDate)}</td>
+                                    <td className="px-2 py-1">{p.paymentMethod}</td>
+                                    <td className="px-2 py-1 text-right tabular-nums font-semibold">{PKR(p.amount)}</td>
+                                    <td className="px-2 py-1 text-slate-500" dir="auto">{[p.referenceNumber, p.notes].filter(Boolean).join(" · ")}</td>
+                                    <td className="px-2 py-1 text-right">
+                                      <button onClick={() => undoPayment(r.id, p)} className="inline-flex items-center gap-1 text-slate-500 hover:text-red-700" title="Undo this payment">
+                                        <Undo2 className="w-3.5 h-3.5" /> Undo · واپس
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
                     {payFor === r.id && (
-                      <tr className="bg-[#F0FDF4]">
+                      <tr className="bg-[#F2F5FA]">
                         <td colSpan={8} className="px-3 py-3">
                           <div className="flex flex-wrap items-end gap-2 text-xs">
                             <label className="flex flex-col text-[10px] text-slate-500">Method
@@ -239,8 +337,8 @@ export default function InvoicesList({
 }
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "bad" }) {
-  const c = tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]"
-    : tone === "warn" ? "border-[#FDE68A] bg-[#FFFBEB] text-[#B45309]"
+  const c = tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
+    : tone === "warn" ? "border-[#E5E7EB] bg-[#F9FAFB] text-[#4B5563]"
     : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>

@@ -19,6 +19,7 @@ import {
   Globe,
   BarChart3,
   ShieldCheck,
+  Calculator,
 } from "lucide-react";
 
 export type SheetKind = "entity" | "component" | "embed";
@@ -74,25 +75,19 @@ export const WORKBOOKS: WorkbookDef[] = [
     id: "fleet",
     label: "Fleet",
     icon: Truck,
-    // Setup first (import or add master data), then day-to-day operations
-    // (dispatch a trip, track it live), then advanced/lookup tools last.
+    // Fleet Desk first: trips, trucks, drivers, routes and customers all in
+    // one place (add / edit / delete). Then lookup, asset value, GPS, dispatch.
     sheets: [
-      c("setup_import", "Setup Import (Excel)", "FleetSetupImport", "vehicles"),
-      e("vehicles", "Vehicles", "vehicles", "vehicles"),
-      c("asset_value", "Fleet Asset Value", "FleetAssetValue", "vehicles"),
-      e("drivers", "Drivers", "drivers", "drivers"),
-      e("routes", "Routes", "routes", "routes"),
-      e("contractors", "Carriers / Customers", "contractors", "contractors"),
-      e("trackers", "GPS Trackers", "tracker_devices", "vehicles"),
-      c("gps", "GPS Map", "LiveTrackingMap", "dispatch"),
-      c("dispatch", "Dispatch Board", "SmartDispatch", "dispatch"),
-      e("trips", "Trips", "trips", "dispatch"),
+      c("fleet_desk", "Fleet Desk (Trips · Trucks · Drivers)", "FleetDesk", "vehicles"),
       c("compliance", "Truck Search (Full Profile)", "FleetSearch", "vehicles"),
+      c("asset_value", "Fleet Asset Value", "FleetAssetValue", "vehicles"),
+      c("gps", "GPS Tracking", "GpsTracking", "dispatch"),
+      c("dispatch", "Dispatch Board", "SmartDispatch", "dispatch"),
     ],
   },
   {
     id: "khata",
-    label: "Khata",
+    label: "Ledgers",
     icon: BookOpen,
     // Overview first (the whole khata at a glance), then the natural
     // reading order: which trucks, which parties, each one's ledger, who's
@@ -111,29 +106,44 @@ export const WORKBOOKS: WorkbookDef[] = [
     id: "finance",
     label: "Finance",
     icon: Briefcase,
-    // Overview + company setup first, then sales docs (invoice/quotation),
-    // then purchases/cash, then accounting internals (GL), then the partner
-    // module, then reports last.
+    // Order requested directly by the client: overview/setup, daily cash,
+    // partners, personal, zakat, reports, then the sales docs (invoice/
+    // quotation) and purchases, GL internals last. Invoices and Quotations
+    // already build "new" + line-item detail inline (no separate tabs
+    // needed); Bills/Payments/Expenses share one sheet; Cash Closings folds
+    // into Daily Cash Book.
     sheets: [
       c("overview", "Overview", "FinanceOverview", "finance"),
       c("company_profile", "Company Profile (Letterhead)", "CompanyProfile", "settings"),
-      c("invoices", "Invoices", "InvoicesList", "finance"),
-      c("new_invoice", "New Invoice", "NewInvoice", "finance"),
-      e("invoice_lines", "Invoice Lines (raw)", "invoice_lines", "finance"),
-      c("quotations", "Quotations", "QuotationsList", "finance"),
-      e("bills", "Bills", "bills", "finance"),
-      e("payments", "Payments", "payments", "finance"),
-      e("expenses", "Expenses", "expenses", "finance"),
-      e("cash_closings", "Cash Closings", "cash_closings", "finance"),
-      e("bank_accounts", "Bank Accounts (Accounting)", "bank_accounts", "finance"),
-      e("accounts", "Chart of Accounts", "accounts", "finance"),
-      e("journal_entries", "Journal Entries", "journal_entries", "finance"),
-      e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
+      c("cash_book", "Daily Cash Book", "CashBook", "finance"),
       c("partners", "Partners", "Partners", "finance"),
-      c("partner_pnl", "Partner P&L", "PartnerPnL", "finance"),
+      c("partner_pnl", "Partner P&L · Partnership", "PartnerPnL", "finance"),
       c("personal", "Personal & Household", "PersonalExpenses", "finance"),
       c("zakat", "Zakat", "Zakat", "finance"),
       c("monthly", "Monthly Report", "MonthlyReport", "finance"),
+      c("invoices", "Invoices", "InvoicesList", "finance"),
+      c("quotations", "Quotations", "QuotationsList", "finance"),
+      c("bills_payments_expenses", "Bills / Payments / Expenses", "BillsPaymentsExpenses", "finance"),
+    ],
+  },
+  {
+    id: "accounting",
+    label: "Accounting",
+    icon: Calculator,
+    // the company's accounts, kept by the system: home (what each tab is, in English and Urdu,
+    // with live figures), then the order of the work — find mistakes, the book, banks, the year's
+    // statements, tax — and the accounting internals last
+    sheets: [
+      c("home", "Accounting Home · اکاؤنٹنگ", "AccountingHome", "finance"),
+      c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
+      c("books", "Books · کتاب", "Books", "finance"),
+      c("banks", "Banks · بینک", "Banks", "finance"),
+      c("statements", "Statements · حسابات", "Statements", "finance"),
+      c("tax", "Tax · ٹیکس", "Tax", "finance"),
+      e("accounts", "Chart of Accounts · کھاتوں کی فہرست", "accounts", "finance"),
+      e("journal_entries", "Journal Entries · جرنل", "journal_entries", "finance"),
+      e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
+      e("bank_accounts", "Bank Accounts (setup)", "bank_accounts", "finance"),
     ],
   },
   {

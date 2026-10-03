@@ -597,7 +597,7 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                 <path
                   d="M 120,280 Q 220,200 280,150 T 340,60"
                   fill="none"
-                  stroke={mapStyle === "satellite" ? "#22c55e" : "#16a34a"}
+                  stroke={mapStyle === "satellite" ? "#2C5CAE" : "#24539B"}
                   strokeWidth="1.5"
                   opacity="0.3"
                   strokeDasharray="4,4"
@@ -609,7 +609,7 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                     <path
                       d="M 120,280 Q 220,200 280,150 T 340,60"
                       fill="none"
-                      stroke="#ea580c"
+                      stroke="#6B7280"
                       strokeWidth="2.5"
                       strokeDasharray="10, 20"
                       opacity="0.5"
@@ -619,7 +619,7 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                     <path
                       d="M 260,165 L 280,150"
                       fill="none"
-                      stroke="#ef4444"
+                      stroke="#E01A1F"
                       strokeWidth="4"
                       opacity="0.7"
                     />
@@ -627,7 +627,7 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                     <path
                       d="M 130,270 L 155,255"
                       fill="none"
-                      stroke="#ef4444"
+                      stroke="#E01A1F"
                       strokeWidth="4"
                       opacity="0.7"
                     />
@@ -638,27 +638,27 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                 {showGeofences && (
                   <>
                     {/* Karachi Geofence */}
-                    <circle cx="120" cy="280" r="30" fill="none" stroke="#f43f5e" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
-                    <circle cx="120" cy="280" r="15" fill="none" stroke="#f43f5e" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.2" />
+                    <circle cx="120" cy="280" r="30" fill="none" stroke="#E01A1F" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
+                    <circle cx="120" cy="280" r="15" fill="none" stroke="#E01A1F" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.2" />
                     {/* Lahore Geofence */}
-                    <circle cx="280" cy="150" r="35" fill="none" stroke="#16a34a" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
-                    <circle cx="280" cy="150" r="18" fill="none" stroke="#16a34a" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.2" />
+                    <circle cx="280" cy="150" r="35" fill="none" stroke="#24539B" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
+                    <circle cx="280" cy="150" r="18" fill="none" stroke="#24539B" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.2" />
                     {/* Peshawar Geofence */}
-                    <circle cx="340" cy="60" r="25" fill="none" stroke="#2563eb" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
+                    <circle cx="340" cy="60" r="25" fill="none" stroke="#24539B" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
                   </>
                 )}
 
                 {/* Hub anchors */}
                 <g transform="translate(120, 280)">
-                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#2563eb" strokeWidth="3" />
+                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#24539B" strokeWidth="3" />
                   <text x="14" y="3" fill={mapStyle === "satellite" ? "#ffffff" : "#1e293b"} fontSize="10" fontWeight="bold" className="pointer-events-none select-none">Karachi Port Hub</text>
                 </g>
                 <g transform="translate(280, 150)">
-                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#16a34a" strokeWidth="3" />
+                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#24539B" strokeWidth="3" />
                   <text x="14" y="3" fill={mapStyle === "satellite" ? "#ffffff" : "#1e293b"} fontSize="10" fontWeight="bold" className="pointer-events-none select-none">Lahore Logistics HQ</text>
                 </g>
                 <g transform="translate(340, 60)">
-                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#7c3aed" strokeWidth="3" />
+                  <circle r="7" fill={mapStyle === "satellite" ? "#020617" : "#ffffff"} stroke="#24539B" strokeWidth="3" />
                   <text x="14" y="3" fill={mapStyle === "satellite" ? "#ffffff" : "#1e293b"} fontSize="10" fontWeight="bold" className="pointer-events-none select-none">Peshawar North Corridor</text>
                 </g>
 
@@ -692,16 +692,16 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
                         {/* Interactive glow effect */}
                         <circle
                           r={isMoving ? "14" : "10"}
-                          fill={isMoving ? "#16a34a" : "#2563eb"}
+                          fill={isMoving ? "#24539B" : "#24539B"}
                           opacity="0.25"
                           className={isMoving ? "animate-ping" : "group-hover:scale-125 duration-200 transition-transform"}
                         />
                         <circle
                           r="6.5"
                           fill={
-                            t.status === "In Transit" ? "#16a34a" :
-                            t.status === "Scheduled" ? "#2563eb" :
-                            t.status === "Arrived" ? "#f59e0b" : "#64748b"
+                            t.status === "In Transit" ? "#24539B" :
+                            t.status === "Scheduled" ? "#24539B" :
+                            t.status === "Arrived" ? "#9CA3AF" : "#64748b"
                           }
                           stroke="#ffffff"
                           strokeWidth="2"
@@ -1187,7 +1187,7 @@ export default function SmartDispatch({ showFeedback }: SmartDispatchProps) {
               className="relative w-full max-w-2xl bg-white border border-slate-100 rounded-2xl p-6 shadow-2xl space-y-4 overflow-hidden max-h-[90vh] overflow-y-auto"
             >
               {/* Top ambient green brand accent line */}
-              <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#16A34A]" />
+              <div className="absolute top-0 left-0 right-0 h-[4px] bg-[#24539B]" />
 
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-3">

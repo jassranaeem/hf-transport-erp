@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Calendar, ShieldAlert, FileText, CheckCircle, AlertTriangle, UserCheck, Truck,
   ChevronDown, ChevronRight, Wallet, Fuel, Wrench, Route, Phone, ExternalLink, Loader2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
+import FleetSetupImport from "./FleetSetupImport.tsx";
 
 interface ExpiryAlert {
   entityType: "Vehicle" | "Driver";
@@ -54,6 +56,12 @@ function TruckProfile({
   const [loading, setLoading] = useState(true);
   const [openLedger, setOpenLedger] = useState<number | null>(null);
   const [section, setSection] = useState<"khata" | "trips" | "expenses" | "maintenance" | "fuel">("khata");
+  // profile.khata only ships the latest 15 entries per ledger (keeps the
+  // initial page load light) — full history for whichever ledger is expanded
+  // is fetched on demand and cached here, so "click to open" really does mean
+  // the complete list, not a truncated preview.
+  const [fullEntries, setFullEntries] = useState<Record<number, any[]>>({});
+  const [loadingFull, setLoadingFull] = useState<number | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -75,6 +83,21 @@ function TruckProfile({
 
   const v = profile.vehicle;
   const netKhata = profile.khata.netBalance;
+
+  const toggleLedger = (l: any) => {
+    if (openLedger === l.id) {
+      setOpenLedger(null);
+      return;
+    }
+    setOpenLedger(l.id);
+    if (!fullEntries[l.id] && l.entryCount > l.recentEntries.length) {
+      setLoadingFull(l.id);
+      enterpriseFetch(`/api/ledgers/${l.id}?limit=5000`)
+        .then((r) => setFullEntries((prev) => ({ ...prev, [l.id]: r.entries || [] })))
+        .catch((e) => showFeedback("error", e.message))
+        .finally(() => setLoadingFull(null));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -148,7 +171,7 @@ function TruckProfile({
           {profile.khata.ledgers.length === 0 && <div className="p-4 text-sm text-slate-400">No khata entries found for this truck.</div>}
           {profile.khata.ledgers.map((l: any) => (
             <div key={l.id}>
-              <button onClick={() => setOpenLedger(openLedger === l.id ? null : l.id)} className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50">
+              <button onClick={() => toggleLedger(l)} className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-slate-800 truncate">{l.sourceSheet || l.title}</div>
                   <div className="text-[11px] text-slate-400">{l.entryCount} entries{l.ownerName ? ` · ${l.ownerName}` : ""}</div>
@@ -160,36 +183,44 @@ function TruckProfile({
               </button>
               {openLedger === l.id && (
                 <div className="px-4 pb-3">
-                  <div className="overflow-x-auto rounded-lg border border-slate-100">
-                    <table className="w-full text-[12px]">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <th className="text-left px-2 py-1.5">Date</th>
-                          <th className="text-left px-2 py-1.5">Description</th>
-                          <th className="text-right px-2 py-1.5">Received</th>
-                          <th className="text-right px-2 py-1.5">Paid</th>
-                          <th className="text-right px-2 py-1.5">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {l.recentEntries.map((e: any) => (
-                          <tr key={e.id} className="border-t border-slate-50">
-                            <td className="px-2 py-1.5 text-slate-500">{e.rawDate || dt(e.entryDate)}</td>
-                            <td className="px-2 py-1.5 text-slate-700">{e.description || "—"}</td>
-                            <td className="px-2 py-1.5 text-right text-emerald-700">{e.received ? fmt(e.received) : ""}</td>
-                            <td className="px-2 py-1.5 text-right text-red-600">{e.paid ? fmt(e.paid) : ""}</td>
-                            <td className="px-2 py-1.5 text-right font-semibold">{fmt(e.runningBalance)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {l.entryCount > l.recentEntries.length && (
-                    <p className="text-[11px] text-slate-400 mt-1.5">Showing latest {l.recentEntries.length} of {l.entryCount} entries.</p>
+                  {loadingFull === l.id ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400 py-6 justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading complete history ({l.entryCount} entries)…
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto rounded-lg border border-slate-100 max-h-[480px] overflow-y-auto">
+                        <table className="w-full text-[12px]">
+                          <thead className="bg-slate-50 text-slate-500 sticky top-0">
+                            <tr>
+                              <th className="text-left px-2 py-1.5">Date</th>
+                              <th className="text-left px-2 py-1.5">Description</th>
+                              <th className="text-right px-2 py-1.5">Received</th>
+                              <th className="text-right px-2 py-1.5">Paid</th>
+                              <th className="text-right px-2 py-1.5">Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(fullEntries[l.id] || l.recentEntries).map((e: any) => (
+                              <tr key={e.id} className="border-t border-slate-50">
+                                <td className="px-2 py-1.5 text-slate-500">{e.rawDate || dt(e.entryDate)}</td>
+                                <td className="px-2 py-1.5 text-slate-700">{e.description || "—"}</td>
+                                <td className="px-2 py-1.5 text-right text-emerald-700">{e.received ? fmt(e.received) : ""}</td>
+                                <td className="px-2 py-1.5 text-right text-red-600">{e.paid ? fmt(e.paid) : ""}</td>
+                                <td className="px-2 py-1.5 text-right font-semibold">{fmt(e.runningBalance)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5">
+                        {fullEntries[l.id] ? `Showing all ${fullEntries[l.id].length} entries.` : `Showing latest ${l.recentEntries.length} of ${l.entryCount} entries.`}
+                      </p>
+                    </>
                   )}
                   {onOpenLedger && (
                     <button onClick={() => onOpenLedger(l.id)} className="mt-2 text-[12px] font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
-                      Open full ledger <ExternalLink className="w-3 h-3" />
+                      Open full ledger (edit here) <ExternalLink className="w-3 h-3" />
                     </button>
                   )}
                 </div>
@@ -305,6 +336,7 @@ export default function FleetSearch({
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showImport, setShowImport] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Document Expiries (fleet-wide board — kept, separate from the per-truck profile above)
@@ -340,20 +372,38 @@ export default function FleetSearch({
 
   return (
     <div className="space-y-6">
+      {/* Setup Import (Excel) — collapsible, lives inside Truck Search now */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowImport((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+        >
+          <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Setup Import (Excel)
+          </span>
+          {showImport ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+        </button>
+        {showImport && (
+          <div className="border-t border-slate-100 p-4">
+            <FleetSetupImport showFeedback={showFeedback} />
+          </div>
+        )}
+      </div>
+
       {/* Search Bar Input */}
       <div className="bg-white p-4 border border-slate-200 rounded-xl space-y-3">
         <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
           <Search className="w-4 h-4 text-emerald-600" /> Truck Search — full profile in one place
         </h2>
         <p className="text-[12px] text-slate-500">
-          Koi bhi truck number type karein — khata, trips, expenses, maintenance, fuel, aur compliance sab ek hi jagah dikhega.
+          Type any truck number — ledger, trips, expenses, maintenance, fuel and compliance all appear in one place. · کوئی بھی ٹرک نمبر لکھیں — کھاتہ، ٹرپس، اخراجات، مینٹیننس، ایندھن اور کمپلائنس سب ایک جگہ نظر آئیں گے۔
         </p>
         <div className="relative">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
           <input
             type="text"
             autoFocus
-            placeholder="Truck number type karein (e.g. TLB 100)…"
+            placeholder="Type a truck number (e.g. TLB 100)…"
             value={q}
             onChange={(e) => { setQ(e.target.value); setSelectedId(null); }}
             className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none"

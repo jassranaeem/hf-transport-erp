@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision, bigint } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -511,10 +511,10 @@ export const drivers = pgTable("drivers", {
 export const contractors = pgTable("contractors", {
   id: serial("id").primaryKey(),
   company: text("company").notNull().unique(),
-  contactPerson: text("contact_person").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email").notNull().unique(),
-  ntn: text("ntn").notNull().unique(), // National Tax Number
+  contactPerson: text("contact_person"),
+  phone: text("phone"),
+  email: text("email").unique(),
+  ntn: text("ntn").unique(), // National Tax Number
   strn: text("strn").unique(), // Sales Tax Registration Number
   address: text("address"),
   creditLimit: integer("credit_limit").notNull().default(0),
@@ -564,6 +564,17 @@ export const trips = pgTable("trips", {
   expectedProfit: integer("expected_profit").notNull(),
   expectedArrival: timestamp("expected_arrival").notNull(),
   expectedFuel: integer("expected_fuel").notNull(),
+  // one journey can have several legs (empty run out, loaded run back): legs point at the first leg
+  parentTripId: integer("parent_trip_id"),
+  legNo: integer("leg_no").default(1).notNull(),
+  cargo: text("cargo"), // blank = empty run
+  // closing a trip ("Close trip"): freight a customer will never pay (written off, per stop), when
+  // the journey was closed, and — for a partnership truck — when its result was split 50/50
+  freightWrittenOff: integer("freight_written_off").default(0).notNull(),
+  closedAt: timestamp("closed_at"),
+  splitAt: timestamp("split_at"),
+  splitAmount: integer("split_amount"), // the cycle result that was split
+  splitAccountId: integer("split_account_id"), // partnership_accounts.id
   
   // Real-time tracking / state fields
   status: text("status").notNull().default("Scheduled"), // Scheduled -> Started -> In Transit -> Arrived -> Completed
@@ -662,6 +673,10 @@ export const journalEntries = pgTable("journal_entries", {
   description: text("description").notNull(),
   sourceType: text("source_type").notNull(), // Invoice, Payment, Bill, Expense, Manual, Closing
   sourceId: integer("source_id"), // Generic reference ID
+  // books engine (server/books.ts): the row this entry was posted from, e.g. "tle:123", "ct:9",
+  // "opening:2025-07-01" — and whether the engine owns it (rebuilt from the source every time)
+  sourceKey: text("source_key"),
+  isAuto: boolean("is_auto").default(false).notNull(),
   fiscalYearId: integer("fiscal_year_id").references(() => fiscalYears.id),
   accountingPeriodId: integer("accounting_period_id").references(() => accountingPeriods.id),
 
@@ -683,6 +698,11 @@ export const journalLines = pgTable("journal_lines", {
   journalEntryId: integer("journal_entry_id").references(() => journalEntries.id).notNull(),
   accountId: integer("account_id").references(() => accounts.id).notNull(),
   description: text("description"),
+  // which truck / party / customer the line is about (per-truck P&L, party balances)
+  vehicleId: integer("vehicle_id"),
+  truckLedgerId: integer("truck_ledger_id"),
+  partyId: integer("party_id"),
+  contractorId: integer("contractor_id"),
   debit: integer("debit").default(0).notNull(), // In PKR (or cents/paisa, let's keep as standard integers, representing PKR)
   credit: integer("credit").default(0).notNull(),
 
@@ -726,6 +746,8 @@ export const bankAccounts = pgTable("bank_accounts", {
 export const cashClosings = pgTable("cash_closings", {
   id: serial("id").primaryKey(),
   closingDate: timestamp("closing_date").defaultNow().notNull(),
+  day: text("day"), // YYYY-MM-DD — the Daily Cash Book day this count is for (one count per day)
+  denominations: jsonb("denominations"), // { "5000": 3, "1000": 12, … , "coins": 140 }
   openingBalance: integer("opening_balance").default(0).notNull(),
   cashIn: integer("cash_in").default(0).notNull(),
   cashOut: integer("cash_out").default(0).notNull(),
@@ -1993,6 +2015,36 @@ export const partnerSettlements = pgTable("partner_settlements", {
 });
 
 // ---------------------------------------------------------
+// PARTNERSHIP ACCOUNTS  (شراکت کا حساب) — a truck co-owned with a partner
+// (e.g. TLE 730: HFK 50% / Qudrat Ullah 50%), run exactly like the paper book:
+//  - the truck's khata is read in the order rows were written; everything after
+//    the last closed cycle is the open cycle (lastEntryId is that watermark)
+//  - closing a cycle with money left = صافی بچت: split by % and credited to the
+//    partner's party ledger and HFK's party ledger (together = مشترکہ جمع)
+//  - شخصی برداشت (money taken for home), old قرضہ, repayments and payouts are
+//    posted to the same two party ledgers, tagged refNo = "PSHIP-<id>"
+// The accounts themselves hold no money — every rupee lives in a party ledger.
+// ---------------------------------------------------------
+export const partnershipAccounts = pgTable("partnership_accounts", {
+  id: serial("id").primaryKey(),
+  truckLedgerId: integer("truck_ledger_id").references(() => truckLedgers.id).notNull(),
+  partnerPartyId: integer("partner_party_id").references(() => parties.id).notNull(),
+  hfkPartyId: integer("hfk_party_id").references(() => parties.id).notNull(),
+  partnerPercent: integer("partner_percent").notNull().default(50),
+  lastEntryId: integer("last_entry_id").notNull().default(0), // truck khata rows with id > this = the open cycle
+  cycleNo: integer("cycle_no").notNull().default(0), // cycles closed through this screen
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  deletedBy: integer("deleted_by"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+});
+
+// ---------------------------------------------------------
 // COMPANY PROFILE  (single row, id = 1) — letterhead / tax / bank details
 // used on invoices and other printed documents
 // ---------------------------------------------------------
@@ -2089,6 +2141,13 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
   needsReview: boolean("needs_review").default(false).notNull(),
   reviewReason: text("review_reason"),
   derivedTripId: integer("derived_trip_id").references(() => trips.id),
+  // Where the row sits on the paper, when that isn't its id order: a sheet imported INTO a
+  // khata that already had rows (its older pages go before them, rows written under an
+  // existing row go right after it). Rows are ordered by coalesce(sort_key, id).
+  sortKey: doublePrecision("sort_key"),
+  // the sheet a row came from when it was imported into a khata that isn't that sheet's own
+  // — so a re-import of the khata's own sheet never matches (or removes) it
+  mergedFrom: text("merged_from"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -2107,6 +2166,16 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
 // ---------------------------------------------------------
 // ATTACHMENTS  (real file uploads linked to any record in any module)
 // ---------------------------------------------------------
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+// File bytes live in Postgres (not on the web server disk, which is wiped on every
+// redeploy / spin-down on the free host). Kept in their own table so listing
+// attachments never drags the bytes along.
+export const attachmentBlobs = pgTable("attachment_blobs", {
+  attachmentId: integer("attachment_id").primaryKey(),
+  data: bytea("data").notNull(),
+});
+
 export const attachments = pgTable("attachments", {
   id: serial("id").primaryKey(),
   entityType: text("entity_type").notNull(), // trip, invoice, expense, fuel_transaction, vehicle_maintenance, vehicle, driver, contractor, partner_settlement, truck_ledger_entry, company_profile, document
@@ -2358,6 +2427,46 @@ export const personalExpenses = pgTable("personal_expenses", {
   };
 });
 
+// Daily cash-in-hand log — itemized in/out transactions (who, how much),
+// grouped into calendar days (midnight to midnight). A day's opening balance
+// is just the running total of every transaction before that day started, so
+// nothing needs to be manually carried forward each morning.
+export const cashTransactions = pgTable("cash_transactions", {
+  id: serial("id").primaryKey(),
+  entryDate: timestamp("entry_date").defaultNow().notNull(),
+  direction: text("direction").notNull(), // In | Out
+  amount: integer("amount").notNull().default(0), // PKR, always positive
+  person: text("person"), // who it came from / went to
+  description: text("description"),
+  notes: text("notes"),
+  sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
+  sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
+  // the side (In / Out) the row was imported on. It never changes, so the user can switch an
+  // imported entry between In and Out without colliding with the other side of the same row
+  sourceSide: text("source_side"),
+  linkType: text("link_type"), // "truck" | "party" | null - which ledger this entry also posts to
+  linkTargetId: integer("link_target_id"), // truck_ledgers.id or parties.id, depending on linkType
+  derivedEntryId: integer("derived_entry_id"), // the truck_ledger_entries/party_ledger_entries row this created
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  deletedBy: integer("deleted_by"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+}, (table) => {
+  return {
+    ctDateIdx: index("ct_date_idx").on(table.entryDate),
+    // unique (not just indexed) so a bulk import can upsert in one statement
+    // instead of one row at a time - NULLs (hand-entered rows) never conflict
+    // with each other in Postgres, only two imported rows from the exact same
+    // sheet+row+side would. Keyed on the side the row was IMPORTED on (not today's direction):
+    // switching an imported entry from In to Out used to collide with that row's other entry.
+    ctSourceIdx: uniqueIndex("ct_source_idx").on(table.sourceSheet, table.sourceRow, table.sourceSide),
+  };
+});
+
 // A dedicated, self-standing Zakat register — separate from Personal &
 // Household Expenses on purpose. You enter what you actually paid, when, and
 // to whom; the Yearly Report's 2.5%-of-wealth figure is only an estimate to
@@ -2387,4 +2496,138 @@ export const zakatPayments = pgTable("zakat_payments", {
   };
 });
 
+// ---------------------------------------------------------
+// BOOKS CHECK — a flagged item the user looked at and marked "this is correct"
+// (code = which check, item_key = which row, e.g. "tle:123")
+// ---------------------------------------------------------
+export const checkDismissals = pgTable(
+  "check_dismissals",
+  {
+    id: serial("id").primaryKey(),
+    code: text("code").notNull(),
+    itemKey: text("item_key").notNull(),
+    note: text("note"),
+    createdBy: integer("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    codeKeyIdx: uniqueIndex("check_dismissals_code_key_idx").on(table.code, table.itemKey),
+  }),
+);
 
+// ---------------------------------------------------------
+// BOOKS ENGINE — which account each kind of ledger row posts to (editable), and the
+// engine's own settings (books start date, last rebuild)
+// ---------------------------------------------------------
+export const postingRules = pgTable(
+  "posting_rules",
+  {
+    id: serial("id").primaryKey(),
+    source: text("source").notNull(), // truck | party | cash | personal | zakat
+    category: text("category").notNull(), // the row's category (truck khata) or "*"
+    side: text("side").notNull().default("any"), // in | out | any
+    accountCode: text("account_code").notNull(),
+    note: text("note"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: integer("updated_by"),
+  },
+  (table) => ({
+    keyIdx: uniqueIndex("posting_rules_key_idx").on(table.source, table.category, table.side),
+  }),
+);
+
+export const booksSettings = pgTable("books_settings", {
+  id: integer("id").primaryKey(),
+  booksStart: timestamp("books_start").notNull(),
+  lastRebuildAt: timestamp("last_rebuild_at"),
+  lockedThrough: timestamp("locked_through"), // books closed through this day: those entries no longer change
+  lastRebuild: jsonb("last_rebuild"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ---------------------------------------------------------
+// BANK STATEMENTS — lines imported from each bank's statement (Excel / CSV), matched to the
+// ledger entry they are (matched_key = a books source key, e.g. "ple:12", "tle:9", "pay:3"),
+// or explained (kind: charges | transfer | profit | tax | cash)
+// ---------------------------------------------------------
+export const bankStatementLines = pgTable(
+  "bank_statement_lines",
+  {
+    id: serial("id").primaryKey(),
+    bankAccountId: integer("bank_account_id").notNull(),
+    txnDate: timestamp("txn_date").notNull(),
+    description: text("description"),
+    ref: text("ref"),
+    withdrawal: bigint("withdrawal", { mode: "number" }).default(0).notNull(),
+    deposit: bigint("deposit", { mode: "number" }).default(0).notNull(),
+    balance: bigint("balance", { mode: "number" }),
+    rowHash: text("row_hash").notNull(),
+    sourceFile: text("source_file"),
+    batch: text("batch"),
+    matchedKey: text("matched_key"),
+    matchKind: text("match_kind"), // auto | manual
+    kind: text("kind"),
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdBy: integer("created_by"),
+    updatedBy: integer("updated_by"),
+    deletedAt: timestamp("deleted_at"),
+    isDeleted: boolean("is_deleted").default(false).notNull(),
+  },
+  (table) => ({
+    bankDateIdx: index("bsl_bank_date_idx").on(table.bankAccountId, table.txnDate),
+    matchedIdx: index("bsl_matched_idx").on(table.matchedKey),
+  }),
+);
+
+// ---------------------------------------------------------
+// TAX — rates are entered by the company's tax consultant (never assumed by the system);
+// tax_entries is the register of withholding tax: deducted_from_us (by customers — our advance
+// tax, with certificate), we_deducted (from payments we made — owed to FBR) and deposited (paid
+// to FBR, with CPR / challan)
+// ---------------------------------------------------------
+export const taxRates = pgTable(
+  "tax_rates",
+  {
+    id: serial("id").primaryKey(),
+    code: text("code").notNull(),
+    label: text("label").notNull(),
+    section: text("section"),
+    rate: numeric("rate", { precision: 7, scale: 3 }),
+    notes: text("notes"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: integer("updated_by"),
+  },
+  (table) => ({ codeIdx: uniqueIndex("tax_rates_code_idx").on(table.code) }),
+);
+
+export const taxEntries = pgTable(
+  "tax_entries",
+  {
+    id: serial("id").primaryKey(),
+    kind: text("kind").notNull(), // deducted_from_us | we_deducted | deposited
+    entryDate: timestamp("entry_date").notNull(),
+    forMonth: text("for_month"), // YYYY-MM — which month's deductions a deposit is for
+    rateCode: text("rate_code"),
+    partyName: text("party_name"),
+    partyId: integer("party_id"),
+    contractorId: integer("contractor_id"),
+    invoiceId: integer("invoice_id"),
+    ntnCnic: text("ntn_cnic"),
+    grossAmount: bigint("gross_amount", { mode: "number" }).default(0).notNull(),
+    taxAmount: bigint("tax_amount", { mode: "number" }).default(0).notNull(),
+    certificateNo: text("certificate_no"),
+    cprNo: text("cpr_no"),
+    method: text("method"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    createdBy: integer("created_by"),
+    updatedBy: integer("updated_by"),
+    deletedAt: timestamp("deleted_at"),
+    deletedBy: integer("deleted_by"),
+    isDeleted: boolean("is_deleted").default(false).notNull(),
+  },
+  (table) => ({ kindDateIdx: index("tax_entries_kind_date_idx").on(table.kind, table.entryDate) }),
+);

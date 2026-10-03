@@ -71,7 +71,7 @@ export default function CustomerPortal({ showFeedback }: CustomerPortalProps) {
         setContractors(list);
         if (list.length) setActiveClientId(list[0].id);
       })
-      .catch(() => showFeedback("error", "Contractors load nahi ho sake"))
+      .catch(() => showFeedback("error", "Could not load the customers · کسٹمرز لوڈ نہیں ہو سکے"))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -141,7 +141,7 @@ export default function CustomerPortal({ showFeedback }: CustomerPortalProps) {
   const activeContractor = contractors.find((c) => c.id === activeClientId);
 
   const handleDownloadInvoice = (inv: string) => {
-    showFeedback("success", `${inv} ka invoice download shuru — Finance → Invoices se print/PDF milega.`);
+    showFeedback("success", `Invoice ${inv} download started — print / PDF is available from Finance → Invoices. · انوائس ڈاؤن لوڈ شروع`);
   };
 
   const handleCreateTicket = (e: React.FormEvent) => {
@@ -156,7 +156,7 @@ export default function CustomerPortal({ showFeedback }: CustomerPortalProps) {
     };
     setTickets((prev) => [newT, ...prev]);
     setNewTicketSubject("");
-    showFeedback("success", "Ticket is session mein note ho gaya (abhi database mein save nahi hota — yeh feature aage banegi).");
+    showFeedback("success", "Ticket noted for this session (it is not saved to the database yet — this feature is coming). · ٹکٹ اس سیشن میں درج ہو گیا (ابھی ڈیٹا بیس میں محفوظ نہیں ہوتا)۔");
   };
 
   return (
@@ -196,7 +196,7 @@ export default function CustomerPortal({ showFeedback }: CustomerPortalProps) {
             </h3>
 
             {activeTrips.length === 0 ? (
-              <p className="text-[11px] text-slate-500">Is client ki koi active (non-completed) trip nahi mili.</p>
+              <p className="text-[11px] text-slate-500">No active (non-completed) trips found for this client. · اس کلائنٹ کی کوئی فعال ٹرپ نہیں ملی۔</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {activeTrips.map((trip, idx) => (
@@ -225,7 +225,7 @@ export default function CustomerPortal({ showFeedback }: CustomerPortalProps) {
             </h3>
 
             {invoices.length === 0 ? (
-              <p className="text-[11px] text-slate-500">Is client ka koi invoice nahi mila.</p>
+              <p className="text-[11px] text-slate-500">No invoices found for this client. · اس کلائنٹ کی کوئی انوائس نہیں ملی۔</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">

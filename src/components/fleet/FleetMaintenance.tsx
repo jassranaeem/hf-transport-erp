@@ -408,15 +408,15 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     <AreaChart data={maintenance.filter(m => m.status === "Completed").slice(-10)}>
                       <defs>
                         <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#2C5CAE" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#2C5CAE" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                       <XAxis dataKey="maintenanceNumber" stroke="#94a3b8" fontSize={10} />
                       <YAxis stroke="#94a3b8" fontSize={10} />
                       <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
-                      <Area type="monotone" dataKey="actualCost" name="Cost (PKR)" stroke="#3b82f6" fillOpacity={1} fill="url(#colorCost)" />
+                      <Area type="monotone" dataKey="actualCost" name="Cost (PKR)" stroke="#2C5CAE" fillOpacity={1} fill="url(#colorCost)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -437,7 +437,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} />
                       <YAxis stroke="#94a3b8" fontSize={10} />
                       <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
-                      <Bar dataKey="count" name="Incidents Count" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="count" name="Incidents Count" fill="#E01A1F" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1447,8 +1447,8 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     <XAxis dataKey="vehicleId" stroke="#94a3b8" fontSize={10} name="Vehicle ID" />
                     <YAxis stroke="#94a3b8" fontSize={10} />
                     <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
-                    <Bar dataKey="totalCost" name="Total Expense (PKR)" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="avgCost" name="Average Cost per repair" fill="#818cf8" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="totalCost" name="Total Expense (PKR)" fill="#2C5CAE" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="avgCost" name="Average Cost per repair" fill="#5F86C4" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

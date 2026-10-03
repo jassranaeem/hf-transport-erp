@@ -99,6 +99,139 @@
       "when": 1789649289991,
       "tag": "0013_ledger_expense_maintenance_link",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789735689991,
+      "tag": "0014_contractors_optional_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789822089991,
+      "tag": "0015_zakat_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789908489991,
+      "tag": "0016_cash_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789994889991,
+      "tag": "0017_cash_transactions_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790081289991,
+      "tag": "0018_cash_transactions_unique_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790167689991,
+      "tag": "0019_attachment_blobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790254089991,
+      "tag": "0020_cleanup_orphan_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790340489991,
+      "tag": "0021_trip_legs",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790426889991,
+      "tag": "0022_cash_transactions_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790677934327,
+      "tag": "0023_partnership_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790682985056,
+      "tag": "0024_khata_merge",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790697416894,
+      "tag": "0025_cash_source_side",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790752131225,
+      "tag": "0026_trip_close",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790870000000,
+      "tag": "0027_check_dismissals",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790880000000,
+      "tag": "0028_books_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790890000000,
+      "tag": "0029_cash_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0030_bank_statements",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790910000000,
+      "tag": "0031_books_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790920000000,
+      "tag": "0032_tax",
+      "breakpoints": true
     }
   ]
 }

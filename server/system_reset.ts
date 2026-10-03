@@ -31,9 +31,11 @@ const router = Router();
 router.use(requireAuth, requireApproved);
 
 /** Tables that hold real business records - wiped by a factory reset. Everything
- *  else (login, company letterhead, integration config, RBAC, and the backups
- *  table itself so a reset can't erase its own safety net) is preserved. */
-const KEEP_TABLES = new Set(["users", "company_profile", "system_settings", "role_permissions", "backups"]);
+ *  else (login, company letterhead + office locations, integration config,
+ *  RBAC, and the backups table itself so a reset can't erase its own safety
+ *  net) is preserved - a reset clears the modules' data, not the company's
+ *  own setup info. */
+const KEEP_TABLES = new Set(["users", "company_profile", "branches", "system_settings", "role_permissions", "backups"]);
 
 async function listPublicTables(): Promise<string[]> {
   const { rows } = await db.execute(sql`

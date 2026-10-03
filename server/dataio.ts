@@ -12,6 +12,7 @@
  */
 import { Router, Response } from "express";
 import multer from "multer";
+import ExcelJS from "exceljs";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { getEntity, listEntities, ENTITIES } from "../src/lib/dataio/registry.ts";
 import {
@@ -116,6 +117,43 @@ router.post("/workbook/commit", canImport, async (req: AuthRequest, res: Respons
     userAgent: req.headers["user-agent"] || undefined,
   }).catch(() => {});
   res.json({ inserted, updated, results });
+});
+
+// ---- WHOLE-WORKBOOK export: several tables as one .xlsx, one sheet each -------------
+// Sheet names are chosen so /workbook/validate maps them straight back on re-import.
+const WORKBOOK_SHEETS: Record<string, string> = {
+  trips: "Trips", vehicles: "Trucks", drivers: "Drivers", routes: "Routes", contractors: "Customers",
+};
+router.get("/workbook/export", async (req: AuthRequest, res: Response) => {
+  try {
+    const keys = String(req.query.entities || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter((k) => getEntity(k));
+    if (!keys.length) return res.status(400).json({ error: "entities= is required" });
+    const combined = new ExcelJS.Workbook();
+    combined.creator = "HF Transport ERP";
+    combined.created = new Date();
+    for (const key of keys) {
+      const entity = getEntity(key)!;
+      const one = await buildExportWorkbook(entity, await fetchAllForExport(entity));
+      const src = one.worksheets[0];
+      const dst = combined.addWorksheet(WORKBOOK_SHEETS[key] || entity.label.replace(/[\\/*?:\[\]]/g, " ").slice(0, 28));
+      dst.columns = (src.columns || []).map((c: any) => ({ header: c.header, key: c.key, width: c.width }));
+      dst.getRow(1).font = { bold: true };
+      dst.views = [{ state: "frozen", ySplit: 1 }];
+      src.eachRow((row, i) => {
+        if (i === 1) return;
+        dst.addRow((row.values as any[]).slice(1));
+      });
+    }
+    const buf = await combined.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${slugFilename("fleet-desk", "xlsx")}"`);
+    res.send(Buffer.from(buf as ArrayBuffer));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Export failed" });
+  }
 });
 
 router.get("/:entity/template", async (req: AuthRequest, res: Response) => {

@@ -1,5 +1,5 @@
 /**
- * Khata Overview — the whole khata at a glance, correctly calculated,
+ * Ledger Overview — the whole khata at a glance, correctly calculated,
  * connected to every sheet in this workbook in the order you'd actually
  * use them: Truck Ledgers, Parties List, Party Ledgers, Dues & Alerts,
  * Receipt Search.
@@ -57,7 +57,7 @@ export default function KhataOverview({
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <h2 className="text-base font-bold flex items-center gap-2">
-            <BookOpen className="w-4 h-4" /> Khata Overview <span className="text-[#9CA3AF] font-normal text-sm">· مکمل کھاتے کا خلاصہ</span>
+            <BookOpen className="w-4 h-4" /> Ledger Overview <span className="text-[#9CA3AF] font-normal text-sm">· مکمل کھاتے کا خلاصہ</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             The same totals shown on Truck Ledgers and Dues &amp; Alerts — this page only summarizes and links, it
@@ -71,7 +71,7 @@ export default function KhataOverview({
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4] flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Truck khata · ٹرک کھاتہ</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Truck ledgers · ٹرک کھاتہ</div>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-3">
           <Big label="Trucks · ٹرک" value={String(tt?.ledgers ?? "—")} tone="neutral" />
           <Big label="Entries · اندراجات" value={String(tt?.entries ?? "—")} tone="neutral" />
@@ -80,14 +80,14 @@ export default function KhataOverview({
           <Big label={truckProfit ? "Net profit · صافی منافع" : "Net loss · صافی نقصان"} value={tt ? (truckProfit ? "" : "−") + PKR(tt.netProfit) : "—"} tone={tt ? (truckProfit ? "good" : "bad") : "neutral"} big />
         </div>
         {tt?.needsReview > 0 && (
-          <div className="mx-3 mb-3 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-[11px] text-[#B45309] flex items-center gap-2">
+          <div className="mx-3 mb-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[11px] text-[#4B5563] flex items-center gap-2">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {tt.needsReview} truck ledger entries are flagged "needs review" — open Truck Ledgers to fix them.
           </div>
         )}
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4] flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Party khata · پارٹی کھاتہ</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Party ledgers · پارٹی کھاتہ</div>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-3">
           <Big label="Active parties · فعال پارٹیاں" value={String(pt?.counts?.active ?? "—")} tone="neutral" />
           <Big label="Receiving · لینا ہے" value={pt ? PKR(pt.receiving) : "—"} tone="good" />
@@ -98,7 +98,7 @@ export default function KhataOverview({
       </div>
 
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Go to · جائیں (in order)</div>
+        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Go to · جائیں (in order)</div>
         <div className="divide-y divide-[#F3F4F6]">
           {LINKS.map(({ sheet, label, icon: Icon, desc }, i) => (
             <button
@@ -122,7 +122,7 @@ export default function KhataOverview({
 }
 
 function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
-  const c = tone === "good" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : tone === "bad" ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
+  const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
       <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
