@@ -91,6 +91,8 @@ const DEFAULT_RULES: Array<{ source: string; category: string; side: "in" | "out
   { source: "truck", category: "Freight", side: "out", code: "5100", note: "freight / hire paid to others" },
   { source: "truck", category: "Diesel", side: "any", code: "5001" },
   { source: "truck", category: "TripCash", side: "any", code: "5010" },
+  { source: "truck", category: "Khurak", side: "any", code: "5010" },
+  { source: "truck", category: "Labour", side: "any", code: "5010" },
   { source: "truck", category: "Salary", side: "any", code: "5002" },
   { source: "truck", category: "PartsBill", side: "any", code: "5003" },
   { source: "truck", category: "Garage", side: "any", code: "5003" },

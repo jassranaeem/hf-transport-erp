@@ -28,6 +28,21 @@ const emptyForm = () => ({
   departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
+// what money given on a trip was for (server: MONEY_KINDS) — and how a saved entry's category reads
+const MONEY_FOR = [
+  { k: "cash", l: "Trip cash to driver · ڈرائیور کو نقد" },
+  { k: "diesel", l: "Diesel · ڈیزل" },
+  { k: "toll", l: "Toll · ٹول" },
+  { k: "khurak", l: "Khurak (food) · خوراک" },
+  { k: "labour", l: "Loading / unloading · مزدوری" },
+  { k: "repair", l: "Repair on the road · مرمت" },
+  { k: "tyre", l: "Tyre · ٹائر" },
+  { k: "permit", l: "Permit / border · پرمٹ / بارڈر" },
+  { k: "other", l: "Other · دیگر" },
+];
+const CATEGORY_LABEL: Record<string, string> = { TripCash: "Trip cash · نقد", Diesel: "Diesel · ڈیزل", Toll: "Toll · ٹول", Khurak: "Khurak · خوراک", Labour: "Loading / unloading · مزدوری", Garage: "Repair · مرمت", Tyre: "Tyre · ٹائر", Permit: "Permit · پرمٹ", Other: "Other · دیگر" };
+const kindOfCategory = (c: string) => ({ TripCash: "cash", Diesel: "diesel", Toll: "toll", Khurak: "khurak", Labour: "labour", Garage: "repair", Tyre: "tyre", Permit: "permit" } as Record<string, string>)[c] || "other";
+const todayStr = () => new Date().toISOString().slice(0, 10);
 const dmy = (day: string | null | undefined) => (day ? `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}` : "");
 
 interface Opts {
@@ -68,7 +83,7 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "" });
+  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash" });
   const [addingMoney, setAddingMoney] = useState(false);
   const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
   const [addingStop, setAddingStop] = useState(false);
@@ -77,7 +92,7 @@ export default function TripDesk({
   const [attachLegId, setAttachLegId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
-  const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string } | null>(null);
+  const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string; kind: string; method: string } | null>(null);
   const [view, setView] = useState<"active" | "history">("active");
   const [khata, setKhata] = useState<{ span: any; rows: any[] } | null>(null); // the truck's other rows inside this trip's days
 
@@ -277,10 +292,12 @@ export default function TripDesk({
     try {
       await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
         method: "POST",
-        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note }),
+        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method }),
       });
-      showFeedback("success", "Ledger entry added · کھاتے میں انٹری ہو گئی");
-      setMoney({ tripId: 0, kind: "cash", amount: "", note: "" });
+      showFeedback("success", `${fmt(Number(money.amount))} added to this trip · ٹرپ میں درج ہو گیا — add the next one if there is more`);
+      // keep what / when / how for the next entry; only the amount and its description start empty
+      setMoney((m) => ({ ...m, amount: "", note: "" }));
+      setTimeout(() => (document.getElementById(`money-amount-${j.root}`) as HTMLInputElement | null)?.focus(), 50);
       loadEntries(j.root);
       load();
     } catch (e: any) {
@@ -294,7 +311,7 @@ export default function TripDesk({
     try {
       await enterpriseFetch(`/api/trip-desk/entry/${entryEdit.id}`, {
         method: "PUT",
-        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description }),
+        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description, kind: entryEdit.kind, method: entryEdit.method }),
       });
       showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
       setEntryEdit(null);
@@ -513,6 +530,19 @@ export default function TripDesk({
                             ? "Closed · money pending · باقی"
                             : "Close trip · ٹرپ کا حساب"}
                         </button>
+                        <button
+                          onClick={() => {
+                            setOpenId(j.root);
+                            setMoney((m) => ({ ...m, tripId: j.last.id, amount: "", note: "", date: todayStr() }));
+                            setTimeout(() => {
+                              document.getElementById(`money-${j.root}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                              (document.getElementById(`money-amount-${j.root}`) as HTMLInputElement | null)?.focus();
+                            }, 150);
+                          }}
+                          className="mt-1 block text-[11px] rounded-lg border border-emerald-600 text-emerald-700 bg-white px-2 py-0.5 whitespace-nowrap hover:bg-emerald-50"
+                        >
+                          + Money given · رقم دی
+                        </button>
                         {j.completed && (
                           <>
                             <div className={`text-[10px] mt-0.5 whitespace-nowrap ${j.pending > 0 ? "text-[#B91C1C]" : "text-[#166534]"}`}>
@@ -615,28 +645,54 @@ export default function TripDesk({
                             <button onClick={() => addStop(j)} disabled={addingStop || !stop.to.trim()} className={`mt-2 ${btn}`}>Add stop · پڑاؤ شامل کریں</button>
                           </div>
 
-                          <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                            <div className="text-[11px] font-semibold text-slate-500">Money given for this trip · اس ٹرپ کے لیے دی گئی رقم</div>
-                            <div className="flex flex-wrap items-end gap-2">
-                              {j.legs.length > 1 && (
-                                <select className={small} value={money.tripId || j.last.id} onChange={(e) => setMoney({ ...money, tripId: Number(e.target.value) })}>
-                                  {j.legs.map((l) => <option key={l.id} value={l.id}>Stop {l.legNo || 1}: {l.origin} → {l.destination}</option>)}
+                          <div id={`money-${j.root}`} className="rounded-lg border border-emerald-200 bg-white p-3 space-y-2">
+                            <div className="text-xs font-semibold text-slate-700">
+                              Money given on this trip · اس ٹرپ پر دی گئی رقم
+                              <span className="font-normal text-slate-500"> — as many times as needed: diesel on the road, more cash to the driver, toll, repair… each with what it was for · جتنی بار دیں، ہر بار لکھیں کس لیے</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
+                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Date · تاریخ</span>
+                                <input id={`money-date-${j.root}`} type="date" className={small} value={money.date} onChange={(e) => setMoney({ ...money, date: e.target.value })} />
+                              </label>
+                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">For · کس لیے</span>
+                                <select id={`money-kind-${j.root}`} className={small} value={money.kind} onChange={(e) => setMoney({ ...money, kind: e.target.value })}>
+                                  {MONEY_FOR.map((m) => <option key={m.k} value={m.k}>{m.l}</option>)}
                                 </select>
-                              )}
-                              <select className={small} value={money.kind} onChange={(e) => setMoney({ ...money, kind: e.target.value })}>
-                                <option value="cash">Cash</option>
-                                <option value="diesel">Diesel</option>
-                                <option value="other">Other expense</option>
-                              </select>
-                              <input type="number" placeholder="Amount" className={`${small} w-32`} value={money.amount} onChange={(e) => setMoney({ ...money, amount: e.target.value })} />
-                              <input placeholder="Note" className={`${small} flex-1 min-w-[140px]`} value={money.note} onChange={(e) => setMoney({ ...money, note: e.target.value })} />
-                              <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>Add to ledger · کھاتے میں ڈالیں</button>
+                              </label>
+                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Amount · رقم</span>
+                                <input id={`money-amount-${j.root}`} inputMode="numeric" placeholder="PKR" className={`${small} tabular-nums`} value={money.amount}
+                                  onChange={(e) => setMoney({ ...money, amount: e.target.value.replace(/[^\d]/g, "") })}
+                                  onKeyDown={(e) => e.key === "Enter" && money.amount && addMoney(j)} />
+                              </label>
+                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Paid how · کیسے دیے</span>
+                                <select id={`money-method-${j.root}`} className={small} value={money.method} onChange={(e) => setMoney({ ...money, method: e.target.value })}>
+                                  <option value="Cash">Cash · نقد</option>
+                                  <option value="Online">Online / Easypaisa / JazzCash</option>
+                                  <option value="Bank">Bank transfer · بینک</option>
+                                  <option value="Cheque">Cheque · چیک</option>
+                                </select>
+                              </label>
+                              {j.legs.length > 1 ? (
+                                <label className="flex flex-col gap-0.5 col-span-2"><span className="text-[10px] text-slate-500">Stop · پڑاؤ</span>
+                                  <select className={small} value={money.tripId || j.last.id} onChange={(e) => setMoney({ ...money, tripId: Number(e.target.value) })}>
+                                    {j.legs.map((l) => <option key={l.id} value={l.id}>Stop {l.legNo || 1}: {l.origin} → {l.destination}</option>)}
+                                  </select>
+                                </label>
+                              ) : <div className="hidden md:block col-span-2" />}
+                              <label className="flex flex-col gap-0.5 col-span-2 md:col-span-5"><span className="text-[10px] text-slate-500">Description — what it was for, where, to whom · تفصیل — کس لیے، کہاں، کس کو</span>
+                                <input id={`money-note-${j.root}`} dir="auto" placeholder="e.g. Diesel at Sukkur pump, 120 litres · مثلاً سکھر پمپ پر ڈیزل" className={small} value={money.note}
+                                  onChange={(e) => setMoney({ ...money, note: e.target.value })}
+                                  onKeyDown={(e) => e.key === "Enter" && money.amount && addMoney(j)} />
+                              </label>
+                              <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>
+                                {addingMoney ? "Saving…" : "Save · محفوظ کریں"}
+                              </button>
                             </div>
                             {entries.length > 0 && (
                               <div className="overflow-x-auto">
                                 <table className="w-full text-xs">
                                   <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
-                                    <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">Type</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Note · تفصیل</th><th className="w-16" /></tr>
+                                    <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">For · کس لیے</th><th className="text-left px-2">How</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Description · تفصیل</th><th className="w-16" /></tr>
                                   </thead>
                                   <tbody>
                                     {entries.map((en) => (
@@ -644,7 +700,8 @@ export default function TripDesk({
                                         {entryEdit?.id === en.id ? (
                                           <>
                                             <td className="px-2 py-1"><input type="date" className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.date} onChange={(e) => setEntryEdit({ ...entryEdit, date: e.target.value })} /></td>
-                                            <td className="px-2">{en.category}</td>
+                                            <td className="px-2"><select className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.kind} onChange={(e) => setEntryEdit({ ...entryEdit, kind: e.target.value })}>{MONEY_FOR.map((m) => <option key={m.k} value={m.k}>{m.l}</option>)}</select></td>
+                                            <td className="px-2"><select className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.method} onChange={(e) => setEntryEdit({ ...entryEdit, method: e.target.value })}>{["Cash", "Online", "Bank", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></td>
                                             <td className="px-2 text-right"><input type="number" className="border border-slate-300 rounded px-1.5 py-1 w-28 text-right" value={entryEdit.amount} onChange={(e) => setEntryEdit({ ...entryEdit, amount: e.target.value })} /></td>
                                             <td className="px-2"><input className="border border-slate-300 rounded px-1.5 py-1 w-full" value={entryEdit.description} onChange={(e) => setEntryEdit({ ...entryEdit, description: e.target.value })} /></td>
                                             <td className="px-2 whitespace-nowrap">
@@ -655,11 +712,12 @@ export default function TripDesk({
                                         ) : (
                                           <>
                                             <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
-                                            <td className="px-2">{en.category}</td>
+                                            <td className="px-2 whitespace-nowrap">{CATEGORY_LABEL[en.category] || en.category}</td>
+                                            <td className="px-2 text-slate-500">{en.method === "Diesel" ? "Cash" : en.method}</td>
                                             <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
-                                            <td className="px-2">{en.description || "—"}</td>
+                                            <td className="px-2" dir="auto">{en.description || "—"}</td>
                                             <td className="px-2 whitespace-nowrap">
-                                              <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
+                                              <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "", kind: kindOfCategory(en.category), method: ["Online", "Bank", "Cheque"].includes(en.method) ? en.method : "Cash" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
                                               <button onClick={() => deleteEntry(en.id, j.root)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
                                             </td>
                                           </>
@@ -667,6 +725,13 @@ export default function TripDesk({
                                       </tr>
                                     ))}
                                   </tbody>
+                                  <tfoot>
+                                    <tr className="border-t-2 border-slate-200 font-semibold">
+                                      <td className="px-2 py-1.5" colSpan={3}>Total given on this trip · اس ٹرپ پر کل دیا ({entries.length})</td>
+                                      <td className="px-2 text-right tabular-nums">{fmt(entries.reduce((t, en) => t + (en.paid || 0), 0))}</td>
+                                      <td colSpan={2} />
+                                    </tr>
+                                  </tfoot>
                                 </table>
                               </div>
                             )}

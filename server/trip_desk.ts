@@ -50,11 +50,22 @@ const audit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", table: 
     userAgent: req.headers["user-agent"],
   }).catch(() => {});
 
-const MONEY_KINDS: Record<string, { method: string; category: string }> = {
-  cash: { method: "Cash", category: "TripCash" },
-  diesel: { method: "Diesel", category: "Diesel" },
-  other: { method: "Cash", category: "Other" },
+// what money given on a trip was for — each goes to its own khata category (and so to the right
+// account in the books)
+const MONEY_KINDS: Record<string, { method: string; category: string; label: string }> = {
+  cash: { method: "Cash", category: "TripCash", label: "Trip cash to driver" },
+  diesel: { method: "Diesel", category: "Diesel", label: "Diesel" },
+  toll: { method: "Cash", category: "Toll", label: "Toll" },
+  khurak: { method: "Cash", category: "Khurak", label: "Khurak (food)" },
+  labour: { method: "Cash", category: "Labour", label: "Loading / unloading" },
+  repair: { method: "Cash", category: "Garage", label: "Repair on the road" },
+  tyre: { method: "Cash", category: "Tyre", label: "Tyre" },
+  permit: { method: "Cash", category: "Permit", label: "Permit / border" },
+  other: { method: "Cash", category: "Other", label: "Other expense" },
 };
+const PAID_HOW = ["Cash", "Online", "Bank", "Cheque"];
+/** A day typed as YYYY-MM-DD, at midday so no time zone moves it to another day. */
+const dayAt = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00`) : v ? new Date(v) : new Date());
 
 async function addMoneyEntry(opts: {
   ledgerId: number;
@@ -571,7 +582,7 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const tripId = parseInt(req.params.id);
     const kind = clean(req.body?.kind) as keyof typeof MONEY_KINDS;
     const amount = whole(req.body?.amount);
-    if (!MONEY_KINDS[kind]) return res.status(400).json({ error: "kind must be cash, diesel or other" });
+    if (!MONEY_KINDS[kind]) return res.status(400).json({ error: "Pick what the money was for · کس لیے دیے" });
     if (amount <= 0) return res.status(400).json({ error: "Enter an amount · رقم لکھیں" });
 
     const [trip] = await db.select().from(schema.trips).where(and(eq(schema.trips.id, tripId), eq(schema.trips.isDeleted, false))).limit(1);
@@ -591,15 +602,18 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
         .values({ vehicleId: veh.id, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: req.user?.id })
         .returning();
     }
-    const date = req.body?.date ? new Date(req.body.date) : new Date();
+    const date = dayAt(req.body?.date);
+    if (isNaN(date.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
+    const how = PAID_HOW.includes(String(req.body?.method)) ? String(req.body.method) : undefined;
     const entry = await addMoneyEntry({
       ledgerId: led.id,
       tripId,
       kind,
       amount,
       date,
-      description: clean(req.body?.note) || (kind === "cash" ? "Trip cash" : kind === "diesel" ? "Diesel" : "Kharcha"),
+      description: clean(req.body?.note) || MONEY_KINDS[kind].label,
       userId: req.user?.id,
+      method: how && kind !== "diesel" ? how : how === "Online" || how === "Bank" ? how : undefined,
     });
     await recompute(led.id);
     await audit(req, "CREATE", "truck_ledger_entries", entry.id, null, entry);
@@ -689,7 +703,7 @@ router.put("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: 
     const b = req.body || {};
     const patch: Record<string, any> = { updatedAt: new Date(), updatedBy: req.user?.id };
     if (b.entryDate) {
-      const d = new Date(b.entryDate);
+      const d = dayAt(b.entryDate);
       if (isNaN(d.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
       patch.entryDate = d;
       patch.rawDate = d.toISOString().slice(0, 10);
@@ -700,6 +714,8 @@ router.put("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: 
       patch.paid = amt;
     }
     if (b.description !== undefined) patch.description = clean(b.description) || null;
+    if (b.kind !== undefined && MONEY_KINDS[String(b.kind)]) patch.category = MONEY_KINDS[String(b.kind)].category;
+    if (b.method !== undefined && PAID_HOW.includes(String(b.method))) patch.method = String(b.method);
     const [row] = await db.update(schema.truckLedgerEntries).set(patch).where(eq(schema.truckLedgerEntries.id, id)).returning();
     await recompute(old.ledgerId);
     await audit(req, "UPDATE", "truck_ledger_entries", id, old, row);
