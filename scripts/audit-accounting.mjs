@@ -11,10 +11,15 @@
  *
  * Run (the DATABASE_URL decides which database is audited — local or live):
  *   DATABASE_URL="postgres://…" node scripts/audit-accounting.mjs [outDir]
+ * Live: keep the read-only login in .env.audit (made by scripts/make-audit-role.mjs) and run
+ *   node --env-file=.env.audit scripts/audit-accounting.mjs audit-live
+ * The connection string is never printed. On any non-local database the script refuses to run with a
+ * login that can write, and leaves names / descriptions out of the report (ids and totals only).
  */
 import pg from "pg";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { readFileSync } from "fs";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -40,7 +45,9 @@ const rec = (area, status, finding, impact = "") => {
   results.push({ area, status, finding, impact });
   say(`- **${status}** — ${finding}${impact ? ` _(impact: ${impact})_` : ""}`);
 };
+const PII = new Set(["party", "partner", "description", "cash_desc", "v"]); // names / free text — left out of a live report
 const table = (rows, cols) => {
+  if (REDACT) cols = cols.filter((c) => !PII.has(c));
   if (!rows.length) return say("_(none)_");
   say(`| ${cols.join(" | ")} |`);
   say(`| ${cols.map(() => "---").join(" | ")} |`);
@@ -48,6 +55,20 @@ const table = (rows, cols) => {
 };
 
 const host = (() => { try { return new URL(url).host; } catch { return "?"; } })();
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host);
+var REDACT = !LOCAL || process.env.AUDIT_REDACT === "1";
+
+// ---- who are we connected as, and can this login write? (live: must be the read-only role)
+const who = await one(`select current_user u, current_database() d, current_setting('server_version') v, current_setting('transaction_read_only') ro,
+  (select setting from pg_settings where name = 'default_transaction_read_only') dro, inet_server_port() port`);
+const writable = await one(`select count(*)::int c from pg_class c join pg_namespace s on s.oid = c.relnamespace
+  where s.nspname = 'public' and c.relkind = 'r' and has_table_privilege(current_user, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')`);
+if (!LOCAL && writable.c > 0 && process.env.AUDIT_ALLOW_WRITER !== "1") {
+  console.error(`Refusing to audit ${host}: the login "${who.u}" can write to ${writable.c} table(s). Use the read-only role made by scripts/make-audit-role.mjs.`);
+  await db.query("ROLLBACK");
+  await db.end();
+  process.exit(2);
+}
 const st = await one(`select to_char(books_start,'YYYY-MM-DD') start, to_char(locked_through,'YYYY-MM-DD') locked, last_rebuild_at, last_rebuild ->> 'signature' sig from books_settings where id = 1`).catch(() => ({}));
 const START = st.start || "2025-07-01";
 
@@ -56,6 +77,57 @@ say(``);
 say(`- Database: \`${host}\` (read-only snapshot)  `);
 say(`- Run at: ${new Date().toISOString()}  `);
 say(`- Books start: ${START} · closed through: ${st.locked || "—"} · books last built: ${st.last_rebuild_at ? new Date(st.last_rebuild_at).toISOString() : "never"}`);
+say(`- Login: \`${who.u}\` on database \`${who.d}\` (Postgres ${who.v}); this session read-only: ${who.ro}; login's default read-only: ${who.dro}; tables this login can write: ${writable.c}`);
+say(`- Names and descriptions: ${REDACT ? "left out (ids and totals only)" : "shown (local database)"}`);
+say(``);
+
+// ------------------------------------------------------------------------------------------------
+say(`## P. Which database is this, and what is in it?`);
+const journal = (() => { try { return JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8")).entries; } catch { return []; } })();
+const mig = await one(`select count(*)::int c, max(created_at)::bigint last from drizzle.__drizzle_migrations`).catch((e) => ({ c: null, err: e.message }));
+const lastTag = journal.length ? journal[journal.length - 1] : null;
+if (mig.c == null) rec("Schema version", "WARN", `Could not read the migrations table (${mig.err}).`);
+else if (lastTag && mig.c === journal.length && Number(mig.last) === Number(lastTag.when)) rec("Schema version", "PASS", `All ${mig.c} migrations of this code are applied (latest: ${lastTag.tag}) — the deployed app has started against this database since the last schema change.`);
+else rec("Schema version", "WARN", `${mig.c} migration(s) applied; this code has ${journal.length} (latest ${lastTag?.tag}).`, "the database and the code are on different versions");
+const act = await one(`select (select max(created_at) from audit_logs) audit, (select max(last_login_at) from users) login,
+  (select count(*) from users)::int users, (select min(created_at) from users) first_user,
+  (select max(updated_at) from truck_ledger_entries) tle, (select max(updated_at) from cash_transactions) ct, (select max(updated_at) from party_ledger_entries) ple`);
+const iso = (d) => (d ? new Date(d).toISOString().replace(".000Z", "Z") : "—");
+say(`Latest activity written by the app: audit log ${iso(act.audit)} · last login ${iso(act.login)} · last truck-khata change ${iso(act.tle)} · cash book ${iso(act.ct)} · party ledger ${iso(act.ple)} · books built ${iso(st.last_rebuild_at)}. ${act.users} user(s); first user created ${iso(act.first_user)}.`);
+say(`If these times match when you last used the live app, the live app is writing to this database.`);
+say(``);
+
+// every table: rows, soft-deleted, imported from Excel, first / last created
+const tabs = await q(`select c.relname t,
+    bool_or(a.attname = 'created_at') hc, bool_or(a.attname = 'is_deleted') hd, bool_or(a.attname = 'source_row') hsr, bool_or(a.attname = 'source_sheet') hss
+  from pg_class c join pg_namespace s on s.oid = c.relnamespace join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+  where s.nspname = 'public' and c.relkind = 'r' group by 1 order by 1`);
+const inventory = {};
+for (const t of tabs) {
+  const imp = [t.hsr && "source_row is not null", t.hss && "source_sheet is not null"].filter(Boolean).join(" or ");
+  const r = await one(`select count(*)::int n${t.hd ? ", count(*) filter (where is_deleted)::int del" : ""}${imp ? `, count(*) filter (where ${imp})::int imported` : ""}${t.hc ? ", min(created_at) first, max(created_at) last" : ""} from "${t.t}"`).catch((e) => ({ n: null, err: e.message }));
+  inventory[t.t] = { rows: r.n, deleted: r.del ?? null, imported: r.imported ?? null, first: r.first ? iso(r.first) : null, last: r.last ? iso(r.last) : null, error: r.err };
+}
+const nonEmpty = Object.entries(inventory).filter(([, v]) => v.rows);
+say(`${tabs.length} tables; ${nonEmpty.length} have records. Full list in \`inventory.json\`.`);
+table(nonEmpty.sort((a, b) => b[1].rows - a[1].rows).map(([t, v]) => ({ table: t, rows: v.rows, deleted: v.deleted ?? "", imported: v.imported ?? "", first: (v.first || "").slice(0, 10), last: (v.last || "").slice(0, 10) })), ["table", "rows", "deleted", "imported", "first", "last"]);
+say(``);
+say(`Days on which the most ledger / cash / party records were created (a big spike is usually a file import):`);
+const spikes = await q(`select d::date created_on, sum(c)::int records, string_agg(t || ' ' || c, ', ' order by c desc) tables from (
+    select 'truck-khata' t, created_at::date d, count(*) c from truck_ledger_entries group by 2
+    union all select 'party-ledger', created_at::date, count(*) from party_ledger_entries group by 2
+    union all select 'cash-book', created_at::date, count(*) from cash_transactions group by 2
+    union all select 'parties', created_at::date, count(*) from parties group by 2
+    union all select 'khatas', created_at::date, count(*) from truck_ledgers group by 2) x group by 1 order by 2 desc limit 12`);
+table(spikes, ["created_on", "records", "tables"]);
+const hist = await one(`select (select count(*) from truck_ledger_entries where not is_deleted and (entry_date < $1::timestamp or entry_date is null))::int tle_old,
+  (select count(*) from party_ledger_entries where not is_deleted and (entry_date < $1::timestamp or entry_date is null))::int ple_old,
+  (select count(*) from truck_ledger_entries where not is_deleted and source_row is not null)::int tle_imp,
+  (select count(*) from party_ledger_entries where not is_deleted and source_row is not null)::int ple_imp`, [START]);
+const fresh = !hist.tle_old && !hist.ple_old && !hist.tle_imp && !hist.ple_imp;
+rec("Fresh start", fresh ? "PASS" : "INFO", fresh
+  ? `No khata or party rows from before ${START} and none imported from Excel — the database started fresh.`
+  : `Khata rows dated before ${START} or undated: ${hist.tle_old}; party-ledger rows before ${START} or undated: ${hist.ple_old}; rows imported from Excel: truck ${hist.tle_imp}, party ${hist.ple_imp}. These are history brought in (by import or by hand), not a fresh start.`);
 say(``);
 
 // ------------------------------------------------------------------------------------------------
@@ -78,17 +150,17 @@ else rec("Books current", "WARN", "Records changed since the books were last bui
 say(``);
 say(`## 1. Real records, not demo / hardcoded values`);
 const demo = await q(`
-  select 'contractors' t, company v from contractors where not is_deleted and (company ilike '%demo%' or company ilike '%test%' or company like 'ZZ%' or company in ('Rehman Cargo Services','Lucky Cement','Fauji Fertilizer','PSO Fuel Corp','Nestle Pakistan'))
-  union all select 'parties', name from parties where not is_deleted and (name ilike '%demo%' or name like 'ZZ%' or name ilike 'test %')
-  union all select 'vehicles', vehicle_number from vehicles where not is_deleted and (vehicle_number like 'ZZ%' or vehicle_number ilike '%demo%' or vehicle_number ilike '%test%')
-  union all select 'truck_ledgers', title from truck_ledgers where not is_deleted and (title like 'ZZ%' or title ilike '%demo%' or title ilike '%test%')
-  union all select 'cash_transactions', description from cash_transactions where not is_deleted and (description like 'ZZ%' or description ilike '%demo%')
-  union all select 'truck_ledger_entries', description from truck_ledger_entries where not is_deleted and (description like 'ZZ%' or description ilike '%seeded demo%')
-  union all select 'vehicle_maintenance', remarks from vehicle_maintenance where not is_deleted and remarks ilike '%seeded demo%'
+  select 'contractors' t, id, company v from contractors where not is_deleted and (company ilike '%demo%' or company ilike '%test%' or company like 'ZZ%' or company in ('Rehman Cargo Services','Lucky Cement','Fauji Fertilizer','PSO Fuel Corp','Nestle Pakistan'))
+  union all select 'parties', id, name from parties where not is_deleted and (name ilike '%demo%' or name like 'ZZ%' or name ilike 'test %')
+  union all select 'vehicles', id, vehicle_number from vehicles where not is_deleted and (vehicle_number like 'ZZ%' or vehicle_number ilike '%demo%' or vehicle_number ilike '%test%')
+  union all select 'truck_ledgers', id, title from truck_ledgers where not is_deleted and (title like 'ZZ%' or title ilike '%demo%' or title ilike '%test%')
+  union all select 'cash_transactions', id, description from cash_transactions where not is_deleted and (description like 'ZZ%' or description ilike '%demo%')
+  union all select 'truck_ledger_entries', id, description from truck_ledger_entries where not is_deleted and (description like 'ZZ%' or description ilike '%seeded demo%')
+  union all select 'vehicle_maintenance', id, remarks from vehicle_maintenance where not is_deleted and remarks ilike '%seeded demo%'
   limit 40`).catch(() => []);
 if (demo.length) {
   rec("Demo data", "WARN", `${demo.length} record(s) look like demo / test data (names with Demo, Test, ZZ, or the demo seeder's sample companies).`, "they are counted in the books like real records");
-  table(demo, ["t", "v"]);
+  table(demo, ["t", "id", "v"]);
 } else rec("Demo data", "PASS", "No records with demo / test markers were found in customers, parties, trucks, khatas, cash book or maintenance.");
 const counts = await one(`select (select count(*) from truck_ledger_entries where not is_deleted)::int tle, (select count(*) from party_ledger_entries where not is_deleted)::int ple,
   (select count(*) from cash_transactions where not is_deleted)::int ct, (select count(*) from journal_entries)::int je, (select count(*) from journal_entries where is_auto)::int je_auto,
@@ -432,5 +504,6 @@ await db.query("ROLLBACK");
 await db.end();
 writeFileSync(join(OUT, "accounting-audit.md"), md.join("\n"));
 writeFileSync(join(OUT, "accounting-audit.json"), JSON.stringify({ host, at: new Date().toISOString(), results }, null, 2));
+writeFileSync(join(OUT, "inventory.json"), JSON.stringify({ host, database: who.d, at: new Date().toISOString(), tables: inventory }, null, 2));
 console.log(`Audit of ${host}: PASS ${by("PASS").length}, FAIL ${by("FAIL").length}, WARN ${by("WARN").length}, INFO ${by("INFO").length}`);
-console.log(`Wrote ${join(OUT, "accounting-audit.md")}, ${join(OUT, "other-classification.csv")}`);
+console.log(`Wrote ${join(OUT, "accounting-audit.md")}, ${join(OUT, "inventory.json")}, ${join(OUT, "other-classification.csv")}`);

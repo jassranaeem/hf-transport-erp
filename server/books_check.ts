@@ -61,7 +61,7 @@ const money = (r: any) => (num(r.received) ? `in ${num(r.received).toLocaleStrin
 // a khata row that is only a side-box figure on the paper page (not counted in the balance)
 const NOT_BOX = sql`not (e.sr_no is null and e.source_row is not null and e.sheet_balance is null)`;
 
-const CHECKS: Check[] = [
+export const CHECKS: Check[] = [
   // ---------------------------------------------------------------- dates
   {
     code: "KHATA_FUTURE_DATE",
