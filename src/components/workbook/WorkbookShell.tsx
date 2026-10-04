@@ -38,6 +38,7 @@ import Banks from "../fleet/Banks.tsx";
 import Statements from "../fleet/Statements.tsx";
 import Tax from "../fleet/Tax.tsx";
 import AccountingHome from "../fleet/AccountingHome.tsx";
+import AIAccountant from "../fleet/AIAccountant.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -286,6 +287,8 @@ export default function WorkbookShell({
         return <Statements showFeedback={showFeedback} />;
       case "Tax":
         return <Tax showFeedback={showFeedback} />;
+      case "AIAccountant":
+        return <AIAccountant showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "AccountingHome":
         return <AccountingHome showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "BooksCheck":

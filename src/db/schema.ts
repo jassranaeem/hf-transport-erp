@@ -2631,3 +2631,91 @@ export const taxEntries = pgTable(
   },
   (table) => ({ kindDateIdx: index("tax_entries_kind_date_idx").on(table.kind, table.entryDate) }),
 );
+
+// ---------------------------------------------------------
+// AI ACCOUNTANT — what the AI read and proposes; nothing here is in the books until a person
+// approves it (then it is posted through the ordinary Cash Book / khata / party / trip routes)
+// ---------------------------------------------------------
+export const aiDrafts = pgTable(
+  "ai_drafts",
+  {
+    id: serial("id").primaryKey(),
+    batch: text("batch").notNull(), // one upload / one typed message
+    source: text("source").notNull(), // text | voice | image | pdf | excel | csv
+    sourceName: text("source_name"),
+    status: text("status").notNull().default("pending"), // pending | posting | posted | rejected | undone | failed
+    target: text("target"), // cash | truck | party | trip
+    entryDate: text("entry_date"), // YYYY-MM-DD
+    direction: text("direction"), // In | Out
+    amount: bigint("amount", { mode: "number" }).notNull().default(0),
+    method: text("method"), // Cash | Bank | Online | Cheque
+    vehicleId: integer("vehicle_id"),
+    tripId: integer("trip_id"),
+    partyId: integer("party_id"),
+    kind: text("kind"), // trip money kind (diesel, toll, …)
+    category: text("category"), // truck-khata category
+    person: text("person"),
+    description: text("description"),
+    sourceText: text("source_text"), // the words / line the AI read this from
+    confidence: text("confidence"), // high | medium | low
+    notes: jsonb("notes"), // string[] — what to look at
+    duplicate: jsonb("duplicate"), // { table, id, date, amount, description } already in the books
+    posted: jsonb("posted"), // { table, id, derived? } once posted
+    error: text("error"),
+    readBy: text("read_by"), // "ai:<model>" or "rules"
+    createdBy: integer("created_by"),
+    decidedBy: integer("decided_by"),
+    decidedAt: timestamp("decided_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    statusIdx: index("ai_drafts_status_idx").on(table.status),
+    batchIdx: index("ai_drafts_batch_idx").on(table.batch),
+  }),
+);
+
+export const aiReclass = pgTable(
+  "ai_reclass",
+  {
+    id: serial("id").primaryKey(),
+    entryId: integer("entry_id").notNull(), // truck_ledger_entries.id
+    fromCategory: text("from_category"),
+    proposed: text("proposed").notNull(),
+    confidence: text("confidence").notNull(), // high | medium | low
+    reason: text("reason"),
+    byAi: boolean("by_ai").notNull().default(false),
+    status: text("status").notNull().default("pending"), // pending | applied | rejected | undone
+    decidedBy: integer("decided_by"),
+    decidedAt: timestamp("decided_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    statusIdx: index("ai_reclass_status_idx").on(table.status),
+  }),
+);
+
+export const aiRuns = pgTable("ai_runs", {
+  id: serial("id").primaryKey(),
+  feature: text("feature").notNull(),
+  provider: text("provider"),
+  model: text("model"),
+  ok: boolean("ok").notNull().default(true),
+  error: text("error"),
+  inputChars: integer("input_chars"),
+  outputChars: integer("output_chars"),
+  ms: integer("ms"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const aiReports = pgTable("ai_reports", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(), // month
+  period: text("period").notNull(), // YYYY-MM
+  title: text("title"),
+  data: jsonb("data"),
+  narrative: text("narrative"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

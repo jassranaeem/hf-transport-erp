@@ -34,6 +34,8 @@ services:
         sync: false
       - key: APP_URL               # e.g. https://hf-transport-erp.onrender.com
         sync: false
+      - key: ANTHROPIC_API_KEY      # AI Accountant (Claude) - reads photos / PDFs, answers questions
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GOOGLE_CLIENT_ID      # optional - enables "Sign in with Google"

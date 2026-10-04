@@ -135,6 +135,7 @@ export const WORKBOOKS: WorkbookDef[] = [
     // statements, tax — and the accounting internals last
     sheets: [
       c("home", "Accounting Home · اکاؤنٹنگ", "AccountingHome", "finance"),
+      c("ai_accountant", "AI Accountant · اے آئی منشی", "AIAccountant", "finance"),
       c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
       c("books", "Books · کتاب", "Books", "finance"),
       c("banks", "Banks · بینک", "Banks", "finance"),

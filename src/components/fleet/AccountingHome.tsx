@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Calculator, ShieldCheck, BookOpenCheck, Landmark, FileBarChart, Receipt, Wallet, ListTree, ArrowRight, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, CalendarDays, CalendarRange, CalendarClock,
+  CheckCircle2, AlertTriangle, CalendarDays, CalendarRange, CalendarClock, Bot,
 } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
 
@@ -49,6 +49,9 @@ export default function AccountingHome({ onNavigate }: { showFeedback?: any; onN
       enterpriseFetch(`/api/tax/summary?from=${from}&to=${to}`).then((r) =>
         put("tax", { text: `${r.notDeposited > 0 ? `${PKR(r.notDeposited)} not yet paid to FBR` : "Nothing pending to FBR"} · ${r.ratesMissing ? `${r.ratesMissing} rate(s) not entered` : "rates entered ✓"}`, tone: r.notDeposited > 0 ? "bad" : r.ratesMissing ? "warn" : "good" }),
       ),
+      enterpriseFetch("/api/ai-accountant/status").then((r) =>
+        put("ai", { text: `${r.ai.on ? `AI on (${r.ai.provider})` : "AI off — rules only"} · ${r.drafts} draft(s) to approve${r.reclass ? ` · ${r.reclass} category proposal(s)` : ""}`, tone: r.drafts ? "warn" : r.ai.on ? "good" : "plain" }),
+      ),
       enterpriseFetch(`/api/cash-book/count?date=${today()}`).then((r) =>
         put("cash", !r.count ? { text: `Today not counted yet · book says ${PKR(r.book.closing)}`, tone: "warn" } : r.difference === 0 ? { text: `Today counted — matches ${PKR(r.book.closing)} ✓`, tone: "good" } : { text: `Today: ${r.difference < 0 ? "short" : "extra"} ${PKR(Math.abs(r.difference))}`, tone: "bad" }),
       ),
@@ -78,6 +81,9 @@ export default function AccountingHome({ onNavigate }: { showFeedback?: any; onN
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <Card icon={Bot} title="AI Accountant" urdu="اے آئی منشی" live={live.ai} onOpen={() => go("accounting", "ai_accountant")} when="All day — tell it what happened" whenUr="سارا دن — جو ہوا اسے بتائیں"
+          en="The munshi's work done by the system: type, speak or photograph a payment, receipt or khata page and it writes the entries as drafts — you check and approve, and each can be undone. It also sorts khata rows into categories, answers questions from the books, writes the month's report and the reminders to parties, and lists today's to-do."
+          ur="منشی کا کام سسٹم کرتا ہے: ادائیگی، وصولی یا کھاتے کا صفحہ لکھیں، بولیں یا تصویر بھیجیں — یہ اندراج کے مسودے بناتا ہے، آپ دیکھ کر منظور کرتے ہیں اور ہر ایک واپس بھی ہو سکتا ہے۔ کیٹیگری لگانا، حساب سے سوالوں کے جواب، ماہانہ رپورٹ، پارٹیوں کو یاد دہانی اور آج کے کام بھی۔" />
         <Card icon={ShieldCheck} title="Books Check" urdu="حساب صحت" live={live.check} onOpen={() => go("accounting", "books_check")} when="Every day, first thing" whenUr="روزانہ، سب سے پہلے"
           en="The system's own check of the accounts. Each time it opens it looks through every ledger, the cash book, banks, bills, tax and the books for mistakes — a wrong date, money on both sides of one row, cash below zero, money counted twice, a bank line not explained. Red must be corrected; amber is to look at once. A mistake stays on the list until the data is put right, and ‘Open’ goes straight to it."
           ur="یہ سسٹم کی اپنی جانچ ہے۔ ہر بار کھلنے پر یہ تمام کھاتوں، کیش بک، بینک، بل، ٹیکس اور کتاب میں غلطیاں ڈھونڈتا ہے — غلط تاریخ، ایک لائن میں دونوں طرف رقم، نقد صفر سے کم، دو بار گنی گئی رقم، بینک کی بغیر وضاحت لائن۔ لال کو ٹھیک کرنا ضروری ہے، پیلا ایک بار دیکھ لیں۔ جب تک اصل غلطی درست نہ ہو، فہرست میں رہتی ہے۔" />
@@ -105,7 +111,7 @@ export default function AccountingHome({ onNavigate }: { showFeedback?: any; onN
         <div className="font-bold text-sm">The routine · معمول</div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Routine icon={CalendarDays} title="Every day" ur="روزانہ"
-            en={["Enter every cash in / out in the Daily Cash Book, linked to its truck or party.", "Count the cash in the evening.", "Open Books Check and clear the red."]}
+            en={["Enter every cash in / out in the Daily Cash Book, linked to its truck or party — or just tell the AI Accountant and approve its drafts.", "Count the cash in the evening.", "Open Books Check and clear the red."]}
             urList={["ہر نقد آمد و خرچ ڈیلی کیش بک میں، ٹرک یا پارٹی سے جوڑ کر، درج کریں۔", "شام کو نقد گنیں۔", "حساب صحت کھولیں اور لال صاف کریں۔"]} />
           <Routine icon={CalendarRange} title="Every month" ur="ہر مہینے"
             en={["Upload every bank's statement and explain each line.", "Pay the tax we deducted to FBR and enter the CPR.", "Look at the month's Profit & Loss and each truck.", "Close the books through the month's last day."]}

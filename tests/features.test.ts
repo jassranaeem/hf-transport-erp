@@ -5,6 +5,8 @@
 import { haversineMeters, bearingDeg, projectPoint, deadReckon } from "../src/lib/tracking/geo.ts";
 import { buildTemplateWorkbook } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
+import { amountIn, dateIn, readByRules } from "../server/ai/context.ts";
+import { parseJsonLoose } from "../server/ai/llm.ts";
 
 let failures = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -74,6 +76,26 @@ console.log("data-io template");
   data!.getRow(1).eachCell((c) => headers.push(String(c.value)));
   ok("Data header includes 'Vehicle Number'", headers.includes("Vehicle Number"));
   ok("every non-readonly field has a header column", headers.length === v!.fields.filter((f) => !f.readonly).length);
+}
+
+console.log("AI Accountant — reading without AI");
+{
+  ok("25 hazar = 25,000", amountIn("diesel 25 hazar") === 25000);
+  ok("1.5 lakh = 150,000", amountIn("1.5 lakh mile") === 150000);
+  ok("2,50,000 (Pakistani commas) = 250,000", amountIn("2,50,000") === 250000);
+  ok("a year is not an amount", amountIn("2026 ka kiraya 5000") === 5000);
+  ok("aaj = today", dateIn("aaj diye", "2026-10-04") === "2026-10-04");
+  ok("kal = yesterday", dateIn("kal mile", "2026-10-04") === "2026-10-03");
+  ok("03/10/2026 is day first", dateIn("03/10/2026", "2026-10-04") === "2026-10-03");
+  ok("3.5 lakh is money, not a date", dateIn("3.5 lakh received", "2026-10-04") === null);
+  const dir: any = { trucks: [{ id: 1, plate: "TLE730", registration: "TLE-730" }], parties: [{ id: 5, name: "Haji Akbar Goods", norm: "akbar goods" }], booksStart: "2025-07-01", lockedThrough: null, today: "2026-10-04" };
+  const [a1] = readByRules(dir, "TLE-730 ko 500 toll diya");
+  ok("plate digits are not the amount", a1?.amount === 500, a1);
+  ok("toll on a truck = Out, kind toll", a1?.direction === "Out" && a1?.kind === "toll" && a1?.plate === "TLE-730", a1);
+  const [a2] = readByRules(dir, "akbar goods se 2 lakh online mile kal");
+  ok("money from a party = In, online, matched by name", a2?.direction === "In" && a2?.method === "Online" && a2?.party === "Haji Akbar Goods" && a2?.amount === 200000, a2);
+  ok("one line per entry", readByRules(dir, "TLE-730 diesel 1000 diye\nghar ke liye 2000 kharcha").length === 2);
+  ok("AI reply with fences and words is parsed", parseJsonLoose('Sure:\n```json\n{"rows":[{"d":"a}b"}]}\n```').rows[0].d === "a}b");
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);

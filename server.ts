@@ -29,6 +29,7 @@ import partnershipRouter from "./server/partnership.ts";
 import personalExpensesRouter from "./server/personal_expenses.ts";
 import zakatRouter from "./server/zakat.ts";
 import booksCheckRouter from "./server/books_check.ts";
+import aiAccountantRouter from "./server/ai_accountant.ts";
 import booksRouter, { startBooksKeeper } from "./server/books.ts";
 import bankRouter from "./server/bank.ts";
 import statementsRouter from "./server/statements.ts";
@@ -114,6 +115,7 @@ async function startServer() {
   app.use("/api/personal-expenses", personalExpensesRouter);
   app.use("/api/zakat", zakatRouter);
   app.use("/api/books-check", booksCheckRouter);
+  app.use("/api/ai-accountant", aiAccountantRouter);
   app.use("/api/books", booksRouter);
   app.use("/api/bank", bankRouter);
   app.use("/api/statements", statementsRouter);

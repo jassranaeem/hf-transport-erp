@@ -232,6 +232,13 @@
       "when": 1790920000000,
       "tag": "0032_tax",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790930000000,
+      "tag": "0033_ai_accountant",
+      "breakpoints": true
     }
   ]
 }
