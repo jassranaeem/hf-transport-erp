@@ -878,7 +878,8 @@ router.post("/report", requireRole(READ), async (req: AuthRequest, res: Response
         feature: "report",
         userId: req.user?.id,
         maxTokens: 3000,
-        system: `You are HFK Enterprises' accountant writing the monthly report for the owner (a truck transport company, Quetta). Use ONLY the figures given; never invent. Write two parts: first "Roman Urdu" (simple, the way the owner speaks), then "English". Each part: 1) the month in one line (profit or loss, vs last month); 2) income and the biggest expenses; 3) trucks that earned most / lost money and why it may be (only if the figures show it); 4) money to collect / pay; 5) what to do next (max 4 points, e.g. Books Check mistakes, losing trucks, overdue parties). Money as "PKR 1,234,567". Plain text with short headings, no tables.`,
+        system: `You are HFK Enterprises' accountant writing the monthly report for the owner (a truck transport company, Quetta). Use ONLY the figures given; never invent. Write two parts: first "Roman Urdu" (simple, the way the owner speaks), then "English". Each part: 1) the month in one line (profit or loss, vs last month); 2) income and the biggest expenses; 3) trucks that earned most / lost money and why it may be (only if the figures show it); 4) money to collect / pay; 5) what to do next (max 4 points, e.g. Books Check mistakes, losing trucks, overdue parties). Money as "PKR 1,234,567". Plain text with short headings, no tables.
+Meaning of some accounts: "Truck expenses — not classified" = truck-khata money whose truck is known but whose kind (diesel, tyre…) is not written (category Other) — the fix is to give those rows a category; review accounts hold money the system could not place for sure. A "truck" named like a sheet or office (e.g. SHEET1, DAFTER) is an imported khata, not a real truck — say so if it tops a list.`,
         prompt: JSON.stringify(data),
       });
       by = `ai:${aiStatus().model}`;
