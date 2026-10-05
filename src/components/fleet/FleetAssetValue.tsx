@@ -68,6 +68,8 @@ export default function FleetAssetValue({
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [costEditId, setCostEditId] = useState<number | null>(null);
+  const [costValue, setCostValue] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(() => {
@@ -194,6 +196,25 @@ export default function FleetAssetValue({
       await entityUpdate("vehicles", r.id, { truckBrand: t });
       setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, truckBrand: t } : row)));
       setTypeEditId(null);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveCost = async (r: VehicleRow) => {
+    const n = costValue.trim() === "" ? null : Number(costValue.replace(/,/g, ""));
+    if (costValue.trim() !== "" && (Number.isNaN(n as number) || (n as number) < 0)) {
+      showFeedback("error", "Purchase cost must be a positive number");
+      return;
+    }
+    setBusyId(r.id);
+    try {
+      await entityUpdate("vehicles", r.id, { purchaseCost: n });
+      setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, purchaseCost: n } : row)));
+      setCostEditId(null);
+      showFeedback("success", `${r.vehicleNumber} purchase cost updated · خرید کی قیمت اپ ڈیٹ`);
     } catch (e: any) {
       showFeedback("error", e.message);
     } finally {
@@ -530,7 +551,44 @@ export default function FleetAssetValue({
                     }`}>{r.ownershipStatus}</span>
                   </td>
                   <td className="px-3 py-2 text-[#6B7280]">{r.currentStatus}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{r.purchaseCost != null ? PKR(r.purchaseCost) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">
+                    {costEditId === r.id ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          autoFocus
+                          type="number"
+                          value={costValue}
+                          onChange={(e) => setCostValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveCost(r);
+                            if (e.key === "Escape") setCostEditId(null);
+                          }}
+                          className="w-28 border border-[#E5E7EB] rounded px-1.5 py-1 text-right text-sm font-mono"
+                          dir="ltr"
+                        />
+                        <button onClick={() => saveCost(r)} disabled={busyId === r.id} className="text-[#1E4480] p-1">
+                          {busyId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        </button>
+                        <button onClick={() => setCostEditId(null)} className="text-[#9CA3AF] p-1">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (!canWrite) return;
+                          setCostEditId(r.id);
+                          setCostValue(r.purchaseCost != null ? String(r.purchaseCost) : "");
+                        }}
+                        disabled={!canWrite}
+                        className={`flex items-center gap-1 justify-end ml-auto ${canWrite ? "hover:underline" : ""}`}
+                        title={canWrite ? "Click to set the purchase cost" : ""}
+                      >
+                        {r.purchaseCost != null ? PKR(r.purchaseCost) : canWrite ? "Set cost" : "—"}
+                        {canWrite && <Pencil className="w-3 h-3 opacity-50" />}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {editingId === r.id ? (
                       <div className="flex items-center justify-end gap-1">
