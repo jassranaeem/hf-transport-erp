@@ -13,48 +13,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import {
-  Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, TrendingDown, Users, X,
-  History, ChevronDown, ChevronRight,
+  Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, TrendingDown, Users,
+  History, ChevronDown, ChevronRight, Eye, Paperclip,
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import PersonalLedgers from "./PersonalLedgers.tsx";
+import { EntryForm, EntryDetail, CAT_UR, blankEntry, uploadEntryFiles } from "./PersonalEntryForm.tsx";
+import { uploadFile } from "../../../client/api.ts";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
-
-const CAT_UR: Record<string, string> = {
-  Household: "گھر کا خرچہ",
-  PocketMoney: "جیب خرچ",
-  Personal: "ذاتی",
-  Groceries: "راشن",
-  Utilities: "بجلی/گیس/پانی",
-  Rent: "کرایہ",
-  Medical: "علاج",
-  Education: "تعلیم",
-  Travel: "سفر",
-  Gift: "تحفہ",
-  Charity: "خیرات",
-  "Domestic Staff": "ملازمین",
-  "Vehicle (personal)": "ذاتی گاڑی",
-  Entertainment: "تفریح",
-  "Funds In": "رقم جمع",
-  Other: "دیگر",
-};
-
-const BLANK = {
-  entryDate: today(),
-  category: "Household",
-  direction: "expense",
-  person: "",
-  description: "",
-  payee: "",
-  amount: "",
-  method: "Cash",
-  refNo: "",
-  paidBy: "",
-  notes: "",
-};
 
 export default function PersonalExpenses({
   showFeedback,
@@ -74,7 +43,9 @@ export default function PersonalExpenses({
   const [meta, setMeta] = useState<any>({ categories: [], methods: ["Cash"], people: [] });
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState<any>(BLANK);
+  const [form, setForm] = useState<any>(blankEntry());
+  const [addFiles, setAddFiles] = useState<File[]>([]);
+  const [viewId, setViewId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
@@ -163,12 +134,15 @@ export default function PersonalExpenses({
 
   const add = async () => {
     if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
+    if (!String(form.description || "").trim()) { showFeedback("error", "Write the description — what it was for · تفصیل لکھیں کہ کس لیے"); return; }
     setSaving(true);
     try {
-      await enterpriseFetch("/api/personal-expenses", { method: "POST", body: JSON.stringify(form) });
-      showFeedback("success", `Saved — it is now in the "${form.category}" ledger${form.person ? ` and ${form.person}'s ledger` : ""} · محفوظ ہو گیا، کھاتے میں چلا گیا`);
+      const row = await enterpriseFetch("/api/personal-expenses", { method: "POST", body: JSON.stringify(form) });
+      const up = addFiles.length ? await uploadEntryFiles(row.id, addFiles, uploadFile) : 0;
+      showFeedback(up < addFiles.length ? "error" : "success", `Saved — it is now in the "${form.category}" ledger${form.person ? ` and ${form.person}'s ledger` : ""}${addFiles.length ? ` · ${up} of ${addFiles.length} file(s) attached` : ""} · محفوظ ہو گیا، کھاتے میں چلا گیا`);
+      setAddFiles([]);
       setLedgerKey((k) => k + 1);
-      setForm({ ...BLANK, entryDate: form.entryDate, category: form.category, person: form.person, method: form.method });
+      setForm({ ...blankEntry(), entryDate: form.entryDate, category: form.category, person: form.person, method: form.method });
       setShowAdd(false);
       load();
     } catch (e: any) {
@@ -196,6 +170,7 @@ export default function PersonalExpenses({
   };
   const saveEdit = async () => {
     if (!editId) return;
+    if (!String(editForm.description || "").trim()) { showFeedback("error", "Write the description — what it was for · تفصیل لکھیں کہ کس لیے"); return; }
     setSaving(true);
     try {
       await enterpriseFetch(`/api/personal-expenses/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
@@ -294,6 +269,8 @@ export default function PersonalExpenses({
           saving={saving}
           onCancel={() => setShowAdd(false)}
           submitLabel="Save · محفوظ کریں"
+          files={addFiles}
+          onFiles={setAddFiles}
         />
       )}
 
@@ -306,6 +283,8 @@ export default function PersonalExpenses({
           selected={ledgerSel}
           onSelect={setLedgerSel}
           refreshKey={ledgerKey}
+          meta={meta}
+          onChanged={() => { setLedgerKey((k) => k + 1); load(); }}
           showFeedback={showFeedback}
         />
       )}
@@ -494,17 +473,26 @@ export default function PersonalExpenses({
                       {r.direction === "income" && <span className="ml-1 text-[9px] bg-[#E6ECF6] text-[#173563] rounded px-1">funds in</span>}
                     </td>
                     <td className="px-2 py-1.5" dir="auto">{r.person || "—"}</td>
-                    <td className="px-2 py-1.5 max-w-[220px] truncate" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
+                    <td className="px-2 py-1.5 max-w-[220px] truncate" dir="auto" title={r.description || ""}>{r.description || <span className="text-[#B00005]">no description · تفصیل نہیں</span>}</td>
                     <td className="px-2 py-1.5" dir="auto">{r.payee || "—"}</td>
                     <td className="px-2 py-1.5">{r.method}</td>
                     <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "income" ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                       {r.direction === "income" ? "+" : "−"}{PKR(r.amount)}
                     </td>
                     <td className="px-1 whitespace-nowrap">
-                      <button onClick={() => startEdit(r)} title="Edit · درست کریں" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => { setViewId((v) => (v === r.id ? null : r.id)); setEditId(null); }} title="View details & attachments · تفصیل اور فائلیں" className={`p-0.5 ${viewId === r.id ? "text-[#24539B]" : "text-slate-400 hover:text-[#24539B]"}`}><Eye className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => { setViewId((v) => (v === r.id ? null : r.id)); setEditId(null); }} title="Attachments · فائلیں" className={`inline-flex items-center p-0.5 ${r.attachments ? "text-emerald-700" : "text-slate-300 hover:text-slate-600"}`}>
+                        <Paperclip className="w-3.5 h-3.5" />{r.attachments ? <span className="text-[10px] font-bold">{r.attachments}</span> : null}
+                      </button>
+                      <button onClick={() => { startEdit(r); setViewId(null); }} title="Edit · درست کریں" className="text-slate-400 hover:text-emerald-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => del(r.id)} title="Delete · حذف کریں" className="text-slate-400 hover:text-red-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>
+                  {viewId === r.id && (
+                    <tr className="bg-[#F2F5FA]">
+                      <td colSpan={8} className="px-3 py-3"><EntryDetail row={r} onChanged={load} /></td>
+                    </tr>
+                  )}
                   {editId === r.id && (
                     <tr className="bg-[#F2F5FA]">
                       <td colSpan={8} className="px-3 py-3">
@@ -533,90 +521,6 @@ export default function PersonalExpenses({
         </div>
       </div>
       </>)}
-    </div>
-  );
-}
-
-function EntryForm({
-  value,
-  onChange,
-  meta,
-  onSubmit,
-  saving,
-  onCancel,
-  submitLabel,
-  compact,
-}: {
-  value: any;
-  onChange: (v: any) => void;
-  meta: any;
-  onSubmit: () => void;
-  saving: boolean;
-  onCancel: () => void;
-  submitLabel: string;
-  compact?: boolean;
-}) {
-  const set = (k: string, v: any) => onChange({ ...value, [k]: v });
-  return (
-    <div className={`rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 ${compact ? "" : "shadow-sm"}`}>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-        <label className="flex flex-col text-[10px] text-slate-500">Date · تاریخ
-          <input type="date" value={value.entryDate} onChange={(e) => set("entryDate", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Category · مد
-          <select
-            value={value.category}
-            onChange={(e) => {
-              if (e.target.value !== "__new") return set("category", e.target.value);
-              const n = (window.prompt("New category name — it becomes its own ledger · نئی مد کا نام (اس کا اپنا کھاتہ بن جائے گا)", "") || "").trim().slice(0, 40);
-              if (n) onChange({ ...value, category: n });
-            }}
-            className="border rounded px-2 py-1 text-slate-800"
-          >
-            {[...(meta.categories || []), ...(value.category && !(meta.categories || []).includes(value.category) ? [value.category] : [])].map((c: string) => <option key={c} value={c}>{c}{CAT_UR[c] ? ` · ${CAT_UR[c]}` : ""}</option>)}
-            <option value="__new">＋ New category… · نئی مد</option>
-          </select>
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Type
-          <select value={value.direction} onChange={(e) => set("direction", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
-            <option value="expense">Expense · خرچہ</option>
-            <option value="income">Funds in · رقم جمع</option>
-          </select>
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Amount (PKR) · رقم
-          <input inputMode="numeric" value={value.amount} onChange={(e) => set("amount", e.target.value.replace(/[^\d]/g, ""))} className="border rounded px-2 py-1 text-slate-800 font-semibold" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Person · فرد <span className="text-slate-400">(pocket money)</span>
-          <input dir="auto" list="pe-people" value={value.person} onChange={(e) => set("person", e.target.value)} className="border rounded px-2 py-1 text-slate-800" placeholder="e.g. son / wife / self" />
-          <datalist id="pe-people">{(meta.people || []).map((p: string) => <option key={p} value={p} />)}</datalist>
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Payee · کس کو دیا
-          <input dir="auto" value={value.payee} onChange={(e) => set("payee", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Method · ذریعہ
-          <select value={value.method} onChange={(e) => set("method", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
-            {(meta.methods || ["Cash"]).map((m: string) => <option key={m}>{m}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Ref no.
-          <input value={value.refNo} onChange={(e) => set("refNo", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500 col-span-2 md:col-span-2">Description · تفصیل
-          <input dir="auto" value={value.description} onChange={(e) => set("description", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Paid by · کس نے دیا
-          <input dir="auto" value={value.paidBy} onChange={(e) => set("paidBy", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-        <label className="flex flex-col text-[10px] text-slate-500">Notes · نوٹ
-          <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
-        </label>
-      </div>
-      <div className="flex items-center gap-2 mt-3">
-        <button onClick={onSubmit} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} {submitLabel}
-        </button>
-        <button onClick={onCancel} className="border border-slate-300 rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
-      </div>
     </div>
   );
 }

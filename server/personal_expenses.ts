@@ -48,6 +48,18 @@ const METHODS = ["Cash", "Bank", "Card", "Online", "Cheque"];
 
 const T = schema.personalExpenses;
 
+/** How many files are attached to each entry (receipts, slips, photos) — one query for a whole page. */
+async function attachmentCounts(ids: number[]): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const A = schema.attachments;
+  const r = await db
+    .select({ id: A.entityId, n: sql<number>`count(*)::int` })
+    .from(A)
+    .where(and(eq(A.entityType, "personal_expenses"), eq(A.isDeleted, false), sql`${A.entityId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`))
+    .groupBy(A.entityId);
+  return new Map(r.map((x) => [x.id, x.n]));
+}
+
 const audit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", id: number, oldV: unknown, newV: unknown) =>
   logAudit({
     action,
@@ -167,6 +179,7 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       .where(and(base, from ? gte(T.entryDate, new Date(from)) : undefined, to ? lte(T.entryDate, new Date(new Date(to).getTime() + 24 * 3600_000 - 1)) : undefined))
       .orderBy(T.entryDate, T.id)
       .limit(5000);
+    const counts = await attachmentCounts(list.map((r) => r.id));
     const opening = sign * Number(openRow?.v || 0);
     let running = opening;
     let spent = 0;
@@ -176,7 +189,7 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       if (isIn) funds += r.amount;
       else spent += r.amount;
       running += sign * (isIn ? -r.amount : r.amount);
-      return { id: r.id, entryDate: r.entryDate, category: r.category, person: r.person, description: r.description, payee: r.payee, method: r.method, refNo: r.refNo, direction: r.direction, amount: r.amount, running };
+      return { ...r, attachments: counts.get(r.id) || 0, running };
     });
     res.json({
       kind,
@@ -216,7 +229,8 @@ router.get("/", requireRole(READ), async (req: AuthRequest, res: Response) => {
       db.select().from(T).where(and(...cond)).orderBy(desc(T.entryDate), desc(T.id)).limit(limit).offset(offset),
       db.select({ n: sql<number>`count(*)::int`, sum: sql<number>`coalesce(sum(case when ${T.direction}='expense' then ${T.amount} else -${T.amount} end),0)::bigint` }).from(T).where(and(...cond)),
     ]);
-    res.json({ rows, total: tot?.n || 0, netSpend: Number(tot?.sum || 0) });
+    const counts = await attachmentCounts(rows.map((r) => r.id));
+    res.json({ rows: rows.map((r) => ({ ...r, attachments: counts.get(r.id) || 0 })), total: tot?.n || 0, netSpend: Number(tot?.sum || 0) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -321,7 +335,8 @@ router.get("/summary/range", requireRole(READ), async (req: AuthRequest, res: Re
 router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const patch = coerce(req.body || {});
-    if (patch.amount === undefined || !patch.amount) return res.status(400).json({ error: "Amount is required" });
+    if (patch.amount === undefined || !patch.amount) return res.status(400).json({ error: "Amount is required · رقم درج کریں" });
+    if (!String(patch.description || "").trim()) return res.status(400).json({ error: "Write what it was for (description) · تفصیل لکھیں کہ کس لیے" });
     if (patch.entryDate === undefined) patch.entryDate = new Date();
     const [row] = await db
       .insert(T)
@@ -341,6 +356,7 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     if (!old) return res.status(404).json({ error: "Not found" });
     const patch = coerce(req.body || {});
+    if (patch.description !== undefined && !String(patch.description || "").trim()) return res.status(400).json({ error: "Description cannot be empty · تفصیل خالی نہیں ہو سکتی" });
     patch.updatedAt = new Date();
     patch.updatedBy = req.user?.id;
     const [row] = await db.update(T).set(patch).where(eq(T.id, id)).returning();
