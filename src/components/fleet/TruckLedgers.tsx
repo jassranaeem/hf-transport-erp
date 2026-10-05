@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import BalanceFlow, { ALL, Period, periodParams } from "./BalanceFlow.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import {
@@ -55,6 +56,7 @@ interface LedgerDetail {
   partnerAgreement: any | null;
   entries: Entry[];
   pnl: { totalReceived: number; totalPaid: number; netProfit: number; byCategory: Array<{ category: string; received: number; paid: number; entries: number }> };
+  balance: any;
 }
 
 const fmt = (n: number) => (n < 0 ? "-" : "") + "PKR " + Math.abs(Math.round(n)).toLocaleString();
@@ -156,9 +158,10 @@ export default function TruckLedgers({
     if (selId != null) loadDetail(selId);
   };
 
+  const [period, setPeriod] = useState<Period>(ALL);
   const loadDetail = (id: number) => {
     setLoading(true);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(periodParams(period));
     if (catFilter) params.set("category", catFilter);
     if (reviewOnly) params.set("needsReview", "1");
     enterpriseFetch(`/api/ledgers/${id}?${params}`)
@@ -168,7 +171,7 @@ export default function TruckLedgers({
   };
   useEffect(() => {
     if (selId != null) loadDetail(selId);
-  }, [selId, catFilter, reviewOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selId, catFilter, reviewOnly, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (detail) {
@@ -667,12 +670,24 @@ export default function TruckLedgers({
                 )}
               </div>
 
-              {/* P&L */}
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label="Received" value={fmt(detail.pnl.totalReceived)} tone="good" icon={<TrendingUp className="w-3.5 h-3.5" />} />
-                <Stat label="Paid" value={fmt(detail.pnl.totalPaid)} tone="bad" icon={<TrendingDown className="w-3.5 h-3.5" />} />
-                <Stat label="Net profit · صافی بچت" value={fmt(detail.pnl.netProfit)} tone={detail.pnl.netProfit >= 0 ? "good" : "bad"} />
-              </div>
+              {/* opening + received − paid = balance now */}
+              <BalanceFlow
+                mode="truck"
+                balance={detail.balance}
+                period={period}
+                onPeriod={setPeriod}
+                onSaveOpening={async (amount, date) => {
+                  try {
+                    await enterpriseFetch(`/api/ledgers/${selId}/opening`, { method: "PUT", body: JSON.stringify({ amount, date }) });
+                    showFeedback("success", "Opening balance saved · ابتدائی بیلنس محفوظ");
+                    if (selId != null) loadDetail(selId);
+                    loadList();
+                  } catch (e: any) {
+                    showFeedback("error", e.message);
+                    throw e;
+                  }
+                }}
+              />
 
               {detail.partnerAgreement && (
                 <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-xs text-indigo-900">

@@ -207,6 +207,7 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
             and (e.received > 0 or e.paid > 0) and not (e.received > 0 and e.paid > 0)
             and not (e.sr_no is null and e.source_row is not null and e.sheet_balance is null)
             and coalesce(e.category, '') <> 'SafiBachat'
+            and coalesce(e.method, '') <> 'Opening'
             and not (coalesce(e.description, '') ~* ${CARRY})),
         inv as (select distinct on (trip_id) trip_id, contractor_id from invoices where not is_deleted and trip_id is not null order by trip_id, id),
         r as (
@@ -222,6 +223,17 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
         select 'tle:' || id, entry_date, left(registration || ': ' || coalesce(description, category), 300), code,
                case when is_in then 0 else amt end, case when is_in then amt else 0 end, vehicle_id, ledger_id, null::int,
                case when code = '1100' then inv_con end from r`);
+
+      // 4a-2. a truck khata's opening balance (its "Opening balance" row): brought forward against
+      // opening balance equity, never counted as the truck's income or expense
+      await run(sql`insert into _p
+        with o as (
+          select e.id, e.entry_date, e.received - e.paid b, e.ledger_id, l.vehicle_id, l.registration
+          from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+          where not e.is_deleted and not l.is_deleted and e.method = 'Opening' and e.entry_date >= ${START} and e.received <> e.paid)
+        select 'tlo:' || id, entry_date, left(registration || ': opening balance', 300), '1060', greatest(b, 0), greatest(-b, 0), vehicle_id, ledger_id, null::int, null::int from o
+        union all
+        select 'tlo:' || id, entry_date, left(registration || ': opening balance', 300), '3900', greatest(-b, 0), greatest(b, 0), vehicle_id, ledger_id, null::int, null::int from o`);
 
       // 4b. daily cash book
       await run(sql`insert into _p
@@ -309,8 +321,12 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
       await run(sql`insert into _p
         with cash as (select coalesce(sum(case when direction = 'In' then amount else -amount end), 0)::bigint b from cash_transactions where not is_deleted and entry_date < ${START}),
         pb as (
-          select e.party_id, sum(e.debit - e.credit)::bigint b, (select role from _who w where w.party_id = e.party_id limit 1) role
-          from party_ledger_entries e where not e.is_deleted and e.entry_date < ${START} group by e.party_id),
+          select x.party_id, sum(x.b)::bigint b, (select role from _who w where w.party_id = x.party_id limit 1) role
+          from (
+            select e.party_id, e.debit - e.credit b from party_ledger_entries e where not e.is_deleted and e.entry_date < ${START}
+            union all
+            select p.id, p.opening_balance from parties p where not p.is_deleted and p.opening_balance <> 0) x
+          group by x.party_id),
         lines as (
           select '1001' code, b, null::int party_id from cash where b <> 0
           union all
@@ -437,6 +453,7 @@ async function booksSignature(): Promise<string> {
       ${part("zakat_payments", "amount")},
       ${part("truck_ledgers", "0")},
       ${part("partnership_accounts", "0")},
+      ${part("parties", "opening_balance")},
       ${part("bank_statement_lines", "deposit + withdrawal + coalesce(length(matched_key), 0) + coalesce(length(kind), 0)")},
       ${part("bank_accounts", "opening_balance")},
       ${part("tax_entries", "tax_amount + gross_amount")},

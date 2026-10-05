@@ -553,6 +553,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const cond = [eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)];
     if (req.query.needsReview === "1") cond.push(eq(schema.partyLedgerEntries.needsReview, true));
     if (req.query.category) cond.push(eq(schema.partyLedgerEntries.category, req.query.category as string));
+    const day = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const from = day(req.query.from);
+    const to = day(req.query.to);
+    if (from) cond.push(sql`${schema.partyLedgerEntries.entryDate} >= ${from}::timestamp`);
+    if (to) cond.push(sql`${schema.partyLedgerEntries.entryDate} < (${to}::date + 1)::timestamp`);
 
     const entriesRaw = await db
       .select()
@@ -590,8 +595,30 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       .from(schema.partyLedgerEntries)
       .where(and(eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)));
 
+    // the balance flow for the chosen dates: opening + we gave (debit) − we received (credit) = closing
+    // (+ = the party owes HFK / receivable, − = HFK owes the party / payable)
+    const [flow] = ((await db.execute(sql`select
+        coalesce(sum(debit - credit) filter (where ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 0)::bigint before,
+        coalesce(sum(debit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint debit,
+        coalesce(sum(credit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint credit,
+        count(*) filter (where entry_date is null)::int undated
+      from party_ledger_entries where party_id = ${id} and not is_deleted`)) as any).rows;
+    const opening = (party.openingBalance || 0) + Number(flow?.before || 0);
+    const debit = Number(flow?.debit || 0);
+    const credit = Number(flow?.credit || 0);
+
     res.json({
       party,
+      balance: {
+        from,
+        to,
+        openingBalance: party.openingBalance || 0, // the party's own opening balance (editable)
+        opening,
+        debit,
+        credit,
+        closing: opening + debit - credit,
+        undated: from || to ? flow?.undated || 0 : 0, // rows with no date are left out of a dated period
+      },
       entries,
       totals: {
         totalDebit: Number(agg?.debit || 0),

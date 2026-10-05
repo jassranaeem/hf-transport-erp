@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile, uploadAttachment } from "../../../client/api.ts";
+import BalanceFlow, { ALL, Period, periodParams } from "./BalanceFlow.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import DuesAlerts from "./DuesAlerts.tsx";
@@ -85,13 +86,14 @@ export default function Parties({
   }, [q, typeFilter, offset, showFeedback]);
   useEffect(loadList, [loadList]);
 
+  const [period, setPeriod] = useState<Period>(ALL);
   const loadDetail = useCallback((id: number) => {
     setLoading(true);
-    enterpriseFetch(`/api/parties/${id}`)
+    enterpriseFetch(`/api/parties/${id}?${new URLSearchParams(periodParams(period))}`)
       .then((d) => { setDetail(d); setEditParty(d.party); })
       .catch((e) => showFeedback("error", e.message))
       .finally(() => setLoading(false));
-  }, [showFeedback]);
+  }, [showFeedback, period]);
   useEffect(() => {
     if (selId != null) {
       loadDetail(selId);
@@ -457,11 +459,24 @@ export default function Parties({
                 </details>
               )}
 
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label="Total debit · کل نام" value={fmt(detail.totals.totalDebit)} tone="bad" />
-                <Stat label="Total credit · کل جمع" value={fmt(detail.totals.totalCredit)} tone="good" />
-                <Stat label="Balance" value={fmt(detail.party.closingBalance)} tone={detail.party.closingBalance >= 0 ? "good" : "bad"} />
-              </div>
+              {/* opening + we gave − we received = balance now */}
+              <BalanceFlow
+                mode="party"
+                balance={detail.balance}
+                period={period}
+                onPeriod={setPeriod}
+                onSaveOpening={async (amount) => {
+                  try {
+                    await enterpriseFetch(`/api/parties/${detail.party.id}`, { method: "PUT", body: JSON.stringify({ openingBalance: amount }) });
+                    showFeedback("success", "Opening balance saved · ابتدائی بیلنس محفوظ");
+                    loadDetail(detail.party.id);
+                    loadList();
+                  } catch (e: any) {
+                    showFeedback("error", e.message);
+                    throw e;
+                  }
+                }}
+              />
 
               {dupWarn && (
                 <div className="rounded-lg border border-red-300 bg-red-600 text-white px-3 py-2 text-[12px] flex items-start gap-2 whitespace-pre-line" dir="auto">

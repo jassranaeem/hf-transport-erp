@@ -136,7 +136,7 @@ say(`## 0. Are the books current?`);
 const part = (t, m) => `(select count(*) || '/' || coalesce(max(id), 0) || '/' || coalesce(sum(${m}), 0) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) || '/' || count(*) filter (where is_deleted) from ${t})`;
 const sig = await one(`select md5(concat_ws('|',
   ${part("truck_ledger_entries", "received + paid")}, ${part("party_ledger_entries", "debit + credit")}, ${part("cash_transactions", "amount")},
-  ${part("personal_expenses", "amount")}, ${part("zakat_payments", "amount")}, ${part("truck_ledgers", "0")}, ${part("partnership_accounts", "0")},
+  ${part("personal_expenses", "amount")}, ${part("zakat_payments", "amount")}, ${part("truck_ledgers", "0")}, ${part("partnership_accounts", "0")}, ${part("parties", "opening_balance")},
   ${part("bank_statement_lines", "deposit + withdrawal + coalesce(length(matched_key), 0) + coalesce(length(kind), 0)")}, ${part("bank_accounts", "opening_balance")},
   ${part("tax_entries", "tax_amount + gross_amount")},
   (select count(*) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) from posting_rules),
@@ -186,7 +186,7 @@ const legacy = await q(`select left(entry_number, 8) k, count(*)::int c from jou
   group by 1`);
 legacy.length ? rec("Double counting (old postings)", "FAIL", `Older automatic postings that the books engine replaces are still present: ${legacy.map((l) => `${l.k}… ×${l.c}`).join(", ")}.`, "the same khata money counted twice until the books are rebuilt") : rec("Double counting (old postings)", "PASS", "No older per-import postings (JE-REV / synced JE-EXP / JE-MNT / Close-trip JE-PAY) remain beside the engine's postings.");
 const deadSrc = await q(`select j.source_key from journal_entries j where j.is_auto and (
-    (j.source_key like 'tle:%' and not exists (select 1 from truck_ledger_entries e where e.id = split_part(j.source_key, ':', 2)::int and not e.is_deleted))
+    ((j.source_key like 'tle:%' or j.source_key like 'tlo:%') and not exists (select 1 from truck_ledger_entries e where e.id = split_part(j.source_key, ':', 2)::int and not e.is_deleted))
     or (j.source_key like 'ple:%' and not exists (select 1 from party_ledger_entries e where e.id = split_part(j.source_key, ':', 2)::int and not e.is_deleted))
     or (j.source_key like 'pship:%' and not exists (select 1 from party_ledger_entries e where e.id = split_part(j.source_key, ':', 2)::int and not e.is_deleted))
     or (j.source_key like 'ct:%' and not exists (select 1 from cash_transactions e where e.id = split_part(j.source_key, ':', 2)::int and not e.is_deleted))
@@ -216,7 +216,9 @@ const openDate = await one(`select entry_date::text d from journal_entries where
 const expCash = await one(`select coalesce(sum(case when direction='In' then amount else -amount end),0)::bigint b from cash_transactions where not is_deleted and entry_date < $1::timestamp`, [START]);
 const roles = await q(`select partner_party_id p, 'partner' r from partnership_accounts where not is_deleted union select hfk_party_id, 'hfk' from partnership_accounts where not is_deleted`);
 const roleOf = new Map(roles.map((r) => [n(r.p), r.r]));
-const expParty = await q(`select party_id, sum(debit - credit)::bigint b from party_ledger_entries where not is_deleted and entry_date < $1::timestamp group by 1 having sum(debit - credit) <> 0`, [START]);
+// a party's opening balance (the figure on the party itself) counts as owed on the first day
+const expParty = await q(`select party_id, sum(b)::bigint b from (select party_id, debit - credit b from party_ledger_entries where not is_deleted and entry_date < $1::timestamp
+    union all select id, opening_balance from parties where not is_deleted and opening_balance <> 0) x group by 1 having sum(b) <> 0`, [START]);
 const expBank = await q(`select '12' || lpad(id::text, 2, '0') code, opening_balance::bigint b from bank_accounts where not is_deleted and opening_balance <> 0`);
 const want = new Map();
 const add = (k, v) => want.set(k, (want.get(k) || 0) + n(v));
@@ -286,8 +288,10 @@ else {
 
 say(``);
 say(`### 2e-2. Party balances: books vs Party Ledgers`);
-const partyRec = await q(`with led as (select party_id, sum(debit - credit)::bigint led, sum(case when entry_date is null then debit - credit else 0 end)::bigint undated,
+const partyRec = await q(`with led0 as (select party_id, sum(debit - credit)::bigint led, sum(case when entry_date is null then debit - credit else 0 end)::bigint undated,
       sum(case when entry_date >= '${START}'::timestamp and debit > 0 and credit > 0 then debit - credit else 0 end)::bigint bothsides from party_ledger_entries where not is_deleted group by 1),
+    led as (select coalesce(led0.party_id, p.id) party_id, coalesce(led0.led, 0) + coalesce(p.opening_balance, 0) led, coalesce(led0.undated, 0) undated, coalesce(led0.bothsides, 0) bothsides
+      from led0 full join (select id, opening_balance from parties where not is_deleted and opening_balance <> 0) p on p.id = led0.party_id),
     bk as (select l.party_id, sum(l.debit - l.credit)::bigint bk from journal_lines l join journal_entries j on j.id = l.journal_entry_id join accounts a on a.id = l.account_id
            where a.code in ('1150','2200','3100') and l.party_id is not null and not l.is_deleted and not j.is_deleted group by 1),
     hfk as (select hfk_party_id p from partnership_accounts where not is_deleted)
@@ -321,7 +325,7 @@ const truckRec = await q(`with e as (
       and not (coalesce(e.description, '') ~* 'قرضدار|qarz\\s*d[ae]r|qarzder|بچت|bach?at|bacht')),
   k as (select ledger_id, count(*)::int rows, sum(amt)::bigint khata from e group by 1),
   g as (select l.truck_ledger_id ledger_id, count(distinct j.id)::int entries, sum(l.debit - l.credit)::bigint books from journal_lines l join journal_entries j on j.id = l.journal_entry_id join accounts a on a.id = l.account_id
-        where j.source_key like 'tle:%' and a.code = '1060' and not l.is_deleted group by 1)
+        where (j.source_key like 'tle:%' or j.source_key like 'tlo:%') and a.code = '1060' and not l.is_deleted group by 1)
   select coalesce(k.ledger_id, g.ledger_id) ledger_id, (select registration from truck_ledgers where id = coalesce(k.ledger_id, g.ledger_id)) truck, coalesce(k.rows, 0) rows, coalesce(g.entries, 0) entries, coalesce(k.khata, 0) khata, coalesce(g.books, 0) books
   from k full join g on g.ledger_id = k.ledger_id`, [START]);
 const tBad = truckRec.filter((r) => n(r.khata) !== n(r.books) || n(r.rows) !== n(r.entries));

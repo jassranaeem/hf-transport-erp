@@ -581,7 +581,7 @@ router.get("/summary", requireRole(READ), async (_req: AuthRequest, res: Respons
         needReview: sql<number>`count(*) filter (where ${schema.truckLedgerEntries.needsReview})::int`,
       })
       .from(schema.truckLedgerEntries)
-      .where(eq(schema.truckLedgerEntries.isDeleted, false));
+      .where(and(eq(schema.truckLedgerEntries.isDeleted, false), sql`coalesce(${schema.truckLedgerEntries.method}, '') <> 'Opening'`));
     const byCat = await db
       .select({
         category: schema.truckLedgerEntries.category,
@@ -590,7 +590,7 @@ router.get("/summary", requireRole(READ), async (_req: AuthRequest, res: Respons
         paid: sql<number>`coalesce(sum(${schema.truckLedgerEntries.paid}),0)::bigint`,
       })
       .from(schema.truckLedgerEntries)
-      .where(eq(schema.truckLedgerEntries.isDeleted, false))
+      .where(and(eq(schema.truckLedgerEntries.isDeleted, false), sql`coalesce(${schema.truckLedgerEntries.method}, '') <> 'Opening'`))
       .groupBy(schema.truckLedgerEntries.category)
       .orderBy(desc(sql`count(*)`));
     res.json({
@@ -631,6 +631,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const cond = [eq(schema.truckLedgerEntries.ledgerId, id), eq(schema.truckLedgerEntries.isDeleted, false)];
     if (category) cond.push(eq(schema.truckLedgerEntries.category, category));
     if (needsReview) cond.push(eq(schema.truckLedgerEntries.needsReview, true));
+    const day = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const from = day(req.query.from);
+    const to = day(req.query.to);
+    if (from) cond.push(sql`${schema.truckLedgerEntries.entryDate} >= ${from}::timestamp`);
+    if (to) cond.push(sql`${schema.truckLedgerEntries.entryDate} < (${to}::date + 1)::timestamp`);
 
     const entries = await db
       .select()
@@ -648,11 +653,30 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         entries: sql<number>`count(*)::int`,
       })
       .from(schema.truckLedgerEntries)
-      .where(and(eq(schema.truckLedgerEntries.ledgerId, id), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .where(
+        and(
+          eq(schema.truckLedgerEntries.ledgerId, id),
+          eq(schema.truckLedgerEntries.isDeleted, false),
+          sql`coalesce(${schema.truckLedgerEntries.method}, '') <> 'Opening'`,
+          from ? sql`${schema.truckLedgerEntries.entryDate} >= ${from}::timestamp` : sql`true`,
+          to ? sql`${schema.truckLedgerEntries.entryDate} < (${to}::date + 1)::timestamp` : sql`true`,
+        ),
+      )
       .groupBy(schema.truckLedgerEntries.category);
 
     const totReceived = byCat.reduce((s, c) => s + Number(c.received), 0);
     const totPaid = byCat.reduce((s, c) => s + Number(c.paid), 0);
+
+    // the balance flow: what the khata stood at before (its opening balance, plus everything before
+    // the chosen start date), what came in and went out in the period, and where it stands after
+    const [flow] = ((await db.execute(sql`select
+        coalesce(sum(received - paid) filter (where method = 'Opening'), 0)::bigint opening_row,
+        min(to_char(entry_date, 'YYYY-MM-DD')) filter (where method = 'Opening') opening_date,
+        coalesce(sum(received - paid) filter (where coalesce(method, '') <> 'Opening' and ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 0)::bigint before,
+        coalesce(sum(received - paid) filter (where coalesce(method, '') <> 'Opening' and ${to ? sql`entry_date >= (${to}::date + 1)::timestamp` : sql`false`}), 0)::bigint after
+      from truck_ledger_entries where ledger_id = ${id} and not is_deleted`)) as any).rows;
+    const openingRow = Number(flow?.opening_row || 0);
+    const opening = openingRow + Number(flow?.before || 0);
 
     let partnerAgreement = null;
     if (row.ledger.partnerAgreementId) {
@@ -679,6 +703,18 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber },
       partnerAgreement,
       entries: flagged,
+      balance: {
+        from,
+        to,
+        openingBalance: openingRow, // the khata's own opening balance (editable)
+        openingDate: flow?.opening_date || null,
+        opening, // the balance at the start of the period
+        received: totReceived,
+        paid: totPaid,
+        profit: totReceived - totPaid,
+        closing: opening + totReceived - totPaid,
+        runningClosing: row.ledger.closingBalance, // the last row's running balance (old paper pages each start from 0)
+      },
       pnl: {
         totalReceived: totReceived,
         totalPaid: totPaid,
@@ -740,6 +776,61 @@ export async function recompute(ledgerId: number) {
   await db.update(schema.truckLedgers).set({ closingBalance: lastReal, updatedAt: new Date() }).where(eq(schema.truckLedgers.id, ledgerId));
   return lastReal;
 }
+
+// ---- the khata's opening balance: + money it held / − it owed when it started ----------------
+router.put("/:id(\\d+)/opening", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const ledgerId = parseInt(req.params.id);
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+    if (!led) return res.status(404).json({ error: "Ledger not found" });
+    const amount = Math.round(Number(req.body?.amount) || 0);
+    const date = typeof req.body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : null;
+    const T = schema.truckLedgerEntries;
+    const old = await db.select().from(T).where(and(eq(T.ledgerId, ledgerId), eq(T.isDeleted, false), eq(T.method, "Opening"))).orderBy(asc(T.id));
+    const [keep, ...extra] = old;
+    const values = {
+      received: amount > 0 ? amount : 0,
+      paid: amount < 0 ? -amount : 0,
+      direction: amount > 0 ? "In" : amount < 0 ? "Out" : null,
+      ...(date ? { entryDate: new Date(`${date}T12:00:00`), rawDate: date } : {}),
+      updatedAt: new Date(),
+      updatedBy: req.user?.id,
+    };
+    if (extra.length) await db.update(T).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(inArray(T.id, extra.map((x) => x.id)));
+    let row: any = null;
+    if (amount === 0) {
+      if (keep) await db.update(T).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(T.id, keep.id));
+    } else if (keep) {
+      [row] = await db.update(T).set(values).where(eq(T.id, keep.id)).returning();
+    } else {
+      // a new opening row goes before the hand-entered rows (first line of the khata)
+      const [m] = ((await db.execute(sql`select min(coalesce(sort_key, id)) k, min(to_char(entry_date, 'YYYY-MM-DD')) d from truck_ledger_entries
+        where ledger_id = ${ledgerId} and not is_deleted and section_label = 'Manual'`)) as any).rows;
+      const d = date || m?.d || new Date().toISOString().slice(0, 10);
+      [row] = await db
+        .insert(T)
+        .values({
+          ledgerId,
+          ...values,
+          entryDate: new Date(`${d}T12:00:00`),
+          rawDate: d,
+          method: "Opening",
+          description: "Opening balance",
+          category: "Other",
+          sectionLabel: "Manual",
+          sortKey: m?.k != null ? Number(m.k) - 1 : null,
+          createdBy: req.user?.id,
+        })
+        .returning();
+    }
+    await db.update(schema.truckLedgers).set({ openingBalance: amount, updatedAt: new Date() }).where(eq(schema.truckLedgers.id, ledgerId));
+    await recompute(ledgerId);
+    await audit(req, "UPDATE", keep?.id || row?.id || 0, keep || null, { openingBalance: amount, date: date || null });
+    res.json({ ok: true, openingBalance: amount });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ---- add an entry ----------------------------------------------
 router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
