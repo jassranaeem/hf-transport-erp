@@ -144,6 +144,12 @@ export default function BalanceFlow({
           <>
             {period.key === "all" ? "Profit · منافع" : "Profit in these dates · اس مدت کا منافع"} = received − spent = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
             {" "}· the opening balance is money from before — it is not profit · ابتدائی بیلنس منافع نہیں
+            {balance.driverCash && (
+              <div className="mt-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5 text-[12px] text-slate-700">
+                Driver's cash · ڈرائیور کی نقد: given <b>{fmt(balance.driverCash.given)}</b> − spent out of it <b>{fmt(balance.driverCash.spent)}</b> = <b className="text-amber-800">still with the driver {fmt(balance.driverCash.withDriver)}</b>
+                <span className="text-slate-500"> · ڈرائیور کے پاس باقی — when he returns it or brings the slips, enter it</span>
+              </div>
+            )}
             {period.key === "all" && balance.runningClosing != null && balance.runningClosing !== balance.closing && (
               <span className="text-amber-700"> · the last row's running balance reads {fmt(balance.runningClosing)} (old paper pages each start from 0)</span>
             )}

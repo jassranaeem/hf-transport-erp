@@ -240,7 +240,8 @@ export default function TruckLedgers({
       category: e.category || "Other",
       method: e.method || "",
       received: e.received || "",
-      paid: e.paid || "",
+      // a cash row shows the cash handed over (part of it was spent on diesel, toll…)
+      paid: (e as any).spentFromIt ? e.paid + (e as any).spentFromIt : e.paid || "",
       routeFrom: e.routeFrom || "",
       routeTo: e.routeTo || "",
       needsReview: e.needsReview,
@@ -255,7 +256,8 @@ export default function TruckLedgers({
         body: JSON.stringify({
           ...editForm,
           received: Number(editForm.received) || 0,
-          paid: Number(editForm.paid) || 0,
+          // stored as what is left of the cash after what was paid out of it
+          paid: Math.max(0, (Number(editForm.paid) || 0) - (Number((detail?.entries.find((x) => x.id === editId) as any)?.spentFromIt) || 0)),
         }),
       });
       showFeedback("success", "Entry updated · اندراج درست ہو گیا");
@@ -806,8 +808,16 @@ export default function TruckLedgers({
                             </td>
                             <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] ${catClass(e.category)}`}>{catLabel(e.category)}</span></td>
                             <td className="px-2 py-1.5 text-right text-emerald-700">{e.received ? e.received.toLocaleString() : ""}</td>
-                            <td className="px-2 py-1.5 text-right text-red-600">{e.paid ? e.paid.toLocaleString() : ""}</td>
-                            <td className={`px-2 py-1.5 text-right font-medium ${e.runningBalance < 0 ? "text-red-600" : "text-slate-700"}`}>{e.runningBalance.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right text-red-600">
+                              {(e as any).fromCash ? (
+                                <span className="text-slate-400 text-[11px] whitespace-nowrap" title="Paid by the driver out of the cash above — not a second payment">↳ {(e as any).fromCash.toLocaleString()} from cash</span>
+                              ) : (e as any).shownPaid ?? e.paid ? (
+                                ((e as any).shownPaid ?? e.paid).toLocaleString()
+                              ) : (
+                                ""
+                              )}
+                            </td>
+                            <td className={`px-2 py-1.5 text-right font-medium ${((e as any).shownBalance ?? e.runningBalance) < 0 ? "text-red-600" : "text-slate-700"}`}>{((e as any).shownBalance ?? e.runningBalance).toLocaleString()}</td>
                             <td className="px-1 whitespace-nowrap">
                               <button onClick={() => startEdit(e)} title="Edit this entry · اندراج درست کریں" className="text-slate-400 hover:text-emerald-700 p-0.5">
                                 <Pencil className="w-3.5 h-3.5" />

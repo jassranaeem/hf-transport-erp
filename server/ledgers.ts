@@ -697,7 +697,41 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       : entries;
     // a row the books check says is wrong shows red right here, until it is corrected
     const issues = await rowIssues("tle", entries.map((e) => e.id)).catch(() => new Map<number, string>());
-    const flagged = (withTrip as any[]).map((e) => (issues.has(e.id) ? { ...e, issue: issues.get(e.id) } : e));
+
+    // Cash handed to the driver, and what he paid out of it (diesel at the pump, toll…). Underneath, a
+    // "paid from the cash" row is taken out of its cash row so every rupee is counted once by what it
+    // was for. On the khata it reads the way it is written on paper: the cash in full (350,000), and the
+    // diesel under it as "from the cash" — not a second Out. The balance column follows the same reading.
+    const order = ((await db.execute(sql`select id, paid, paid_from_entry_id from truck_ledger_entries
+        where ledger_id = ${id} and not is_deleted order by ${PAGE_ORDER}, ${ROW_ORDER}`)) as any).rows as Array<{ id: number; paid: number; paid_from_entry_id: number | null }>;
+    const spentFrom = new Map<number, number>();
+    for (const r of order) if (r.paid_from_entry_id) spentFrom.set(r.paid_from_entry_id, (spentFrom.get(r.paid_from_entry_id) || 0) + Number(r.paid || 0));
+    const shift = new Map<number, number>(); // running-balance correction up to and including each row
+    let cum = 0;
+    for (const r of order) {
+      cum += (spentFrom.get(r.id) || 0) - (r.paid_from_entry_id ? Number(r.paid || 0) : 0);
+      shift.set(r.id, cum);
+    }
+    const flagged = (withTrip as any[]).map((e) => {
+      const spent = spentFrom.get(e.id) || 0;
+      const out = {
+        ...e,
+        spentFromIt: spent,
+        shownPaid: e.paidFromEntryId ? 0 : e.paid + spent,
+        fromCash: e.paidFromEntryId ? e.paid : 0,
+        shownBalance: e.runningBalance - (shift.get(e.id) || 0),
+      };
+      return issues.has(e.id) ? { ...out, issue: issues.get(e.id) } : out;
+    });
+    // the driver's cash in these rows: handed over, spent out of it, still with him (not yet accounted for)
+    const drv = entries.reduce(
+      (a, e) => {
+        if (e.category === "TripCash" && !e.paidFromEntryId) a.given += e.paid + (spentFrom.get(e.id) || 0);
+        if (e.paidFromEntryId) a.spent += e.paid;
+        return a;
+      },
+      { given: 0, spent: 0 },
+    );
 
     res.json({
       ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber },
@@ -714,6 +748,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         profit: totReceived - totPaid,
         closing: opening + totReceived - totPaid,
         runningClosing: row.ledger.closingBalance, // the last row's running balance (old paper pages each start from 0)
+        driverCash: drv.given ? { given: drv.given, spent: drv.spent, withDriver: drv.given - drv.spent } : null,
       },
       pnl: {
         totalReceived: totReceived,
@@ -933,7 +968,21 @@ router.put("/entries/:id", requireRole(WRITE), async (req: AuthRequest, res: Res
     const paid = patch.paid != null ? (patch.paid as number) : old.paid;
     patch.direction = recv > 0 ? "In" : paid > 0 ? "Out" : null;
 
+    // a row paid out of the driver's cash: a new amount moves the difference in / out of that cash
+    let cashRow: typeof schema.truckLedgerEntries.$inferSelect | undefined;
+    if (old.paidFromEntryId && patch.paid != null && patch.paid !== old.paid) {
+      [cashRow] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+      if (cashRow && cashRow.paid - ((patch.paid as number) - old.paid) < 0)
+        return res.status(400).json({ error: `Only PKR ${(cashRow.paid + old.paid).toLocaleString()} of the driver's cash is there for this · ڈرائیور کی نقد میں اتنی رقم نہیں` });
+    }
+
     const [updated] = await db.update(schema.truckLedgerEntries).set(patch).where(eq(schema.truckLedgerEntries.id, id)).returning();
+    if (cashRow) {
+      const next = cashRow.paid - ((patch.paid as number) - old.paid);
+      await db.update(schema.truckLedgerEntries).set({ paid: next, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cashRow.id));
+      await audit(req, "UPDATE", cashRow.id, cashRow, { ...cashRow, paid: next, note: `entry ${id} changed from ${old.paid} to ${patch.paid}` });
+      if (cashRow.ledgerId !== old.ledgerId) await recompute(cashRow.ledgerId);
+    }
     await recompute(old.ledgerId);
     await audit(req, "UPDATE", id, old, updated);
     res.json(updated);
@@ -948,10 +997,20 @@ router.delete("/entries/:id", requireRole(WRITE), async (req: AuthRequest, res: 
     const id = parseInt(req.params.id);
     const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
     if (!old) return res.status(404).json({ error: "Entry not found" });
+    const [kids] = ((await db.execute(sql`select count(*)::int n, coalesce(sum(paid), 0)::int s from truck_ledger_entries where paid_from_entry_id = ${id} and not is_deleted`)) as any).rows;
+    if (kids?.n) return res.status(400).json({ error: `PKR ${Number(kids.s).toLocaleString()} (diesel, toll…) was paid out of this cash — delete ${kids.n === 1 ? "that entry" : "those entries"} first · اس نقد میں سے ادا ہوئی انٹریاں پہلے ہٹائیں` });
     await db
       .update(schema.truckLedgerEntries)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.truckLedgerEntries.id, id));
+    if (old.paidFromEntryId) {
+      // it came out of the driver's cash: that cash gets it back
+      const [cash] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+      if (cash) {
+        await db.update(schema.truckLedgerEntries).set({ paid: cash.paid + old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cash.id));
+        if (cash.ledgerId !== old.ledgerId) await recompute(cash.ledgerId);
+      }
+    }
     await retireSyncedRecords(id, req.user?.id); // its auto-filed expense / maintenance + journal
     await recompute(old.ledgerId);
     await audit(req, "DELETE", id, old, null);
