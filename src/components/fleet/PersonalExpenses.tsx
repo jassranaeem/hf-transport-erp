@@ -17,6 +17,7 @@ import {
   History, ChevronDown, ChevronRight,
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import PersonalLedgers from "./PersonalLedgers.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const thisMonth = () => new Date().toISOString().slice(0, 7);
@@ -77,6 +78,21 @@ export default function PersonalExpenses({
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
+  const [pane, setPane] = useState<"register" | "ledgers">(() => {
+    try {
+      return localStorage.getItem("pe_view") === "ledgers" ? "ledgers" : "register";
+    } catch {
+      return "register";
+    }
+  });
+  const [ledgerSel, setLedgerSel] = useState<{ kind: "category" | "person" | "pot"; name: string } | null>(null);
+  const [ledgerKey, setLedgerKey] = useState(0);
+  const pickView = (v: "register" | "ledgers") => {
+    setPane(v);
+    try {
+      localStorage.setItem("pe_view", v);
+    } catch {}
+  };
 
   const monthStart = `${month}-01`;
   const monthEnd = useMemo(() => {
@@ -150,7 +166,8 @@ export default function PersonalExpenses({
     setSaving(true);
     try {
       await enterpriseFetch("/api/personal-expenses", { method: "POST", body: JSON.stringify(form) });
-      showFeedback("success", "Saved · محفوظ ہو گیا");
+      showFeedback("success", `Saved — it is now in the "${form.category}" ledger${form.person ? ` and ${form.person}'s ledger` : ""} · محفوظ ہو گیا، کھاتے میں چلا گیا`);
+      setLedgerKey((k) => k + 1);
       setForm({ ...BLANK, entryDate: form.entryDate, category: form.category, person: form.person, method: form.method });
       setShowAdd(false);
       load();
@@ -183,6 +200,7 @@ export default function PersonalExpenses({
     try {
       await enterpriseFetch(`/api/personal-expenses/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
       showFeedback("success", "Updated · درست ہو گیا");
+      setLedgerKey((k) => k + 1);
       setEditId(null);
       load();
     } catch (e: any) {
@@ -196,6 +214,7 @@ export default function PersonalExpenses({
     try {
       await enterpriseFetch(`/api/personal-expenses/${id}`, { method: "DELETE" });
       showFeedback("success", "Deleted · حذف ہو گیا");
+      setLedgerKey((k) => k + 1);
       load();
     } catch (e: any) {
       showFeedback("error", e.message);
@@ -220,6 +239,18 @@ export default function PersonalExpenses({
           </p>
         </div>
         <div className="flex-1" />
+        {/* register / ledgers */}
+        <div className="flex rounded-lg border border-[#E5E7EB] overflow-hidden text-xs">
+          {([["register", "Register · رجسٹر"], ["ledgers", "Ledgers · کھاتے"]] as [any, string][]).map(([m, lbl]) => (
+            <button
+              key={m}
+              onClick={() => pickView(m)}
+              className={`px-3 py-2 ${pane === m ? "bg-[#15803D] text-white font-semibold" : "bg-white text-[#374151] hover:bg-[#F3F4F6]"}`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
         {/* view switch */}
         <div className="flex rounded-lg border border-[#E5E7EB] overflow-hidden text-xs">
           {([["month", "This month · یہ مہینہ"], ["range", "Any dates · تاریخیں"], ["all", "All · سب"]] as [any, string][]).map(([m, lbl]) => (
@@ -266,6 +297,20 @@ export default function PersonalExpenses({
         />
       )}
 
+      {pane === "ledgers" && (
+        <PersonalLedgers
+          from={win.from}
+          to={win.to}
+          label={win.label}
+          catUrdu={CAT_UR}
+          selected={ledgerSel}
+          onSelect={setLedgerSel}
+          refreshKey={ledgerKey}
+          showFeedback={showFeedback}
+        />
+      )}
+
+      {pane === "register" && (<>
       {/* month-by-month history */}
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
@@ -354,7 +399,14 @@ export default function PersonalExpenses({
                     onClick={() => setFilterCategory((cur) => (cur === c.category ? null : c.category))}
                     className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${filterCategory === c.category ? "bg-[#E6ECF6]" : ""}`}
                   >
-                    <td className="px-2 py-1.5" dir="auto">{c.category}<span className="text-[#9CA3AF]"> · {CAT_UR[c.category] || ""}</span></td>
+                    <td className="px-2 py-1.5" dir="auto">
+                      {c.category}<span className="text-[#9CA3AF]"> · {CAT_UR[c.category] || ""}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setLedgerSel({ kind: "category", name: c.category }); pickView("ledgers"); }}
+                        className="ml-2 text-[10px] text-[#15803D] hover:underline"
+                        title="Open this category's ledger"
+                      >ledger →</button>
+                    </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{c.count}</td>
                     <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${c.net >= 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                       {c.net >= 0 ? "" : "+"}{PKR(c.net)}
@@ -480,6 +532,7 @@ export default function PersonalExpenses({
           </table>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
@@ -511,8 +564,17 @@ function EntryForm({
           <input type="date" value={value.entryDate} onChange={(e) => set("entryDate", e.target.value)} className="border rounded px-2 py-1 text-slate-800" />
         </label>
         <label className="flex flex-col text-[10px] text-slate-500">Category · مد
-          <select value={value.category} onChange={(e) => set("category", e.target.value)} className="border rounded px-2 py-1 text-slate-800">
-            {(meta.categories || []).map((c: string) => <option key={c} value={c}>{c}{CAT_UR[c] ? ` · ${CAT_UR[c]}` : ""}</option>)}
+          <select
+            value={value.category}
+            onChange={(e) => {
+              if (e.target.value !== "__new") return set("category", e.target.value);
+              const n = (window.prompt("New category name — it becomes its own ledger · نئی مد کا نام (اس کا اپنا کھاتہ بن جائے گا)", "") || "").trim().slice(0, 40);
+              if (n) onChange({ ...value, category: n });
+            }}
+            className="border rounded px-2 py-1 text-slate-800"
+          >
+            {[...(meta.categories || []), ...(value.category && !(meta.categories || []).includes(value.category) ? [value.category] : [])].map((c: string) => <option key={c} value={c}>{c}{CAT_UR[c] ? ` · ${CAT_UR[c]}` : ""}</option>)}
+            <option value="__new">＋ New category… · نئی مد</option>
           </select>
         </label>
         <label className="flex flex-col text-[10px] text-slate-500">Type

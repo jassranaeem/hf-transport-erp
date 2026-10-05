@@ -9,6 +9,8 @@
  *   GET    /api/personal-expenses/summary?month=YYYY-MM   one-month roll-up
  *   GET    /api/personal-expenses/summary/range?from=YYYY-MM&to=YYYY-MM  per-month trend
  *   GET    /api/personal-expenses/meta       category / method / person option lists
+ *   GET    /api/personal-expenses/ledgers?from=&to=      one ledger per category, per person, and the house pot
+ *   GET    /api/personal-expenses/ledger?kind=category|person|pot&name=&from=&to=   one ledger with running balance
  *
  * Mounted at /api/personal-expenses.
  */
@@ -94,11 +96,103 @@ router.get("/meta", requireRole(READ), async (_req: AuthRequest, res: Response) 
     .selectDistinct({ person: T.person })
     .from(T)
     .where(and(eq(T.isDeleted, false), sql`${T.person} is not null and ${T.person} <> ''`));
+  // the standard categories plus any a person has made up — every category is its own ledger
+  const used = await db.selectDistinct({ category: T.category }).from(T).where(eq(T.isDeleted, false));
+  const extra = used.map((r) => r.category).filter((c) => c && !PERSONAL_CATEGORIES.includes(c)).sort();
   res.json({
-    categories: PERSONAL_CATEGORIES,
+    categories: [...PERSONAL_CATEGORIES, ...extra],
     methods: METHODS,
     people: people.map((r) => r.person).filter(Boolean).sort(),
   });
+});
+
+// ---- ledgers: every category (and every person) is a ledger made from the entries ----------
+// Nothing is stored twice: an entry typed once appears in its category's ledger, in its person's
+// ledger (when a person is named) and in the house pot, because the ledgers are read from the entries.
+const net = sql`case when ${T.direction} = 'expense' then ${T.amount} else -${T.amount} end`;
+const day = (s: any, fallback: string | null = null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback);
+
+router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const from = day(req.query.from);
+    const to = day(req.query.to);
+    const before = from ? sql`${T.entryDate} < ${from}::timestamp` : sql`false`; // a day string, not a JS Date: the entries hold their day at 00:00
+    const cols = {
+      opening: sql<number>`coalesce(sum(case when ${before} then ${net} else 0 end), 0)::bigint`,
+      spent: sql<number>`coalesce(sum(case when ${before} then 0 when ${T.direction} = 'expense' then ${T.amount} else 0 end), 0)::bigint`,
+      funds: sql<number>`coalesce(sum(case when ${before} then 0 when ${T.direction} = 'income' then ${T.amount} else 0 end), 0)::bigint`,
+      count: sql<number>`count(*) filter (where not (${before}))::int`,
+      last: sql<string>`to_char(max(${T.entryDate}), 'YYYY-MM-DD')`,
+    };
+    const live = and(eq(T.isDeleted, false), to ? lte(T.entryDate, new Date(new Date(to).getTime() + 24 * 3600_000 - 1)) : undefined);
+    const [cats, people, [pot]] = await Promise.all([
+      db.select({ name: T.category, ...cols }).from(T).where(live).groupBy(T.category),
+      db.select({ name: T.person, ...cols }).from(T).where(and(live, sql`${T.person} is not null and ${T.person} <> ''`)).groupBy(T.person),
+      db.select({ ...cols }).from(T).where(live),
+    ]);
+    const shape = (r: any) => ({ name: r.name, opening: Number(r.opening), spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + Number(r.spent) - Number(r.funds), count: r.count, last: r.last });
+    const known = new Set(PERSONAL_CATEGORIES);
+    const catRows = cats.map(shape);
+    // categories with no entries yet still show, so each one is visibly a ledger waiting for its first entry
+    for (const c of PERSONAL_CATEGORIES) if (!catRows.find((r) => r.name === c)) catRows.push({ name: c, opening: 0, spent: 0, funds: 0, closing: 0, count: 0, last: null as any });
+    catRows.sort((a, b) => (known.has(a.name) ? PERSONAL_CATEGORIES.indexOf(a.name) : 999) - (known.has(b.name) ? PERSONAL_CATEGORIES.indexOf(b.name) : 999) || a.name.localeCompare(b.name));
+    const p = shape({ name: "House pot", ...pot });
+    res.json({
+      categories: catRows,
+      people: people.map(shape).sort((a, b) => b.spent - a.spent),
+      // the house pot: money put in less money spent — what is left in the household's hands
+      pot: { ...p, opening: -p.opening, closing: -p.closing },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const kind = ["category", "person", "pot"].includes(String(req.query.kind)) ? String(req.query.kind) : "category";
+    const name = String(req.query.name || "");
+    const from = day(req.query.from);
+    const to = day(req.query.to);
+    const who = kind === "category" ? eq(T.category, name) : kind === "person" ? eq(T.person, name) : undefined;
+    if (kind !== "pot" && !name) return res.status(400).json({ error: "Which ledger? · کونسا کھاتہ؟" });
+    const sign = kind === "pot" ? -1 : 1; // pot: funds in raise it, spending lowers it
+    const base = and(eq(T.isDeleted, false), who);
+    const [openRow] = from
+      ? await db.select({ v: sql<number>`coalesce(sum(${net}), 0)::bigint` }).from(T).where(and(base, lt(T.entryDate, new Date(from))))
+      : [{ v: 0 }];
+    const list = await db
+      .select()
+      .from(T)
+      .where(and(base, from ? gte(T.entryDate, new Date(from)) : undefined, to ? lte(T.entryDate, new Date(new Date(to).getTime() + 24 * 3600_000 - 1)) : undefined))
+      .orderBy(T.entryDate, T.id)
+      .limit(5000);
+    const opening = sign * Number(openRow?.v || 0);
+    let running = opening;
+    let spent = 0;
+    let funds = 0;
+    const rows = list.map((r) => {
+      const isIn = r.direction === "income";
+      if (isIn) funds += r.amount;
+      else spent += r.amount;
+      running += sign * (isIn ? -r.amount : r.amount);
+      return { id: r.id, entryDate: r.entryDate, category: r.category, person: r.person, description: r.description, payee: r.payee, method: r.method, refNo: r.refNo, direction: r.direction, amount: r.amount, running };
+    });
+    res.json({
+      kind,
+      name: kind === "pot" ? "House pot" : name,
+      balanceLabel: kind === "pot" ? "Left in the pot · پاٹ میں باقی" : "Spent, net of funds in · خرچ (رقم جمع نکال کر)",
+      opening,
+      spent,
+      funds,
+      closing: running,
+      count: rows.length,
+      truncated: list.length >= 5000,
+      rows,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ---- list -------------------------------------------------------------
