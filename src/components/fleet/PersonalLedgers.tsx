@@ -10,7 +10,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
-import { Loader2, Printer, BookOpen, Wallet, Users, X, Plus, Eye, Paperclip, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Printer, BookOpen, Wallet, Users, X, Plus, Eye, Paperclip, Pencil, Trash2, Settings2 } from "lucide-react";
+import PersonalCategories from "./PersonalCategories.tsx";
 import { EntryForm, EntryDetail, blankEntry, entryToForm, uploadEntryFiles } from "./PersonalEntryForm.tsx";
 
 const PKR = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString("en-US");
@@ -29,6 +30,7 @@ export default function PersonalLedgers({
   refreshKey,
   meta,
   onChanged,
+  onRenamedLedger,
   showFeedback,
 }: {
   from: string;
@@ -40,8 +42,10 @@ export default function PersonalLedgers({
   refreshKey: number;
   meta: any;
   onChanged: () => void;
+  onRenamedLedger: (from: string, to: string) => void;
   showFeedback: (t: "success" | "error", m: string) => void;
 }) {
+  const [managing, setManaging] = useState(false);
   const [list, setList] = useState<{ categories: Row[]; people: Row[]; pot: Row } | null>(null);
   const [ledger, setLedger] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -188,6 +192,16 @@ export default function PersonalLedgers({
 
   const COLS = 9;
   return (
+    <div className="space-y-4">
+    {managing && (
+      <PersonalCategories
+        details={meta.categoryDetails || []}
+        onChanged={() => { refresh(); window.dispatchEvent(new Event("pe-categories-changed")); }}
+        onRenamed={onRenamedLedger}
+        onClose={() => setManaging(false)}
+        showFeedback={showFeedback}
+      />
+    )}
     <div className="grid lg:grid-cols-[320px_1fr] gap-4">
       <div className="space-y-3">
         <p className="text-[11px] text-[#4B5563] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2" dir="auto">
@@ -201,6 +215,9 @@ export default function PersonalLedgers({
           <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
             <BookOpen className="w-3.5 h-3.5" /> Categories · مدّیں
             <div className="flex-1" />
+            <button onClick={() => setManaging((m) => !m)} className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded px-2 py-0.5 border ${managing ? "bg-[#24539B] text-white border-[#24539B]" : "bg-white text-[#24539B] border-[#C9D7EC] hover:bg-[#E6ECF6]"}`} title="Make a new ledger, rename, remove">
+              <Settings2 className="w-3 h-3" /> New / edit
+            </button>
             <label className="font-normal text-[10px] flex items-center gap-1">
               <input id="pl-used" type="checkbox" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} /> only with entries
             </label>
@@ -322,6 +339,7 @@ export default function PersonalLedgers({
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }

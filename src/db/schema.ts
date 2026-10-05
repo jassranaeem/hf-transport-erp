@@ -2721,3 +2721,15 @@ export const aiReports = pgTable("ai_reports", {
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Personal & Household: the categories (each one is a ledger). Made by the user — a new ledger can exist
+// before its first entry; renaming one renames it on every entry. Standard ones are seeded on first use.
+export const personalCategories = pgTable("personal_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  nameUr: text("name_ur"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

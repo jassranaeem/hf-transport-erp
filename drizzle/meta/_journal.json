@@ -246,6 +246,13 @@
       "when": 1790940000000,
       "tag": "0034_trip_cash_link",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790950000000,
+      "tag": "0035_personal_categories",
+      "breakpoints": true
     }
   ]
 }

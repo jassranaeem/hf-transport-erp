@@ -6,6 +6,7 @@
 import React, { useRef } from "react";
 import { Loader2, CheckCircle, X, Paperclip } from "lucide-react";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
+import { enterpriseFetch } from "../../../client/api.ts";
 
 export const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 export const today = () => new Date().toISOString().slice(0, 10);
@@ -29,6 +30,13 @@ export const CAT_UR: Record<string, string> = {
   "Funds In": "رقم جمع",
   Other: "دیگر",
 };
+
+/** Keep the Urdu names in step with the categories as saved (called whenever the list is loaded). */
+export function setCategoryNames(details: Array<{ name: string; nameUr: string | null }> | undefined) {
+  if (!details) return;
+  for (const k of Object.keys(CAT_UR)) delete CAT_UR[k];
+  for (const c of details) if (c.nameUr) CAT_UR[c.name] = c.nameUr;
+}
 
 export const blankEntry = () => ({
   entryDate: today(),
@@ -96,8 +104,17 @@ export function EntryForm({
             value={value.category}
             onChange={(e) => {
               if (e.target.value !== "__new") return set("category", e.target.value);
-              const n = (window.prompt("New category name — it becomes its own ledger · نئی مد کا نام (اس کا اپنا کھاتہ بن جائے گا)", "") || "").trim().slice(0, 40);
-              if (n) onChange({ ...value, category: n });
+              const n = (window.prompt("Name of the new ledger — it is made now · نئے کھاتے کا نام (ابھی بن جائے گا)", "") || "").trim().slice(0, 40);
+              if (!n) return;
+              enterpriseFetch("/api/personal-expenses/categories", { method: "POST", body: JSON.stringify({ name: n }) })
+                .then((r) => {
+                  window.dispatchEvent(new Event("pe-categories-changed"));
+                  onChange({ ...value, category: r.name });
+                })
+                .catch((err) => {
+                  // already there (or could not be made): use the name as it is if it exists
+                  window.alert(err.message);
+                });
             }}
             className="border rounded px-2 py-1 text-slate-800"
           >

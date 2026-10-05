@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import PersonalLedgers from "./PersonalLedgers.tsx";
-import { EntryForm, EntryDetail, CAT_UR, blankEntry, uploadEntryFiles } from "./PersonalEntryForm.tsx";
+import { EntryForm, EntryDetail, CAT_UR, blankEntry, uploadEntryFiles, setCategoryNames } from "./PersonalEntryForm.tsx";
 import { uploadFile } from "../../../client/api.ts";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
@@ -122,7 +122,7 @@ export default function PersonalExpenses({
         ? enterpriseFetch(`/api/personal-expenses/summary?month=${month}`).then(setSummary)
         : Promise.resolve(setSummary(null)),
       enterpriseFetch(`/api/personal-expenses?${p.toString()}`).then((r) => setRows(r.rows || [])),
-      enterpriseFetch(`/api/personal-expenses/meta`).then(setMeta).catch(() => {}),
+      enterpriseFetch(`/api/personal-expenses/meta`).then((m) => { setCategoryNames(m.categoryDetails); setMeta(m); }).catch(() => {}),
       enterpriseFetch(`/api/personal-expenses/summary/range?from=${from12}&to=${thisMonth()}`)
         .then((r) => setTrend(r.months || []))
         .catch(() => {}),
@@ -131,6 +131,12 @@ export default function PersonalExpenses({
       .finally(() => setLoading(false));
   }, [mode, month, win.from, win.to, showFeedback]);
   useEffect(() => { load(); }, [load]);
+  // a new ledger made from an entry form, or any change in Manage ledgers
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener("pe-categories-changed", h);
+    return () => window.removeEventListener("pe-categories-changed", h);
+  }, [load]);
 
   const add = async () => {
     if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
@@ -284,6 +290,7 @@ export default function PersonalExpenses({
           onSelect={setLedgerSel}
           refreshKey={ledgerKey}
           meta={meta}
+          onRenamedLedger={(from, to) => setLedgerSel((s) => (s && s.kind === "category" && s.name === from ? { kind: "category", name: to } : s))}
           onChanged={() => { setLedgerKey((k) => k + 1); load(); }}
           showFeedback={showFeedback}
         />
