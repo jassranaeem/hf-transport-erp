@@ -8,7 +8,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { entityList, entityCreate, entityUpdate, entityDelete } from "../../../client/api.ts";
-import { Truck, Plus, Trash2, Loader2, RefreshCw, Pencil, Check, X, Wallet } from "lucide-react";
+import { Truck, Plus, Trash2, Loader2, RefreshCw, Pencil, Check, X, Wallet, ClipboardList } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(n || 0).toLocaleString("en-PK");
@@ -26,6 +26,25 @@ interface VehicleRow {
 }
 
 const BLANK_ADD = { vehicleNumber: "", ownershipStatus: "Owned", purchaseCost: "", currentAssetValue: "" };
+const TYPES = ["Yekhchal", "Tarfal"];
+const plateKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/** One pasted line: "TLM-916   7,000,000   Yekhchal" (tabs, commas or spaces between). */
+type ListLine = { line: number; plate: string; value: number | null; type: string; error?: string };
+function parseList(text: string): ListLine[] {
+  const out: ListLine[] = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const l = raw.trim();
+    if (!l || /^(serial|s\.?\s*no|truck number)/i.test(l)) return;
+    const m = l.match(/(\d{1,3}(?:,\d{3})+|\d{5,})/); // the price: 7,000,000 or 7000000
+    if (!m || m.index === undefined) return out.push({ line: i + 1, plate: l, value: null, type: "", error: "no price on this line" });
+    // "5  TLG-704" → drop the serial number; "TLH-539 [1]" is the first truck of that number, "[2]" a second one
+    const plate = l.slice(0, m.index).replace(/[\s,|]+$/, "").replace(/^\d{1,3}[.)\s]+(?=[A-Za-z])/, "").replace(/\s*\[1\]$/, "").trim();
+    const type = l.slice(m.index + m[0].length).replace(/^[\s,|]+/, "").trim();
+    out.push({ line: i + 1, plate, value: Number(m[0].replace(/,/g, "")), type, error: !plate ? "no truck number" : !/\d/.test(plate) ? "not a number plate (a name, e.g. Container) — add it by hand with “Add a truck”" : undefined });
+  });
+  return out;
+}
 
 export default function FleetAssetValue({
   showFeedback,
@@ -40,6 +59,12 @@ export default function FleetAssetValue({
   const [adding, setAdding] = useState(false);
   const [addForm, setAddForm] = useState({ ...BLANK_ADD });
   const [saving, setSaving] = useState(false);
+
+  const [listOpen, setListOpen] = useState(false);
+  const [listText, setListText] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [typeEditId, setTypeEditId] = useState<number | null>(null);
+  const [typeValue, setTypeValue] = useState("");
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -94,6 +119,81 @@ export default function FleetAssetValue({
       setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, currentAssetValue: n } : row)));
       setEditingId(null);
       showFeedback("success", `${r.vehicleNumber} value updated`);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // ---- the pasted list, matched to the fleet by number plate (spaces / dashes ignored)
+  const preview = useMemo(() => {
+    const byPlate = new Map<string, VehicleRow[]>();
+    for (const r of rows) byPlate.set(plateKey(r.vehicleNumber), [...(byPlate.get(plateKey(r.vehicleNumber)) || []), r]);
+    const seen = new Set<string>();
+    return parseList(listText).map((l) => {
+      const key = plateKey(l.plate);
+      const matches = [...(byPlate.get(key) || [])].sort((a, b) => a.id - b.id);
+      const truck = matches[0] || null;
+      const notes: string[] = [];
+      const dup = seen.has(key);
+      if (dup) notes.push("this truck is twice in the list — only the first line is used");
+      if (matches.length > 1) notes.push(`${matches.length} rows on file for this number — the first (#${truck!.id}) is updated`);
+      if (truck && truck.ownershipStatus !== "Owned") notes.push(`marked ${truck.ownershipStatus} — not counted in the owned total`);
+      seen.add(key);
+      const type = TYPES.find((t) => t.toLowerCase() === l.type.toLowerCase()) || l.type;
+      const changes = truck ? (!!type && truck.truckBrand !== type) || truck.currentAssetValue !== l.value : true;
+      return { ...l, type, truck, dup, notes, changes };
+    });
+  }, [listText, rows]);
+  const toApply = preview.filter((p) => !p.error && !p.dup && p.changes);
+
+  const applyList = async () => {
+    const adds = toApply.filter((p) => !p.truck).length;
+    if (!window.confirm(`Update ${toApply.length - adds} truck(s)${adds ? ` and add ${adds} new truck(s)` : ""}?\n\nType goes into Brand / Model / Year, the price into Market Value. · لاگو کریں؟`)) return;
+    setApplying(true);
+    let done = 0;
+    const failed: string[] = [];
+    for (const p of toApply) {
+      try {
+        if (p.truck) await entityUpdate("vehicles", p.truck.id, { truckBrand: p.type || p.truck.truckBrand, currentAssetValue: p.value });
+        else
+          await entityCreate("vehicles", {
+            vehicleNumber: p.plate,
+            registrationNumber: p.plate,
+            engineNumber: "TBD",
+            chassisNumber: "TBD",
+            vehicleType: "Containerized",
+            truckBrand: p.type || "TBD",
+            model: "TBD",
+            year: new Date().getFullYear(),
+            containerType: "40ft",
+            payloadCapacity: 25000,
+            currentOdometer: 0,
+            ownershipStatus: "Owned",
+            currentAssetValue: p.value,
+          });
+        done++;
+      } catch (e: any) {
+        failed.push(`${p.plate}: ${e.message}`);
+      }
+    }
+    setApplying(false);
+    showFeedback(failed.length ? "error" : "success", `${done} truck(s) updated · اپ ڈیٹ ہو گئے${failed.length ? ` — not done: ${failed.join("; ")}` : ""}`);
+    if (!failed.length) {
+      setListText("");
+      setListOpen(false);
+    }
+    load();
+  };
+
+  const saveType = async (r: VehicleRow) => {
+    setBusyId(r.id);
+    try {
+      const t = typeValue.trim() || "TBD";
+      await entityUpdate("vehicles", r.id, { truckBrand: t });
+      setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, truckBrand: t } : row)));
+      setTypeEditId(null);
     } catch (e: any) {
       showFeedback("error", e.message);
     } finally {
@@ -285,6 +385,88 @@ export default function FleetAssetValue({
         </div>
       )}
 
+      {/* update many trucks from a pasted list */}
+      {canWrite && (
+        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setListOpen((o) => !o)}
+            onKeyDown={(e) => e.key === "Enter" && setListOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-sm font-semibold text-[#1E4480] hover:underline cursor-pointer select-none w-fit"
+          >
+            <ClipboardList className="w-4 h-4" /> Update from a list · فہرست سے اپ ڈیٹ کریں
+          </div>
+          {listOpen && (
+            <>
+              <p className="text-[11px] text-[#6B7280]" dir="auto">
+                One truck per line: number, price, type — e.g. <span className="font-mono">TLM-916 7,000,000 Yekhchal</span>. Copying from Excel works too. Trucks are found by
+                their number (spaces and dashes do not matter); a number not on file is added as a new truck. Nothing changes until you press Apply. · ہر لائن میں ٹرک نمبر، قیمت، ٹائپ
+              </p>
+              <textarea
+                id="fav-list"
+                value={listText}
+                onChange={(e) => setListText(e.target.value)}
+                rows={6}
+                dir="ltr"
+                placeholder={"TLM-916  7,000,000  Yekhchal\nTMC-792  12,000,000  Tarfal"}
+                className="w-full border border-[#E5E7EB] rounded px-2 py-1.5 text-sm font-mono"
+              />
+              {preview.length > 0 && (
+                <div className="overflow-x-auto border border-[#E5E7EB] rounded">
+                  <table className="w-full text-[12px]">
+                    <thead className="bg-[#F9FAFB] text-[#6B7280]">
+                      <tr>
+                        <th className="text-left px-2 py-1">Line</th>
+                        <th className="text-left px-2 py-1">Truck (list)</th>
+                        <th className="text-left px-2 py-1">Found</th>
+                        <th className="text-left px-2 py-1">Type now → new</th>
+                        <th className="text-right px-2 py-1">Value now → new</th>
+                        <th className="text-left px-2 py-1">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((p) => (
+                        <tr key={p.line} className={`border-t border-[#F3F4F6] ${p.error || p.dup ? "bg-[#FEF2F2]" : !p.truck ? "bg-[#FFFBEB]" : !p.changes ? "text-[#9CA3AF]" : ""}`}>
+                          <td className="px-2 py-1">{p.line}</td>
+                          <td className="px-2 py-1 font-semibold">{p.plate || "—"}</td>
+                          <td className="px-2 py-1">
+                            {p.error ? <span className="text-[#991B1B]">{p.error}</span> : p.truck ? `${p.truck.vehicleNumber} (#${p.truck.id})` : <span className="text-[#92400E]">not on file — will be added</span>}
+                          </td>
+                          <td className="px-2 py-1">
+                            {p.truck ? `${p.truck.truckBrand && p.truck.truckBrand !== "TBD" ? p.truck.truckBrand : "—"} → ` : ""}
+                            <b>{p.type || "—"}</b>
+                          </td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {p.truck ? `${p.truck.currentAssetValue != null ? PKR(p.truck.currentAssetValue) : "—"} → ` : ""}
+                            <b>{p.value != null ? PKR(p.value) : "—"}</b>
+                          </td>
+                          <td className="px-2 py-1 text-[#6B7280]">{!p.error && !p.dup && !p.changes ? "already the same" : p.notes.join("; ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={applyList}
+                  disabled={applying || !toApply.length}
+                  className="flex items-center gap-1.5 bg-[#24539B] text-white text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60"
+                >
+                  {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Apply {toApply.length} · لاگو کریں
+                </button>
+                {preview.length > 0 && (
+                  <span className="text-[11px] text-[#6B7280]">
+                    The list: {preview.filter((p) => !p.error && !p.dup).length} trucks · {PKR(preview.filter((p) => !p.error && !p.dup).reduce((s, p) => s + (p.value || 0), 0))}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* table */}
       <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="overflow-x-auto">
@@ -305,8 +487,42 @@ export default function FleetAssetValue({
                 <tr key={r.id} className="border-t border-[#F3F4F6] hover:bg-[#F9FAFB]">
                   <td className="px-3 py-2 font-semibold" dir="ltr">{r.vehicleNumber}</td>
                   <td className="px-3 py-2 text-[#6B7280]">
-                    {[r.truckBrand, r.model].filter((x) => x && x !== "TBD").join(" ") || "—"}
-                    {r.year ? ` · ${r.year}` : ""}
+                    {typeEditId === r.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          list="fav-types"
+                          value={typeValue}
+                          onChange={(e) => setTypeValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveType(r);
+                            if (e.key === "Escape") setTypeEditId(null);
+                          }}
+                          className="w-28 border border-[#E5E7EB] rounded px-1.5 py-1 text-sm"
+                          placeholder="Yekhchal / Tarfal"
+                        />
+                        <button onClick={() => saveType(r)} disabled={busyId === r.id} className="text-[#1E4480] p-1">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setTypeEditId(null)} className="text-[#9CA3AF] p-1">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (!canWrite) return;
+                          setTypeEditId(r.id);
+                          setTypeValue(r.truckBrand && r.truckBrand !== "TBD" ? r.truckBrand : "");
+                        }}
+                        disabled={!canWrite}
+                        className={`text-left ${canWrite ? "hover:underline" : ""}`}
+                        title={canWrite ? "Click to set the type (Yekhchal / Tarfal)" : ""}
+                      >
+                        {[r.truckBrand, r.model].filter((x) => x && x !== "TBD").join(" ") || (canWrite ? "Set type" : "—")}
+                        {r.year ? ` · ${r.year}` : ""}
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
@@ -371,6 +587,11 @@ export default function FleetAssetValue({
         </div>
       </div>
 
+      <datalist id="fav-types">
+        {TYPES.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
       <p className="text-[11px] text-[#9CA3AF]" dir="auto">
         {rows.length} truck{rows.length === 1 ? "" : "s"} on file. Removing a truck here soft-deletes it (recoverable) —
         it also disappears from Fleet → Vehicles, exactly like deleting it there would.
