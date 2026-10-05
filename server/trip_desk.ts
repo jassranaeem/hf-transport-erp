@@ -121,8 +121,8 @@ async function tripStopIds(tripId: number): Promise<number[]> {
   return stops.map((x) => x.id);
 }
 
-/** The trip-cash entry of this trip to take `amount` out of: the latest one with enough in it. */
-async function tripCashFor(tripId: number, amount: number, exceptId?: number) {
+/** The trip-cash entry of this trip to take `amount` out of — the one the user chose, or the only one with enough in it. */
+async function tripCashFor(tripId: number, amount: number, exceptId?: number, chosenId?: number) {
   const ids = await tripStopIds(tripId);
   const cash = await db
     .select()
@@ -130,8 +130,16 @@ async function tripCashFor(tripId: number, amount: number, exceptId?: number) {
     .where(and(inArray(schema.truckLedgerEntries.derivedTripId, ids), eq(schema.truckLedgerEntries.isDeleted, false), eq(schema.truckLedgerEntries.category, MONEY_KINDS.cash.category)))
     .orderBy(desc(schema.truckLedgerEntries.entryDate), desc(schema.truckLedgerEntries.id));
   const usable = cash.filter((c) => c.id !== exceptId && c.paidFromEntryId == null);
-  const hit = usable.find((c) => c.paid >= amount);
-  if (hit) return hit;
+  if (chosenId) {
+    const pick = usable.find((c) => c.id === chosenId);
+    if (!pick) throw new Error("That trip cash is not on this trip any more · یہ نقد اس ٹرپ پر نہیں");
+    if (pick.paid < amount)
+      throw new Error(`Only PKR ${pick.paid.toLocaleString()} is left of that cash (${pick.description || "trip cash"}) — not enough for PKR ${amount.toLocaleString()}. Choose another cash entry or raise it first · اس نقد میں اتنی رقم نہیں`);
+    return pick;
+  }
+  const enough = usable.filter((c) => c.paid >= amount);
+  if (enough.length === 1) return enough[0];
+  if (enough.length > 1) throw new Error("There is more than one trip cash on this trip — choose which one it came out of · ایک سے زیادہ نقد ہیں، چنیں کس میں سے");
   const have = usable.reduce((s, c) => s + c.paid, 0);
   throw new Error(
     usable.length
@@ -661,7 +669,7 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     if (isNaN(date.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
     const how = PAID_HOW.includes(String(req.body?.method)) ? String(req.body.method) : undefined;
     // spent out of the cash already given to the driver: take it out of that cash entry (same truck khata)
-    const fromCash = !!req.body?.fromCash && kind !== "cash" ? await tripCashFor(tripId, amount) : null;
+    const fromCash = !!req.body?.fromCash && kind !== "cash" ? await tripCashFor(tripId, amount, undefined, parseInt(req.body?.fromEntryId) || undefined) : null;
     const entry = await addMoneyEntry({
       ledgerId: led.id,
       tripId,
@@ -715,7 +723,10 @@ router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Resp
       .from(schema.truckLedgerEntries)
       .where(and(inArray(schema.truckLedgerEntries.derivedTripId, stopIds), eq(schema.truckLedgerEntries.isDeleted, false)))
       .orderBy(schema.truckLedgerEntries.entryDate, schema.truckLedgerEntries.id);
-    res.json(rows);
+    // what was spent out of each trip-cash entry (diesel, toll… paid from it)
+    const spent = new Map<number, number>();
+    for (const r of rows) if (r.paidFromEntryId) spent.set(r.paidFromEntryId, (spent.get(r.paidFromEntryId) || 0) + r.paid);
+    res.json(rows.map((r) => ({ ...r, spentFromIt: spent.get(r.id) || 0 })));
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -820,7 +831,7 @@ router.post("/entry/:entryId/from-cash", requireRole(WRITE), async (req: AuthReq
     if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
     if (old.category === MONEY_KINDS.cash.category) return res.status(400).json({ error: "This is the trip cash itself · یہ خود ٹرپ نقد ہے" });
     if (old.paidFromEntryId) return res.status(400).json({ error: "Already taken out of the trip cash · پہلے ہی نقد میں سے لی گئی ہے" });
-    const cash = await tripCashFor(old.derivedTripId, old.paid, id);
+    const cash = await tripCashFor(old.derivedTripId, old.paid, id, parseInt(req.body?.cashEntryId) || undefined);
     await db.update(schema.truckLedgerEntries).set({ paidFromEntryId: cash.id, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
     await db.update(schema.truckLedgerEntries).set({ paid: cash.paid - old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cash.id));
     await audit(req, "UPDATE", "truck_ledger_entries", cash.id, cash, { ...cash, paid: cash.paid - old.paid, note: `PKR ${old.paid} of it was entry ${id}` });

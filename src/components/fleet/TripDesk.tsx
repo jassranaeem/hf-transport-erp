@@ -28,6 +28,10 @@ const emptyForm = () => ({
   departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselFromCash: false, cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
+/** The trip-cash entries still holding money that something can be paid out of. */
+const cashLeft = (entries: any[]) => entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId && en.paid > 0);
+const cashGiven = (c: any) => (c.paid || 0) + (c.spentFromIt || 0);
+const cashLabel = (c: any) => `${new Date(c.entryDate).toLocaleDateString()} · ${(c.description || "Trip cash").slice(0, 60)} — PKR ${(c.paid || 0).toLocaleString()} left of ${cashGiven(c).toLocaleString()}`;
 // what money given on a trip was for (server: MONEY_KINDS) — and how a saved entry's category reads
 const MONEY_FOR = [
   { k: "cash", l: "Trip cash to driver · ڈرائیور کو نقد" },
@@ -83,7 +87,8 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: false });
+  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: false, fromEntryId: 0 });
+  const [linkPick, setLinkPick] = useState<{ id: number; cash: number } | null>(null);
   const [addingMoney, setAddingMoney] = useState(false);
   const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
   const [addingStop, setAddingStop] = useState(false);
@@ -292,7 +297,7 @@ export default function TripDesk({
     try {
       await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
         method: "POST",
-        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: money.fromCash && money.kind !== "cash" }),
+        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: money.fromCash && money.kind !== "cash", fromEntryId: money.fromCash ? money.fromEntryId || undefined : undefined }),
       });
       showFeedback("success", `${fmt(Number(money.amount))} added to this trip · ٹرپ میں درج ہو گیا — add the next one if there is more`);
       // keep what / when / how for the next entry; only the amount and its description start empty
@@ -321,13 +326,14 @@ export default function TripDesk({
       showFeedback("error", e.message);
     }
   };
-  const fromCashLink = async (en: any, rootId: number, on: boolean) => {
+  const fromCashLink = async (en: any, rootId: number, on: boolean, cashEntryId?: number) => {
     const q = on
       ? `PKR ${Math.round(en.paid).toLocaleString()} (${en.description || en.category}) was bought with the trip cash already given?\n\nIt will be taken out of that cash entry, so the total given on the trip stays what you handed over.\n\nیہ پہلے دی گئی نقد میں سے خرچ ہوئی؟`
       : `Put PKR ${Math.round(en.paid).toLocaleString()} back as a separate sum?\n\nThe trip cash goes up by the same amount, and the total given on the trip goes up too.`;
     if (!window.confirm(q)) return;
     try {
-      await enterpriseFetch(`/api/trip-desk/entry/${en.id}/from-cash`, { method: on ? "POST" : "DELETE" });
+      await enterpriseFetch(`/api/trip-desk/entry/${en.id}/from-cash`, { method: on ? "POST" : "DELETE", body: on ? JSON.stringify({ cashEntryId }) : undefined });
+      setLinkPick(null);
       showFeedback("success", on ? "Taken out of the trip cash · نقد میں سے منہا ہو گیا" : "Put back as a separate sum · الگ رقم بحال");
       loadEntries(rootId);
       load();
@@ -716,6 +722,14 @@ export default function TripDesk({
                                   <span><b>Paid out of the trip cash already given to the driver · پہلے دی گئی ٹرپ نقد میں سے ادا</b> — the amount is taken out of that cash entry, so the total given is not counted twice. Leave unticked if it was given on top.</span>
                                 </label>
                               )}
+                              {money.kind !== "cash" && money.fromCash && cashLeft(entries).length > 1 && (
+                                <label className="col-span-2 md:col-span-6 flex flex-col gap-0.5 text-[11px] text-slate-700">
+                                  <span className="font-semibold">Out of which cash? · کس نقد میں سے؟</span>
+                                  <select id={`money-fromentry-${j.root}`} className={small} value={money.fromEntryId || cashLeft(entries)[0].id} onChange={(e) => setMoney({ ...money, fromEntryId: Number(e.target.value) })}>
+                                    {cashLeft(entries).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
+                                  </select>
+                                </label>
+                              )}
                             </div>
                             {entries.length > 0 && (
                               <div className="overflow-x-auto">
@@ -743,7 +757,10 @@ export default function TripDesk({
                                             <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
                                             <td className="px-2 whitespace-nowrap">{CATEGORY_LABEL[en.category] || en.category}</td>
                                             <td className="px-2 text-slate-500">{en.method === "Diesel" ? "Cash" : en.method}</td>
-                                            <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
+                                            <td className="px-2 text-right tabular-nums">
+                                              {fmt(en.paid)}
+                                              {en.spentFromIt > 0 && <div className="text-[10px] font-normal text-slate-500 leading-tight">left of {fmt(cashGiven(en))}<br />{fmt(en.spentFromIt)} spent · خرچ</div>}
+                                            </td>
                                             <td className="px-2" dir="auto">
                                               {en.description || "—"}
                                               {en.paidFromEntryId ? (
@@ -753,8 +770,26 @@ export default function TripDesk({
                                             <td className="px-2 whitespace-nowrap">
                                               {en.paidFromEntryId ? (
                                                 <button onClick={() => fromCashLink(en, j.root, false)} className="text-[10px] text-amber-700 hover:underline mr-2" title="Put it back as a separate sum (the trip cash goes up again)">unlink</button>
-                                              ) : en.category !== "TripCash" && entries.some((c) => c.category === "TripCash" && !c.paidFromEntryId) ? (
-                                                <button onClick={() => fromCashLink(en, j.root, true)} className="text-[10px] text-amber-700 hover:underline mr-2" title="This was bought with the cash already given — take it out of that cash so it is not counted twice">↳ from trip cash</button>
+                                              ) : en.category !== "TripCash" && cashLeft(entries).some((c) => c.paid >= en.paid) ? (
+                                                linkPick?.id === en.id ? (
+                                                  <span className="inline-flex items-center gap-1 mr-2">
+                                                    <select className="border border-amber-300 rounded px-1 py-0.5 text-[10px] max-w-[260px]" value={linkPick.cash} onChange={(e) => setLinkPick({ id: en.id, cash: Number(e.target.value) })}>
+                                                      {cashLeft(entries).filter((c) => c.paid >= en.paid).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
+                                                    </select>
+                                                    <button onClick={() => fromCashLink(en, j.root, true, linkPick.cash)} className="text-[10px] font-semibold text-emerald-700">OK</button>
+                                                    <button onClick={() => setLinkPick(null)} className="text-[10px] text-slate-500">✕</button>
+                                                  </span>
+                                                ) : (
+                                                  <button
+                                                    onClick={() => {
+                                                      const opts = cashLeft(entries).filter((c) => c.paid >= en.paid);
+                                                      if (opts.length === 1) fromCashLink(en, j.root, true, opts[0].id);
+                                                      else setLinkPick({ id: en.id, cash: opts[0].id });
+                                                    }}
+                                                    className="text-[10px] text-amber-700 hover:underline mr-2"
+                                                    title="This was bought with cash already given — take it out of that cash so it is not counted twice"
+                                                  >↳ from trip cash</button>
+                                                )
                                               ) : null}
                                               <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "", kind: kindOfCategory(en.category), method: ["Online", "Bank", "Cheque"].includes(en.method) ? en.method : "Cash" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
                                               <button onClick={() => deleteEntry(en.id, j.root)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
@@ -770,6 +805,15 @@ export default function TripDesk({
                                       <td className="px-2 text-right tabular-nums">{fmt(entries.reduce((t, en) => t + (en.paid || 0), 0))}</td>
                                       <td colSpan={2} />
                                     </tr>
+                                    {entries.some((en) => en.paidFromEntryId) && (
+                                      <tr className="text-[11px] text-slate-600">
+                                        <td className="px-2 pb-1.5" colSpan={6} dir="auto">
+                                          Trip cash handed to the driver {fmt(entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId).reduce((t, en) => t + cashGiven(en), 0))}
+                                          {" "}— spent out of it {fmt(entries.filter((en) => en.paidFromEntryId).reduce((t, en) => t + en.paid, 0))} (diesel, toll…), still with the driver / not yet accounted for {fmt(cashLeft(entries).reduce((t, en) => t + en.paid, 0))}
+                                          {" "}· ڈرائیور کو دی گئی نقد — اس میں سے خرچ — ابھی ڈرائیور کے پاس
+                                        </td>
+                                      </tr>
+                                    )}
                                   </tfoot>
                                 </table>
                               </div>
