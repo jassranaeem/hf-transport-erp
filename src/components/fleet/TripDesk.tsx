@@ -25,7 +25,7 @@ const toLocal = (iso: string) => {
 };
 const emptyForm = () => ({
   truck: "", driverName: "", driverPhone: "", from: "", to: "", customer: "",
-  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", cargo: "",
+  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselFromCash: false, cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
 // what money given on a trip was for (server: MONEY_KINDS) — and how a saved entry's category reads
@@ -83,7 +83,7 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash" });
+  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: false });
   const [addingMoney, setAddingMoney] = useState(false);
   const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
   const [addingStop, setAddingStop] = useState(false);
@@ -292,7 +292,7 @@ export default function TripDesk({
     try {
       await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
         method: "POST",
-        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method }),
+        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: money.fromCash && money.kind !== "cash" }),
       });
       showFeedback("success", `${fmt(Number(money.amount))} added to this trip · ٹرپ میں درج ہو گیا — add the next one if there is more`);
       // keep what / when / how for the next entry; only the amount and its description start empty
@@ -315,6 +315,20 @@ export default function TripDesk({
       });
       showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
       setEntryEdit(null);
+      loadEntries(rootId);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+  const fromCashLink = async (en: any, rootId: number, on: boolean) => {
+    const q = on
+      ? `PKR ${Math.round(en.paid).toLocaleString()} (${en.description || en.category}) was bought with the trip cash already given?\n\nIt will be taken out of that cash entry, so the total given on the trip stays what you handed over.\n\nیہ پہلے دی گئی نقد میں سے خرچ ہوئی؟`
+      : `Put PKR ${Math.round(en.paid).toLocaleString()} back as a separate sum?\n\nThe trip cash goes up by the same amount, and the total given on the trip goes up too.`;
+    if (!window.confirm(q)) return;
+    try {
+      await enterpriseFetch(`/api/trip-desk/entry/${en.id}/from-cash`, { method: on ? "POST" : "DELETE" });
+      showFeedback("success", on ? "Taken out of the trip cash · نقد میں سے منہا ہو گیا" : "Put back as a separate sum · الگ رقم بحال");
       loadEntries(rootId);
       load();
     } catch (e: any) {
@@ -421,6 +435,15 @@ export default function TripDesk({
               <option value="Bank">Bank transfer</option>
             </select>
           </div>
+          {Number(form.cash) > 0 && Number(form.dieselAmount) > 0 && (
+            <label className="col-span-2 md:col-span-4 flex items-start gap-2 text-xs rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+              <input id="td-diesel-from-cash" type="checkbox" className="mt-0.5" checked={form.dieselFromCash} onChange={(e) => set("dieselFromCash", e.target.checked as any)} />
+              <span>
+                <b>The diesel was bought out of this cash · ڈیزل اسی نقد میں سے لیا۔</b> The driver was handed PKR {Number(form.cash).toLocaleString()} in all; of it PKR {Number(form.dieselAmount).toLocaleString()} went on diesel
+                {form.dieselFromCash && Number(form.dieselAmount) <= Number(form.cash) ? <>, so the trip cash is recorded as <b>PKR {(Number(form.cash) - Number(form.dieselAmount)).toLocaleString()}</b> and the diesel as PKR {Number(form.dieselAmount).toLocaleString()} — the total given stays PKR {Number(form.cash).toLocaleString()}.</> : <>. Leave this unticked only if the diesel was paid separately, <i>on top of</i> the cash.</>}
+              </span>
+            </label>
+          )}
         </div>
 
         <button onClick={submit} disabled={saving} className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-5 py-2 hover:bg-emerald-700 disabled:opacity-60">
@@ -687,6 +710,12 @@ export default function TripDesk({
                               <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>
                                 {addingMoney ? "Saving…" : "Save · محفوظ کریں"}
                               </button>
+                              {money.kind !== "cash" && entries.some((en) => en.category === "TripCash" && !en.paidFromEntryId) && (
+                                <label className="col-span-2 md:col-span-6 flex items-start gap-2 text-[11px] text-slate-700">
+                                  <input id={`money-fromcash-${j.root}`} type="checkbox" className="mt-0.5" checked={money.fromCash} onChange={(e) => setMoney({ ...money, fromCash: e.target.checked })} />
+                                  <span><b>Paid out of the trip cash already given to the driver · پہلے دی گئی ٹرپ نقد میں سے ادا</b> — the amount is taken out of that cash entry, so the total given is not counted twice. Leave unticked if it was given on top.</span>
+                                </label>
+                              )}
                             </div>
                             {entries.length > 0 && (
                               <div className="overflow-x-auto">
@@ -715,8 +744,18 @@ export default function TripDesk({
                                             <td className="px-2 whitespace-nowrap">{CATEGORY_LABEL[en.category] || en.category}</td>
                                             <td className="px-2 text-slate-500">{en.method === "Diesel" ? "Cash" : en.method}</td>
                                             <td className="px-2 text-right tabular-nums">{fmt(en.paid)}</td>
-                                            <td className="px-2" dir="auto">{en.description || "—"}</td>
+                                            <td className="px-2" dir="auto">
+                                              {en.description || "—"}
+                                              {en.paidFromEntryId ? (
+                                                <span className="ml-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 px-1.5 py-0.5" title="Taken out of the trip cash — not counted twice">from trip cash</span>
+                                              ) : null}
+                                            </td>
                                             <td className="px-2 whitespace-nowrap">
+                                              {en.paidFromEntryId ? (
+                                                <button onClick={() => fromCashLink(en, j.root, false)} className="text-[10px] text-amber-700 hover:underline mr-2" title="Put it back as a separate sum (the trip cash goes up again)">unlink</button>
+                                              ) : en.category !== "TripCash" && entries.some((c) => c.category === "TripCash" && !c.paidFromEntryId) ? (
+                                                <button onClick={() => fromCashLink(en, j.root, true)} className="text-[10px] text-amber-700 hover:underline mr-2" title="This was bought with the cash already given — take it out of that cash so it is not counted twice">↳ from trip cash</button>
+                                              ) : null}
                                               <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "", kind: kindOfCategory(en.category), method: ["Online", "Bank", "Cheque"].includes(en.method) ? en.method : "Cash" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
                                               <button onClick={() => deleteEntry(en.id, j.root)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
                                             </td>

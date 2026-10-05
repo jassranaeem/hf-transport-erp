@@ -239,6 +239,13 @@
       "when": 1790930000000,
       "tag": "0033_ai_accountant",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790940000000,
+      "tag": "0034_trip_cash_link",
+      "breakpoints": true
     }
   ]
 }

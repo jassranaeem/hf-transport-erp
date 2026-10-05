@@ -2141,6 +2141,8 @@ export const truckLedgerEntries = pgTable("truck_ledger_entries", {
   needsReview: boolean("needs_review").default(false).notNull(),
   reviewReason: text("review_reason"),
   derivedTripId: integer("derived_trip_id").references(() => trips.id),
+  // the trip-cash entry this row was paid out of (diesel / toll… bought with the cash already given to the driver)
+  paidFromEntryId: integer("paid_from_entry_id"),
   // Where the row sits on the paper, when that isn't its id order: a sheet imported INTO a
   // khata that already had rows (its older pages go before them, rows written under an
   // existing row go right after it). Rows are ordered by coalesce(sort_key, id).

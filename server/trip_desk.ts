@@ -78,6 +78,7 @@ async function addMoneyEntry(opts: {
   routeFrom?: string;
   routeTo?: string;
   method?: string;
+  paidFromEntryId?: number;
 }) {
   const k = MONEY_KINDS[opts.kind];
   const [row] = await db
@@ -96,10 +97,47 @@ async function addMoneyEntry(opts: {
       routeFrom: opts.routeFrom || null,
       routeTo: opts.routeTo || null,
       derivedTripId: opts.tripId,
+      paidFromEntryId: opts.paidFromEntryId ?? null,
       createdBy: opts.userId,
     })
     .returning();
   return row;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Money the driver spent out of the trip cash already given (diesel at the pump, toll, khurak…).
+// The company handed over ONE sum; counting the cash AND what it was spent on would count it
+// twice. So an entry can be "paid from trip cash": its amount is taken out of that cash entry,
+// the total given on the trip stays what was really handed over, and the link is kept so editing
+// or deleting the entry puts the cash back.
+// ---------------------------------------------------------------------------------------------
+async function tripStopIds(tripId: number): Promise<number[]> {
+  const root = await rootOf(tripId);
+  if (!root) return [tripId];
+  const stops = await db
+    .select({ id: schema.trips.id })
+    .from(schema.trips)
+    .where(and(eq(schema.trips.isDeleted, false), sql`(${schema.trips.id} = ${root} or ${schema.trips.parentTripId} = ${root})`));
+  return stops.map((x) => x.id);
+}
+
+/** The trip-cash entry of this trip to take `amount` out of: the latest one with enough in it. */
+async function tripCashFor(tripId: number, amount: number, exceptId?: number) {
+  const ids = await tripStopIds(tripId);
+  const cash = await db
+    .select()
+    .from(schema.truckLedgerEntries)
+    .where(and(inArray(schema.truckLedgerEntries.derivedTripId, ids), eq(schema.truckLedgerEntries.isDeleted, false), eq(schema.truckLedgerEntries.category, MONEY_KINDS.cash.category)))
+    .orderBy(desc(schema.truckLedgerEntries.entryDate), desc(schema.truckLedgerEntries.id));
+  const usable = cash.filter((c) => c.id !== exceptId && c.paidFromEntryId == null);
+  const hit = usable.find((c) => c.paid >= amount);
+  if (hit) return hit;
+  const have = usable.reduce((s, c) => s + c.paid, 0);
+  throw new Error(
+    usable.length
+      ? `The trip cash left is PKR ${have.toLocaleString()} — not enough for PKR ${amount.toLocaleString()}. Enter the cash given first, or untick “paid from trip cash” · ٹرپ نقد میں اتنی رقم نہیں`
+      : `No trip cash has been given on this trip, so there is nothing to take it out of — untick “paid from trip cash”, or enter the cash given first · اس ٹرپ پر نقد دی ہی نہیں گئی`,
+  );
 }
 
 router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
@@ -294,6 +332,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     const diesel = whole(b.dieselAmount);
     const litres = Number(b.dieselLitres) || 0;
     const created: string[] = [];
+    const dieselFromCash = !!b.dieselFromCash && cash > 0 && diesel > 0;
+    if (dieselFromCash && diesel > cash) return res.status(400).json({ error: `The diesel (PKR ${diesel.toLocaleString()}) is more than the cash given (PKR ${cash.toLocaleString()}) — it cannot be paid out of it · ڈیزل کی رقم نقد سے زیادہ ہے` });
 
     // --- truck
     const plate = normPlate(truckInput);
@@ -459,8 +499,22 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     }
 
     const routeLabel = `${route.origin} → ${route.destination}`;
-    if (cash > 0) {
-      await addMoneyEntry({ ledgerId: led.id, tripId: trip.id, kind: "cash", amount: cash, date: departure, description: `Trip cash · ${routeLabel}`, userId: req.user?.id, routeFrom: route.origin, routeTo: route.destination });
+    // cash given, less any diesel paid out of it: the driver was handed `cash` in all
+    let cashEntryId: number | undefined;
+    const cashLeft = dieselFromCash ? cash - diesel : cash;
+    if (cashLeft > 0) {
+      const ce = await addMoneyEntry({
+        ledgerId: led.id,
+        tripId: trip.id,
+        kind: "cash",
+        amount: cashLeft,
+        date: departure,
+        description: dieselFromCash ? `Trip cash · ${routeLabel} (PKR ${cash.toLocaleString()} given; PKR ${diesel.toLocaleString()} of it went on diesel)` : `Trip cash · ${routeLabel}`,
+        userId: req.user?.id,
+        routeFrom: route.origin,
+        routeTo: route.destination,
+      });
+      cashEntryId = ce.id;
     }
     if (diesel > 0) {
       const pump = clean(b.dieselPump);
@@ -477,6 +531,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         userId: req.user?.id,
         routeFrom: route.origin,
         routeTo: route.destination,
+        paidFromEntryId: dieselFromCash ? cashEntryId : undefined,
       });
       if (litres > 0) {
         await db.insert(schema.fuelTransactions).values({
@@ -605,6 +660,8 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const date = dayAt(req.body?.date);
     if (isNaN(date.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
     const how = PAID_HOW.includes(String(req.body?.method)) ? String(req.body.method) : undefined;
+    // spent out of the cash already given to the driver: take it out of that cash entry (same truck khata)
+    const fromCash = !!req.body?.fromCash && kind !== "cash" ? await tripCashFor(tripId, amount) : null;
     const entry = await addMoneyEntry({
       ledgerId: led.id,
       tripId,
@@ -614,8 +671,19 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
       description: clean(req.body?.note) || MONEY_KINDS[kind].label,
       userId: req.user?.id,
       method: how && kind !== "diesel" ? how : how === "Online" || how === "Bank" ? how : undefined,
+      paidFromEntryId: fromCash?.id,
     });
+    if (fromCash) {
+      try {
+        await db.update(schema.truckLedgerEntries).set({ paid: fromCash.paid - amount, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, fromCash.id));
+      } catch (e) {
+        await db.delete(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, entry.id));
+        throw e;
+      }
+      await audit(req, "UPDATE", "truck_ledger_entries", fromCash.id, fromCash, { ...fromCash, paid: fromCash.paid - amount, note: `PKR ${amount} paid out of it (entry ${entry.id})` });
+    }
     await recompute(led.id);
+    if (fromCash && fromCash.ledgerId !== led.id) await recompute(fromCash.ledgerId);
     await audit(req, "CREATE", "truck_ledger_entries", entry.id, null, entry);
     res.json(entry);
   } catch (e: any) {
@@ -642,6 +710,7 @@ router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Resp
         method: schema.truckLedgerEntries.method,
         paid: schema.truckLedgerEntries.paid,
         description: schema.truckLedgerEntries.description,
+        paidFromEntryId: schema.truckLedgerEntries.paidFromEntryId,
       })
       .from(schema.truckLedgerEntries)
       .where(and(inArray(schema.truckLedgerEntries.derivedTripId, stopIds), eq(schema.truckLedgerEntries.isDeleted, false)))
@@ -708,18 +777,78 @@ router.put("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: 
       patch.entryDate = d;
       patch.rawDate = d.toISOString().slice(0, 10);
     }
+    let cashRow: typeof schema.truckLedgerEntries.$inferSelect | undefined;
+    let cashNew = 0;
     if (b.amount !== undefined) {
       const amt = whole(b.amount);
       if (amt <= 0) return res.status(400).json({ error: "Enter an amount · رقم لکھیں" });
       patch.paid = amt;
+      if (old.paidFromEntryId && amt !== old.paid) {
+        // paid out of trip cash: the cash entry gives up / gets back the difference
+        [cashRow] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+        if (cashRow) {
+          cashNew = cashRow.paid - (amt - old.paid);
+          if (cashNew < 0) return res.status(400).json({ error: `Only PKR ${(cashRow.paid + old.paid).toLocaleString()} of the trip cash is available for this — raise the cash given first · ٹرپ نقد میں اتنی رقم نہیں` });
+        }
+      }
     }
     if (b.description !== undefined) patch.description = clean(b.description) || null;
-    if (b.kind !== undefined && MONEY_KINDS[String(b.kind)]) patch.category = MONEY_KINDS[String(b.kind)].category;
+    if (b.kind !== undefined && MONEY_KINDS[String(b.kind)]) {
+      if (old.paidFromEntryId && b.kind === "cash") return res.status(400).json({ error: "This was paid out of the trip cash — it cannot itself be trip cash. Untick “paid from trip cash” first · یہ ٹرپ نقد میں سے ادا ہوئی تھی" });
+      patch.category = MONEY_KINDS[String(b.kind)].category;
+    }
     if (b.method !== undefined && PAID_HOW.includes(String(b.method))) patch.method = String(b.method);
     const [row] = await db.update(schema.truckLedgerEntries).set(patch).where(eq(schema.truckLedgerEntries.id, id)).returning();
+    if (cashRow) {
+      await db.update(schema.truckLedgerEntries).set({ paid: cashNew, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cashRow.id));
+      await audit(req, "UPDATE", "truck_ledger_entries", cashRow.id, cashRow, { ...cashRow, paid: cashNew, note: `entry ${id} changed from PKR ${old.paid} to PKR ${row.paid}` });
+      if (cashRow.ledgerId !== old.ledgerId) await recompute(cashRow.ledgerId);
+    }
     await recompute(old.ledgerId);
     await audit(req, "UPDATE", "truck_ledger_entries", id, old, row);
     res.json(row);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** "This was paid out of the trip cash": take it out of the cash entry (fixes cash + diesel entered as two sums). */
+router.post("/entry/:entryId/from-cash", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.entryId);
+    const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
+    if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
+    if (old.category === MONEY_KINDS.cash.category) return res.status(400).json({ error: "This is the trip cash itself · یہ خود ٹرپ نقد ہے" });
+    if (old.paidFromEntryId) return res.status(400).json({ error: "Already taken out of the trip cash · پہلے ہی نقد میں سے لی گئی ہے" });
+    const cash = await tripCashFor(old.derivedTripId, old.paid, id);
+    await db.update(schema.truckLedgerEntries).set({ paidFromEntryId: cash.id, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
+    await db.update(schema.truckLedgerEntries).set({ paid: cash.paid - old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cash.id));
+    await audit(req, "UPDATE", "truck_ledger_entries", cash.id, cash, { ...cash, paid: cash.paid - old.paid, note: `PKR ${old.paid} of it was entry ${id}` });
+    await audit(req, "UPDATE", "truck_ledger_entries", id, old, { ...old, paidFromEntryId: cash.id });
+    await recompute(old.ledgerId);
+    if (cash.ledgerId !== old.ledgerId) await recompute(cash.ledgerId);
+    res.json({ ok: true, cashEntryId: cash.id, cashNow: cash.paid - old.paid });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/** Undo the above: the amount goes back into the trip cash. */
+router.delete("/entry/:entryId/from-cash", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.entryId);
+    const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
+    if (!old || old.isDeleted || !old.paidFromEntryId) return res.status(404).json({ error: "This entry was not paid out of trip cash" });
+    const [cash] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+    await db.update(schema.truckLedgerEntries).set({ paidFromEntryId: null, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
+    if (cash) {
+      await db.update(schema.truckLedgerEntries).set({ paid: cash.paid + old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cash.id));
+      await audit(req, "UPDATE", "truck_ledger_entries", cash.id, cash, { ...cash, paid: cash.paid + old.paid, note: `entry ${id} unlinked — PKR ${old.paid} back in the trip cash` });
+    }
+    await audit(req, "UPDATE", "truck_ledger_entries", id, old, { ...old, paidFromEntryId: null });
+    await recompute(old.ledgerId);
+    if (cash && cash.ledgerId !== old.ledgerId) await recompute(cash.ledgerId);
+    res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -730,7 +859,21 @@ router.delete("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, re
     const id = parseInt(req.params.entryId);
     const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
     if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
+    const [kids] = await db
+      .select({ n: sql<number>`count(*)::int`, sum: sql<number>`coalesce(sum(paid), 0)::int` })
+      .from(schema.truckLedgerEntries)
+      .where(and(eq(schema.truckLedgerEntries.paidFromEntryId, id), eq(schema.truckLedgerEntries.isDeleted, false)));
+    if (kids?.n) return res.status(400).json({ error: `${kids.n} entr${kids.n === 1 ? "y" : "ies"} (PKR ${Number(kids.sum).toLocaleString()}) were paid out of this trip cash — delete or unlink ${kids.n === 1 ? "it" : "them"} first · اس نقد میں سے ادا ہوئی انٹریاں پہلے ہٹائیں` });
     await db.update(schema.truckLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
+    if (old.paidFromEntryId) {
+      // it came out of a trip-cash entry: put that money back
+      const [cashRow] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+      if (cashRow) {
+        await db.update(schema.truckLedgerEntries).set({ paid: cashRow.paid + old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cashRow.id));
+        await audit(req, "UPDATE", "truck_ledger_entries", cashRow.id, cashRow, { ...cashRow, paid: cashRow.paid + old.paid, note: `entry ${id} deleted — PKR ${old.paid} back in the trip cash` });
+        if (cashRow.ledgerId !== old.ledgerId) await recompute(cashRow.ledgerId);
+      }
+    }
     await recompute(old.ledgerId);
     await audit(req, "DELETE", "truck_ledger_entries", id, old, null);
     res.json({ deleted: 1 });
