@@ -25,11 +25,14 @@ const toLocal = (iso: string) => {
 };
 const emptyForm = () => ({
   truck: "", driverName: "", driverPhone: "", from: "", to: "", customer: "",
-  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselFromCash: false, cargo: "",
+  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselFromCash: null as boolean | null, cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
 /** The trip-cash entries still holding money that something can be paid out of. */
 const cashLeft = (entries: any[]) => entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId && en.paid > 0);
+/** The cash handed over first that can still cover `amount` — what a road cost comes out of unless told otherwise. */
+const oldestCash = (entries: any[], amount: number) =>
+  [...cashLeft(entries)].filter((c) => c.paid >= (amount || 0)).sort((a, b) => a.id - b.id)[0];
 const cashGiven = (c: any) => (c.paid || 0) + (c.spentFromIt || 0);
 const cashLabel = (c: any) => `${new Date(c.entryDate).toLocaleDateString()} · ${(c.description || "Trip cash").slice(0, 60)} — PKR ${(c.paid || 0).toLocaleString()} left of ${cashGiven(c).toLocaleString()}`;
 // what money given on a trip was for (server: MONEY_KINDS) — and how a saved entry's category reads
@@ -87,7 +90,7 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: false, fromEntryId: 0 });
+  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: null as boolean | null, fromEntryId: 0 });
   const [linkPick, setLinkPick] = useState<{ id: number; cash: number } | null>(null);
   const [addingMoney, setAddingMoney] = useState(false);
   const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
@@ -149,12 +152,14 @@ export default function TripDesk({
     setForm((f) => ({ ...f, driverName: v, driverPhone: m && !f.driverPhone ? m.mobile || "" : f.driverPhone }));
   };
 
+  // diesel bought with cash the driver was handed: ticked by itself while it fits (untick if it was paid on top / by bank)
+  const dieselFromCashNow = form.dieselFromCash ?? (Number(form.cash) > 0 && Number(form.dieselAmount) > 0 && Number(form.dieselAmount) <= Number(form.cash) && form.dieselPayment === "Cash");
   const submit = async () => {
     setSaving(true);
     try {
       const r = await enterpriseFetch("/api/trip-desk", {
         method: "POST",
-        body: JSON.stringify({ ...form, departure: new Date(form.departure).toISOString() }),
+        body: JSON.stringify({ ...form, dieselFromCash: dieselFromCashNow, departure: new Date(form.departure).toISOString() }),
       });
       showFeedback("success", `Trip created (${r.tripNumber})${r.created.length ? " · new: " + r.created.join(", ") : ""} · ٹرپ بن گئی${gpsNote(r.gps)}`);
       setForm(emptyForm());
@@ -292,12 +297,15 @@ export default function TripDesk({
     }
   };
 
+  // a road cost paid in cash comes out of the cash the driver was given — by itself, unless unticked
+  const fromCashNow = () =>
+    money.kind !== "cash" && (money.fromCash ?? (money.method === "Cash" && Number(money.amount) > 0 && cashLeft(entries).some((c) => c.paid >= Number(money.amount))));
   const addMoney = async (j: Journey) => {
     setAddingMoney(true);
     try {
       await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
         method: "POST",
-        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: money.fromCash && money.kind !== "cash", fromEntryId: money.fromCash ? money.fromEntryId || undefined : undefined }),
+        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: fromCashNow(), fromEntryId: fromCashNow() ? money.fromEntryId || undefined : undefined }),
       });
       showFeedback("success", `${fmt(Number(money.amount))} added to this trip · ٹرپ میں درج ہو گیا — add the next one if there is more`);
       // keep what / when / how for the next entry; only the amount and its description start empty
@@ -443,10 +451,10 @@ export default function TripDesk({
           </div>
           {Number(form.cash) > 0 && Number(form.dieselAmount) > 0 && (
             <label className="col-span-2 md:col-span-4 flex items-start gap-2 text-xs rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-              <input id="td-diesel-from-cash" type="checkbox" className="mt-0.5" checked={form.dieselFromCash} onChange={(e) => set("dieselFromCash", e.target.checked as any)} />
+              <input id="td-diesel-from-cash" type="checkbox" className="mt-0.5" checked={dieselFromCashNow} onChange={(e) => set("dieselFromCash", e.target.checked as any)} />
               <span>
                 <b>The diesel was bought out of this cash · ڈیزل اسی نقد میں سے لیا۔</b> The driver was handed PKR {Number(form.cash).toLocaleString()} in all; of it PKR {Number(form.dieselAmount).toLocaleString()} went on diesel
-                {form.dieselFromCash && Number(form.dieselAmount) <= Number(form.cash) ? <>, so the trip cash is recorded as <b>PKR {(Number(form.cash) - Number(form.dieselAmount)).toLocaleString()}</b> and the diesel as PKR {Number(form.dieselAmount).toLocaleString()} — the total given stays PKR {Number(form.cash).toLocaleString()}.</> : <>. Leave this unticked only if the diesel was paid separately, <i>on top of</i> the cash.</>}
+                {dieselFromCashNow && Number(form.dieselAmount) <= Number(form.cash) ? <>, so the trip cash is recorded as <b>PKR {(Number(form.cash) - Number(form.dieselAmount)).toLocaleString()}</b> and the diesel as PKR {Number(form.dieselAmount).toLocaleString()} — the total given stays PKR {Number(form.cash).toLocaleString()}.</> : <>. Leave this unticked only if the diesel was paid separately, <i>on top of</i> the cash.</>}
               </span>
             </label>
           )}
@@ -716,16 +724,16 @@ export default function TripDesk({
                               <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>
                                 {addingMoney ? "Saving…" : "Save · محفوظ کریں"}
                               </button>
-                              {money.kind !== "cash" && entries.some((en) => en.category === "TripCash" && !en.paidFromEntryId) && (
+                              {money.kind !== "cash" && cashLeft(entries).length > 0 && (
                                 <label className="col-span-2 md:col-span-6 flex items-start gap-2 text-[11px] text-slate-700">
-                                  <input id={`money-fromcash-${j.root}`} type="checkbox" className="mt-0.5" checked={money.fromCash} onChange={(e) => setMoney({ ...money, fromCash: e.target.checked })} />
+                                  <input id={`money-fromcash-${j.root}`} type="checkbox" className="mt-0.5" checked={fromCashNow()} onChange={(e) => setMoney({ ...money, fromCash: e.target.checked })} />
                                   <span><b>Paid out of the trip cash already given to the driver · پہلے دی گئی ٹرپ نقد میں سے ادا</b> — the amount is taken out of that cash entry, so the total given is not counted twice. Leave unticked if it was given on top.</span>
                                 </label>
                               )}
-                              {money.kind !== "cash" && money.fromCash && cashLeft(entries).length > 1 && (
+                              {money.kind !== "cash" && fromCashNow() && cashLeft(entries).length > 1 && (
                                 <label className="col-span-2 md:col-span-6 flex flex-col gap-0.5 text-[11px] text-slate-700">
                                   <span className="font-semibold">Out of which cash? · کس نقد میں سے؟</span>
-                                  <select id={`money-fromentry-${j.root}`} className={small} value={money.fromEntryId || cashLeft(entries)[0].id} onChange={(e) => setMoney({ ...money, fromEntryId: Number(e.target.value) })}>
+                                  <select id={`money-fromentry-${j.root}`} className={small} value={money.fromEntryId || oldestCash(entries, Number(money.amount))?.id || cashLeft(entries)[0].id} onChange={(e) => setMoney({ ...money, fromEntryId: Number(e.target.value) })}>
                                     {cashLeft(entries).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
                                   </select>
                                 </label>
@@ -764,12 +772,33 @@ export default function TripDesk({
                                             <td className="px-2" dir="auto">
                                               {en.description || "—"}
                                               {en.paidFromEntryId ? (
-                                                <span className="ml-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 px-1.5 py-0.5" title="Taken out of the trip cash — not counted twice">from trip cash</span>
+                                                <span className="ml-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 px-1.5 py-0.5" title="Taken out of the trip cash — not counted twice">
+                                                  from {(() => { const c = entries.find((x) => x.id === en.paidFromEntryId); return c ? `the ${fmt(cashGiven(c))} cash` : "trip cash"; })()}
+                                                </span>
                                               ) : null}
                                             </td>
                                             <td className="px-2 whitespace-nowrap">
                                               {en.paidFromEntryId ? (
-                                                <button onClick={() => fromCashLink(en, j.root, false)} className="text-[10px] text-amber-700 hover:underline mr-2" title="Put it back as a separate sum (the trip cash goes up again)">unlink</button>
+                                                <>
+                                                  {entries.filter((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).length > 0 && (
+                                                    linkPick?.id === en.id ? (
+                                                      <span className="inline-flex items-center gap-1 mr-2">
+                                                        <select className="border border-amber-300 rounded px-1 py-0.5 text-[10px] max-w-[260px]" value={linkPick.cash} onChange={(e) => setLinkPick({ id: en.id, cash: Number(e.target.value) })}>
+                                                          {entries.filter((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
+                                                        </select>
+                                                        <button onClick={() => fromCashLink(en, j.root, true, linkPick.cash)} className="text-[10px] font-semibold text-emerald-700">OK</button>
+                                                        <button onClick={() => setLinkPick(null)} className="text-[10px] text-slate-500">✕</button>
+                                                      </span>
+                                                    ) : (
+                                                      <button
+                                                        onClick={() => setLinkPick({ id: en.id, cash: entries.find((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).id })}
+                                                        className="text-[10px] text-amber-700 hover:underline mr-2"
+                                                        title="It came out of a different cash — move it"
+                                                      >change</button>
+                                                    )
+                                                  )}
+                                                  <button onClick={() => fromCashLink(en, j.root, false)} className="text-[10px] text-amber-700 hover:underline mr-2" title="Put it back as a separate sum (the trip cash goes up again)">unlink</button>
+                                                </>
                                               ) : en.category !== "TripCash" && cashLeft(entries).some((c) => c.paid >= en.paid) ? (
                                                 linkPick?.id === en.id ? (
                                                   <span className="inline-flex items-center gap-1 mr-2">
@@ -784,7 +813,7 @@ export default function TripDesk({
                                                     onClick={() => {
                                                       const opts = cashLeft(entries).filter((c) => c.paid >= en.paid);
                                                       if (opts.length === 1) fromCashLink(en, j.root, true, opts[0].id);
-                                                      else setLinkPick({ id: en.id, cash: opts[0].id });
+                                                      else setLinkPick({ id: en.id, cash: oldestCash(entries, en.paid).id });
                                                     }}
                                                     className="text-[10px] text-amber-700 hover:underline mr-2"
                                                     title="This was bought with cash already given — take it out of that cash so it is not counted twice"
@@ -805,15 +834,24 @@ export default function TripDesk({
                                       <td className="px-2 text-right tabular-nums">{fmt(entries.reduce((t, en) => t + (en.paid || 0), 0))}</td>
                                       <td colSpan={2} />
                                     </tr>
-                                    {entries.some((en) => en.paidFromEntryId) && (
-                                      <tr className="text-[11px] text-slate-600">
-                                        <td className="px-2 pb-1.5" colSpan={6} dir="auto">
-                                          Trip cash handed to the driver {fmt(entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId).reduce((t, en) => t + cashGiven(en), 0))}
-                                          {" "}— spent out of it {fmt(entries.filter((en) => en.paidFromEntryId).reduce((t, en) => t + en.paid, 0))} (diesel, toll…), still with the driver / not yet accounted for {fmt(cashLeft(entries).reduce((t, en) => t + en.paid, 0))}
-                                          {" "}· ڈرائیور کو دی گئی نقد — اس میں سے خرچ — ابھی ڈرائیور کے پاس
-                                        </td>
-                                      </tr>
-                                    )}
+                                    {entries.some((en) => en.paidFromEntryId) && (() => {
+                                      const given = entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId);
+                                      const spent = entries.filter((en) => en.paidFromEntryId);
+                                      const left = given.reduce((t, en) => t + en.paid, 0);
+                                      return (
+                                        <tr>
+                                          <td colSpan={6} className="px-2 pb-2">
+                                            <div className="mt-1 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs space-y-0.5" dir="auto">
+                                              <div className="font-semibold text-slate-700">Driver's cash · ڈرائیور کی نقد</div>
+                                              <div>Cash given · نقد دی: {given.map((g) => fmt(cashGiven(g))).join(" + ")} = <b>{fmt(given.reduce((t, g) => t + cashGiven(g), 0))}</b></div>
+                                              <div>Spent out of it · اس میں سے خرچ: {spent.map((sp) => `${CATEGORY_LABEL[sp.category] || sp.category} ${fmt(sp.paid)}`).join(" + ")} = <b>{fmt(spent.reduce((t, sp) => t + sp.paid, 0))}</b></div>
+                                              <div>Cash left with the driver · ڈرائیور کے پاس باقی: {given.map((g) => fmt(g.paid)).join(" + ")} = <b>{fmt(left)}</b></div>
+                                              <div className="text-slate-500">Total given on the trip = left {fmt(left)} + spent {fmt(spent.reduce((t, sp) => t + sp.paid, 0))} = <b>{fmt(left + spent.reduce((t, sp) => t + sp.paid, 0))}</b></div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })()}
                                   </tfoot>
                                 </table>
                               </div>

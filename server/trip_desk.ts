@@ -137,9 +137,10 @@ async function tripCashFor(tripId: number, amount: number, exceptId?: number, ch
       throw new Error(`Only PKR ${pick.paid.toLocaleString()} is left of that cash (${pick.description || "trip cash"}) — not enough for PKR ${amount.toLocaleString()}. Choose another cash entry or raise it first · اس نقد میں اتنی رقم نہیں`);
     return pick;
   }
-  const enough = usable.filter((c) => c.paid >= amount);
-  if (enough.length === 1) return enough[0];
-  if (enough.length > 1) throw new Error("There is more than one trip cash on this trip — choose which one it came out of · ایک سے زیادہ نقد ہیں، چنیں کس میں سے");
+  // oldest first: the cash handed over when the trip started is the one the road costs come out of
+  // (by the order they were written: the cash typed when the trip was made comes first, whatever time of day each is stamped with)
+  const enough = usable.filter((c) => c.paid >= amount).sort((a, b) => a.id - b.id);
+  if (enough.length) return enough[0];
   const have = usable.reduce((s, c) => s + c.paid, 0);
   throw new Error(
     usable.length
@@ -830,8 +831,18 @@ router.post("/entry/:entryId/from-cash", requireRole(WRITE), async (req: AuthReq
     const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
     if (!old || old.isDeleted || old.derivedTripId == null) return res.status(404).json({ error: "Entry not found" });
     if (old.category === MONEY_KINDS.cash.category) return res.status(400).json({ error: "This is the trip cash itself · یہ خود ٹرپ نقد ہے" });
-    if (old.paidFromEntryId) return res.status(400).json({ error: "Already taken out of the trip cash · پہلے ہی نقد میں سے لی گئی ہے" });
-    const cash = await tripCashFor(old.derivedTripId, old.paid, id, parseInt(req.body?.cashEntryId) || undefined);
+    const chosen = parseInt(req.body?.cashEntryId) || undefined;
+    if (old.paidFromEntryId && (!chosen || chosen === old.paidFromEntryId)) return res.status(400).json({ error: "Already taken out of that trip cash · پہلے ہی اسی نقد میں سے لی گئی ہے" });
+    const cash = await tripCashFor(old.derivedTripId, old.paid, id, chosen);
+    if (old.paidFromEntryId) {
+      // moving it: the cash it came out of first gets the money back
+      const [prev] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);
+      if (prev) {
+        await db.update(schema.truckLedgerEntries).set({ paid: prev.paid + old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, prev.id));
+        await audit(req, "UPDATE", "truck_ledger_entries", prev.id, prev, { ...prev, paid: prev.paid + old.paid, note: `entry ${id} moved to another trip cash` });
+        if (prev.ledgerId !== old.ledgerId) await recompute(prev.ledgerId);
+      }
+    }
     await db.update(schema.truckLedgerEntries).set({ paidFromEntryId: cash.id, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, id));
     await db.update(schema.truckLedgerEntries).set({ paid: cash.paid - old.paid, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.truckLedgerEntries.id, cash.id));
     await audit(req, "UPDATE", "truck_ledger_entries", cash.id, cash, { ...cash, paid: cash.paid - old.paid, note: `PKR ${old.paid} of it was entry ${id}` });
