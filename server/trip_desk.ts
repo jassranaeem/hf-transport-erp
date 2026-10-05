@@ -144,8 +144,10 @@ async function tripCashFor(tripId: number, amount: number, exceptId?: number, ch
   const have = usable.reduce((s, c) => s + c.paid, 0);
   throw new Error(
     usable.length
-      ? `The trip cash left is PKR ${have.toLocaleString()} — not enough for PKR ${amount.toLocaleString()}. Enter the cash given first, or untick “paid from trip cash” · ٹرپ نقد میں اتنی رقم نہیں`
-      : `No trip cash has been given on this trip, so there is nothing to take it out of — untick “paid from trip cash”, or enter the cash given first · اس ٹرپ پر نقد دی ہی نہیں گئی`,
+      ? have >= amount
+        ? `No single cash given has PKR ${amount.toLocaleString()} left (the most is PKR ${Math.max(...usable.map((c) => c.paid)).toLocaleString()}) — enter it in two parts · دو حصوں میں درج کریں`
+        : `The driver has only PKR ${have.toLocaleString()} of the cash — not enough for PKR ${amount.toLocaleString()}. Enter more “Cash to driver” first, or choose “Office paid” · ڈرائیور کے پاس اتنی نقد نہیں`
+      : `No cash has been given to the driver on this trip yet — enter “Cash to driver” first, or choose “Office paid” · اس ٹرپ پر ڈرائیور کو نقد دی ہی نہیں گئی`,
   );
 }
 
@@ -518,7 +520,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         kind: "cash",
         amount: cashLeft,
         date: departure,
-        description: dieselFromCash ? `Trip cash · ${routeLabel} (PKR ${cash.toLocaleString()} given; PKR ${diesel.toLocaleString()} of it went on diesel)` : `Trip cash · ${routeLabel}`,
+        description: `Trip cash · ${routeLabel}`,
         userId: req.user?.id,
         routeFrom: route.origin,
         routeTo: route.destination,

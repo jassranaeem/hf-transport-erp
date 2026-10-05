@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import CloseTrip from "./CloseTrip.tsx";
+import TripMoney from "./TripMoney.tsx";
 import { Plus, Trash2, Search, ChevronDown, ChevronRight, Loader2, RefreshCw, Pencil, Paperclip, MapPin, History, Truck, AlertCircle } from "lucide-react";
 
 const fmt = (n: number) => "PKR " + Math.round(n || 0).toLocaleString();
@@ -25,31 +26,9 @@ const toLocal = (iso: string) => {
 };
 const emptyForm = () => ({
   truck: "", driverName: "", driverPhone: "", from: "", to: "", customer: "",
-  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselFromCash: null as boolean | null, cargo: "",
+  departure: nowLocal(), freight: "", cash: "", dieselAmount: "", dieselLitres: "", dieselPump: "", dieselRef: "", dieselPayment: "Cash", dieselBy: "" as "" | "driver" | "office" | "bank", cargo: "",
 });
 const STATUSES = ["Scheduled", "In Transit", "Arrived", "Completed"];
-/** The trip-cash entries still holding money that something can be paid out of. */
-const cashLeft = (entries: any[]) => entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId && en.paid > 0);
-/** The cash handed over first that can still cover `amount` — what a road cost comes out of unless told otherwise. */
-const oldestCash = (entries: any[], amount: number) =>
-  [...cashLeft(entries)].filter((c) => c.paid >= (amount || 0)).sort((a, b) => a.id - b.id)[0];
-const cashGiven = (c: any) => (c.paid || 0) + (c.spentFromIt || 0);
-const cashLabel = (c: any) => `${new Date(c.entryDate).toLocaleDateString()} · ${(c.description || "Trip cash").slice(0, 60)} — PKR ${(c.paid || 0).toLocaleString()} left of ${cashGiven(c).toLocaleString()}`;
-// what money given on a trip was for (server: MONEY_KINDS) — and how a saved entry's category reads
-const MONEY_FOR = [
-  { k: "cash", l: "Trip cash to driver · ڈرائیور کو نقد" },
-  { k: "diesel", l: "Diesel · ڈیزل" },
-  { k: "toll", l: "Toll · ٹول" },
-  { k: "khurak", l: "Khurak (food) · خوراک" },
-  { k: "labour", l: "Loading / unloading · مزدوری" },
-  { k: "repair", l: "Repair on the road · مرمت" },
-  { k: "tyre", l: "Tyre · ٹائر" },
-  { k: "permit", l: "Permit / border · پرمٹ / بارڈر" },
-  { k: "other", l: "Other · دیگر" },
-];
-const CATEGORY_LABEL: Record<string, string> = { TripCash: "Trip cash · نقد", Diesel: "Diesel · ڈیزل", Toll: "Toll · ٹول", Khurak: "Khurak · خوراک", Labour: "Loading / unloading · مزدوری", Garage: "Repair · مرمت", Tyre: "Tyre · ٹائر", Permit: "Permit · پرمٹ", Other: "Other · دیگر" };
-const kindOfCategory = (c: string) => ({ TripCash: "cash", Diesel: "diesel", Toll: "toll", Khurak: "khurak", Labour: "labour", Garage: "repair", Tyre: "tyre", Permit: "permit" } as Record<string, string>)[c] || "other";
-const todayStr = () => new Date().toISOString().slice(0, 10);
 const dmy = (day: string | null | undefined) => (day ? `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}` : "");
 
 interface Opts {
@@ -90,23 +69,16 @@ export default function TripDesk({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [openId, setOpenId] = useState<number | null>(null);
-  const [money, setMoney] = useState({ tripId: 0, kind: "cash", amount: "", note: "", date: todayStr(), method: "Cash", fromCash: null as boolean | null, fromEntryId: 0 });
-  const [linkPick, setLinkPick] = useState<{ id: number; cash: number } | null>(null);
-  const [addingMoney, setAddingMoney] = useState(false);
   const [stop, setStop] = useState({ from: "", to: "", cargo: "", customer: "", freight: "", departure: nowLocal() });
   const [addingStop, setAddingStop] = useState(false);
-  const [entries, setEntries] = useState<any[]>([]);
   const [editLegId, setEditLegId] = useState<number | null>(null);
   const [attachLegId, setAttachLegId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [savingEdit, setSavingEdit] = useState(false);
-  const [entryEdit, setEntryEdit] = useState<{ id: number; date: string; amount: string; description: string; kind: string; method: string } | null>(null);
   const [view, setView] = useState<"active" | "history">("active");
   const [khata, setKhata] = useState<{ span: any; rows: any[] } | null>(null); // the truck's other rows inside this trip's days
-
-  const loadEntries = useCallback((rootId: number) => {
-    enterpriseFetch(`/api/trip-desk/${rootId}/entries?journey=1`).then(setEntries).catch(() => setEntries([]));
-  }, []);
+  const [showKhata, setShowKhata] = useState(false);
+  const [showStop, setShowStop] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -128,13 +100,13 @@ export default function TripDesk({
   useEffect(() => {
     setEditLegId(null);
     setAttachLegId(null);
-    setEntryEdit(null);
     setKhata(null);
+    setShowKhata(false);
+    setShowStop(false);
     if (openId != null) {
-      loadEntries(openId);
       enterpriseFetch(`/api/trip-desk/${openId}/khata-rows`).then(setKhata).catch(() => setKhata({ span: null, rows: [] }));
     }
-  }, [openId, loadEntries]);
+  }, [openId]);
 
   // "New trip" for the same truck, straight after the last one: truck, driver and the place it ended
   const newTripFrom = (j: Journey) => {
@@ -152,14 +124,14 @@ export default function TripDesk({
     setForm((f) => ({ ...f, driverName: v, driverPhone: m && !f.driverPhone ? m.mobile || "" : f.driverPhone }));
   };
 
-  // diesel bought with cash the driver was handed: ticked by itself while it fits (untick if it was paid on top / by bank)
-  const dieselFromCashNow = form.dieselFromCash ?? (Number(form.cash) > 0 && Number(form.dieselAmount) > 0 && Number(form.dieselAmount) <= Number(form.cash) && form.dieselPayment === "Cash");
+  // who paid the diesel: the driver out of the cash above (the usual case when cash was given), the office / pump account, or the bank
+  const dieselBy = form.dieselBy || (Number(form.cash) > 0 && Number(form.dieselAmount) <= Number(form.cash) ? "driver" : "office");
   const submit = async () => {
     setSaving(true);
     try {
       const r = await enterpriseFetch("/api/trip-desk", {
         method: "POST",
-        body: JSON.stringify({ ...form, dieselFromCash: dieselFromCashNow, departure: new Date(form.departure).toISOString() }),
+        body: JSON.stringify({ ...form, dieselFromCash: dieselBy === "driver" && Number(form.cash) > 0, dieselPayment: dieselBy === "bank" ? "Bank" : "Cash", departure: new Date(form.departure).toISOString() }),
       });
       showFeedback("success", `Trip created (${r.tripNumber})${r.created.length ? " · new: " + r.created.join(", ") : ""} · ٹرپ بن گئی${gpsNote(r.gps)}`);
       setForm(emptyForm());
@@ -297,69 +269,6 @@ export default function TripDesk({
     }
   };
 
-  // a road cost paid in cash comes out of the cash the driver was given — by itself, unless unticked
-  const fromCashNow = () =>
-    money.kind !== "cash" && (money.fromCash ?? (money.method === "Cash" && Number(money.amount) > 0 && cashLeft(entries).some((c) => c.paid >= Number(money.amount))));
-  const addMoney = async (j: Journey) => {
-    setAddingMoney(true);
-    try {
-      await enterpriseFetch(`/api/trip-desk/${money.tripId || j.last.id}/money`, {
-        method: "POST",
-        body: JSON.stringify({ kind: money.kind, amount: Number(money.amount), note: money.note, date: money.date, method: money.method, fromCash: fromCashNow(), fromEntryId: fromCashNow() ? money.fromEntryId || undefined : undefined }),
-      });
-      showFeedback("success", `${fmt(Number(money.amount))} added to this trip · ٹرپ میں درج ہو گیا — add the next one if there is more`);
-      // keep what / when / how for the next entry; only the amount and its description start empty
-      setMoney((m) => ({ ...m, amount: "", note: "" }));
-      setTimeout(() => (document.getElementById(`money-amount-${j.root}`) as HTMLInputElement | null)?.focus(), 50);
-      loadEntries(j.root);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    } finally {
-      setAddingMoney(false);
-    }
-  };
-  const saveEntry = async (rootId: number) => {
-    if (!entryEdit) return;
-    try {
-      await enterpriseFetch(`/api/trip-desk/entry/${entryEdit.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ entryDate: entryEdit.date, amount: Number(entryEdit.amount), description: entryEdit.description, kind: entryEdit.kind, method: entryEdit.method }),
-      });
-      showFeedback("success", "Entry updated · انٹری اپڈیٹ ہو گئی");
-      setEntryEdit(null);
-      loadEntries(rootId);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-  const fromCashLink = async (en: any, rootId: number, on: boolean, cashEntryId?: number) => {
-    const q = on
-      ? `PKR ${Math.round(en.paid).toLocaleString()} (${en.description || en.category}) was bought with the trip cash already given?\n\nIt will be taken out of that cash entry, so the total given on the trip stays what you handed over.\n\nیہ پہلے دی گئی نقد میں سے خرچ ہوئی؟`
-      : `Put PKR ${Math.round(en.paid).toLocaleString()} back as a separate sum?\n\nThe trip cash goes up by the same amount, and the total given on the trip goes up too.`;
-    if (!window.confirm(q)) return;
-    try {
-      await enterpriseFetch(`/api/trip-desk/entry/${en.id}/from-cash`, { method: on ? "POST" : "DELETE", body: on ? JSON.stringify({ cashEntryId }) : undefined });
-      setLinkPick(null);
-      showFeedback("success", on ? "Taken out of the trip cash · نقد میں سے منہا ہو گیا" : "Put back as a separate sum · الگ رقم بحال");
-      loadEntries(rootId);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-  const deleteEntry = async (id: number, rootId: number) => {
-    if (!window.confirm("Delete this entry? · کیا یہ انٹری حذف کریں؟")) return;
-    try {
-      await enterpriseFetch(`/api/trip-desk/entry/${id}`, { method: "DELETE" });
-      loadEntries(rootId);
-      load();
-    } catch (e: any) {
-      showFeedback("error", e.message);
-    }
-  };
-
   const inp = "mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white";
   const lbl = "text-[11px] font-semibold text-slate-500";
   const small = "border border-slate-300 rounded-lg px-2 py-1.5 text-sm bg-white";
@@ -421,42 +330,57 @@ export default function TripDesk({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
-          <div>
-            <label className={lbl}>Cash given (PKR) · نقد رقم</label>
-            <input type="number" className={inp} value={form.cash} onChange={(e) => set("cash", e.target.value)} />
+        <div className="pt-3 border-t border-slate-100 space-y-3">
+          <div className="text-xs font-semibold text-slate-600">Money at the start (optional) · شروع میں دیے گئے پیسے</div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className={lbl}>Cash to driver · ڈرائیور کو نقد</label>
+              <input type="number" className={inp} value={form.cash} onChange={(e) => set("cash", e.target.value)} placeholder="PKR" />
+            </div>
+            <div>
+              <label className={lbl}>Diesel · ڈیزل</label>
+              <input type="number" className={inp} value={form.dieselAmount} onChange={(e) => set("dieselAmount", e.target.value)} placeholder="PKR" />
+            </div>
+            <div>
+              <label className={lbl}>Litres · لیٹر</label>
+              <input type="number" className={inp} value={form.dieselLitres} onChange={(e) => set("dieselLitres", e.target.value)} />
+            </div>
+            <div>
+              <label className={lbl}>Pump · پمپ</label>
+              <input className={inp} value={form.dieselPump} onChange={(e) => set("dieselPump", e.target.value)} />
+            </div>
+            <div>
+              <label className={lbl}>Slip no. · سلپ</label>
+              <input className={inp} value={form.dieselRef} onChange={(e) => set("dieselRef", e.target.value)} />
+            </div>
           </div>
-          <div>
-            <label className={lbl}>Diesel amount (PKR) · ڈیزل کی رقم</label>
-            <input type="number" className={inp} value={form.dieselAmount} onChange={(e) => set("dieselAmount", e.target.value)} />
-          </div>
-          <div>
-            <label className={lbl}>Diesel litres · لیٹر</label>
-            <input type="number" className={inp} value={form.dieselLitres} onChange={(e) => set("dieselLitres", e.target.value)} />
-          </div>
-          <div>
-            <label className={lbl}>Pump · پمپ</label>
-            <input className={inp} value={form.dieselPump} onChange={(e) => set("dieselPump", e.target.value)} />
-          </div>
-          <div>
-            <label className={lbl}>Slip / reference no. · سلپ نمبر</label>
-            <input className={inp} value={form.dieselRef} onChange={(e) => set("dieselRef", e.target.value)} />
-          </div>
-          <div>
-            <label className={lbl}>Diesel paid by · ادائیگی</label>
-            <select className={inp} value={form.dieselPayment} onChange={(e) => set("dieselPayment", e.target.value)}>
-              <option value="Cash">Cash</option>
-              <option value="Bank">Bank transfer</option>
-            </select>
-          </div>
-          {Number(form.cash) > 0 && Number(form.dieselAmount) > 0 && (
-            <label className="col-span-2 md:col-span-4 flex items-start gap-2 text-xs rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-              <input id="td-diesel-from-cash" type="checkbox" className="mt-0.5" checked={dieselFromCashNow} onChange={(e) => set("dieselFromCash", e.target.checked as any)} />
-              <span>
-                <b>The diesel was bought out of this cash · ڈیزل اسی نقد میں سے لیا۔</b> The driver was handed PKR {Number(form.cash).toLocaleString()} in all; of it PKR {Number(form.dieselAmount).toLocaleString()} went on diesel
-                {dieselFromCashNow && Number(form.dieselAmount) <= Number(form.cash) ? <>, so the trip cash is recorded as <b>PKR {(Number(form.cash) - Number(form.dieselAmount)).toLocaleString()}</b> and the diesel as PKR {Number(form.dieselAmount).toLocaleString()} — the total given stays PKR {Number(form.cash).toLocaleString()}.</> : <>. Leave this unticked only if the diesel was paid separately, <i>on top of</i> the cash.</>}
-              </span>
-            </label>
+          {Number(form.dieselAmount) > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-600">Diesel paid by · ڈیزل کس نے دیا:</span>
+              {([
+                ["driver", "Driver, out of the cash · ڈرائیور نے نقد سے"],
+                ["office", "Office / pump account · دفتر"],
+                ["bank", "Bank · بینک"],
+              ] as const)
+                .filter(([k]) => k !== "driver" || Number(form.cash) > 0)
+                .map(([k, l]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => set("dieselBy", k)}
+                    className={`rounded-lg px-3 py-1 border ${dieselBy === k ? "bg-emerald-600 border-emerald-600 text-white font-semibold" : "bg-white border-slate-300 text-slate-700 hover:bg-slate-100"}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              {dieselBy === "driver" && Number(form.cash) > 0 && (
+                <span className={Number(form.dieselAmount) > Number(form.cash) ? "text-red-600" : "text-slate-500"}>
+                  {Number(form.dieselAmount) > Number(form.cash)
+                    ? "Diesel is more than the cash given · ڈیزل نقد سے زیادہ ہے"
+                    : `With the driver: ${fmt(Number(form.cash))} − ${fmt(Number(form.dieselAmount))} = ${fmt(Number(form.cash) - Number(form.dieselAmount))}`}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -511,15 +435,14 @@ export default function TripDesk({
                 <th className="text-left px-2">Route · روٹ</th>
                 <th className="text-left px-2">Customer · کسٹمر</th>
                 <th className="text-left px-2">Started · شروع</th>
-                <th className="text-right px-2">Cash · نقد</th>
-                <th className="text-right px-2">Diesel · ڈیزل</th>
+                <th className="text-right px-2">Given · دیا</th>
                 <th className="text-right px-2">Freight · کرایہ</th>
                 <th className="text-left px-2">Status · حالت</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={11} className="p-6 text-center text-slate-400 text-sm">{loading ? "Loading…" : view === "history" ? "No finished trips yet — a trip comes here when it is Completed. · ابھی کوئی مکمل ٹرپ نہیں" : "No trip on the road. · ابھی کوئی ٹرپ نہیں چل رہی"}</td></tr>
+                <tr><td colSpan={10} className="p-6 text-center text-slate-400 text-sm">{loading ? "Loading…" : view === "history" ? "No finished trips yet — a trip comes here when it is Completed. · ابھی کوئی مکمل ٹرپ نہیں" : "No trip on the road. · ابھی کوئی ٹرپ نہیں چل رہی"}</td></tr>
               )}
               {filtered.map((j) => {
                 const open = openId === j.root;
@@ -539,8 +462,7 @@ export default function TripDesk({
                       </td>
                       <td className="px-2">{j.customers}</td>
                       <td className="px-2 whitespace-nowrap">{new Date(j.first.departureTime).toLocaleDateString()}</td>
-                      <td className="px-2 text-right tabular-nums">{j.cash ? fmt(j.cash) : "—"}</td>
-                      <td className="px-2 text-right tabular-nums">{j.diesel ? fmt(j.diesel) : "—"}</td>
+                      <td className="px-2 text-right tabular-nums">{j.given ? fmt(j.given) : "—"}</td>
                       <td className="px-2 text-right tabular-nums">{j.freight ? fmt(j.freight) : "—"}</td>
                       <td className="px-2">
                         <select
@@ -570,11 +492,10 @@ export default function TripDesk({
                         <button
                           onClick={() => {
                             setOpenId(j.root);
-                            setMoney((m) => ({ ...m, tripId: j.last.id, amount: "", note: "", date: todayStr() }));
                             setTimeout(() => {
                               document.getElementById(`money-${j.root}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                               (document.getElementById(`money-amount-${j.root}`) as HTMLInputElement | null)?.focus();
-                            }, 150);
+                            }, 400);
                           }}
                           className="mt-1 block text-[11px] rounded-lg border border-emerald-600 text-emerald-700 bg-white px-2 py-0.5 whitespace-nowrap hover:bg-emerald-50"
                         >
@@ -594,24 +515,22 @@ export default function TripDesk({
                     </tr>
                     {open && (
                       <tr className="bg-slate-50/60">
-                        <td colSpan={11} className="px-4 py-3 space-y-3">
-                          <div className="text-xs font-semibold text-slate-700">
-                            Whole trip · پورا سفر: freight {fmt(j.freight)} − given {fmt(j.given)} = <b>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</b>
-                            {j.fromLedger > 0 && <span className="text-slate-500 font-normal"> (given includes {fmt(j.fromLedger)} from this truck's ledger in this trip's days — listed below)</span>}
-                          </div>
-                          {j.first.spanFrom && (
-                            <div className="text-[11px] text-slate-600 rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-                              This trip's days · اس ٹرپ کے دن: <b>{dmy(j.first.spanFrom)}</b> →{" "}
-                              {j.first.spanUntil ? (
-                                <>
-                                  <b>{dmy(j.first.spanUntil)}</b> (the next trip of {j.first.vehicleNumber} started — money from that day on is the next trip's · اس دن سے اگلی ٹرپ کا)
-                                </>
-                              ) : (
-                                <b>now · ابھی تک</b>
-                              )}
-                              . Cash / diesel typed through the trip always stays with it.
+                        <td colSpan={10} className="px-4 py-3 space-y-3">
+                          <div className="grid grid-cols-3 gap-2 max-w-2xl">
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <div className="text-[11px] text-slate-500">Freight · کرایہ</div>
+                              <div className="font-bold tabular-nums">{fmt(j.freight)}</div>
                             </div>
-                          )}
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <div className="text-[11px] text-slate-500">Given · دیا</div>
+                              <div className="font-bold tabular-nums">{fmt(j.given)}</div>
+                              {j.fromLedger > 0 && <div className="text-[10px] text-slate-400">incl. {fmt(j.fromLedger)} from the truck's khata</div>}
+                            </div>
+                            <div className={`rounded-lg border px-3 py-2 ${net < 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+                              <div className="text-[11px] text-slate-500">{net < 0 ? "Short · کمی" : "Left · بچت"}</div>
+                              <div className={`font-bold tabular-nums ${net < 0 ? "text-red-700" : "text-emerald-800"}`}>{net < 0 ? "−" : ""}{fmt(Math.abs(net))}</div>
+                            </div>
+                          </div>
 
                           <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
                             <table className="w-full text-xs">
@@ -669,8 +588,11 @@ export default function TripDesk({
                             <AttachmentPanel entityType="trip" entityId={attachLegId} title={`Stop ${j.legs.find((l) => l.id === attachLegId)?.legNo || 1} receipts · اس پڑاؤ کی رسیدیں`} />
                           )}
 
+                          {!showStop ? (
+                            <button onClick={() => setShowStop(true)} className="text-xs font-semibold text-emerald-700 hover:underline">+ Add next stop (e.g. the loaded run) · اگلا پڑاؤ</button>
+                          ) : (
                           <div className="rounded-lg border border-slate-200 bg-white p-3">
-                            <div className="text-[11px] font-semibold text-slate-500 mb-1">Add next stop to this trip (e.g. the loaded run) · اگلا پڑاؤ</div>
+                            <div className="text-[11px] font-semibold text-slate-500 mb-1">Next stop · اگلا پڑاؤ</div>
                             <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
                               <input list="td-from" className={small} placeholder={`From (${j.last.destination})`} value={stop.from} onChange={(e) => setStop({ ...stop, from: e.target.value })} />
                               <input list="td-to" className={small} placeholder="To *" value={stop.to} onChange={(e) => setStop({ ...stop, to: e.target.value })} />
@@ -679,190 +601,21 @@ export default function TripDesk({
                               <input type="number" className={small} placeholder="Freight (PKR)" value={stop.freight} onChange={(e) => setStop({ ...stop, freight: e.target.value })} />
                               <input type="datetime-local" className={small} value={stop.departure} onChange={(e) => setStop({ ...stop, departure: e.target.value })} />
                             </div>
-                            <button onClick={() => addStop(j)} disabled={addingStop || !stop.to.trim()} className={`mt-2 ${btn}`}>Add stop · پڑاؤ شامل کریں</button>
+                            <div className="flex gap-2 mt-2">
+                              <button onClick={() => addStop(j)} disabled={addingStop || !stop.to.trim()} className={btn}>Add stop · پڑاؤ شامل کریں</button>
+                              <button onClick={() => setShowStop(false)} className="text-sm rounded-lg border border-slate-300 bg-white px-4 py-1.5">Cancel</button>
+                            </div>
                           </div>
+                          )}
 
-                          <div id={`money-${j.root}`} className="rounded-lg border border-emerald-200 bg-white p-3 space-y-2">
-                            <div className="text-xs font-semibold text-slate-700">
-                              Money given on this trip · اس ٹرپ پر دی گئی رقم
-                              <span className="font-normal text-slate-500"> — as many times as needed: diesel on the road, more cash to the driver, toll, repair… each with what it was for · جتنی بار دیں، ہر بار لکھیں کس لیے</span>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
-                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Date · تاریخ</span>
-                                <input id={`money-date-${j.root}`} type="date" className={small} value={money.date} onChange={(e) => setMoney({ ...money, date: e.target.value })} />
-                              </label>
-                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">For · کس لیے</span>
-                                <select id={`money-kind-${j.root}`} className={small} value={money.kind} onChange={(e) => setMoney({ ...money, kind: e.target.value })}>
-                                  {MONEY_FOR.map((m) => <option key={m.k} value={m.k}>{m.l}</option>)}
-                                </select>
-                              </label>
-                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Amount · رقم</span>
-                                <input id={`money-amount-${j.root}`} inputMode="numeric" placeholder="PKR" className={`${small} tabular-nums`} value={money.amount}
-                                  onChange={(e) => setMoney({ ...money, amount: e.target.value.replace(/[^\d]/g, "") })}
-                                  onKeyDown={(e) => e.key === "Enter" && money.amount && addMoney(j)} />
-                              </label>
-                              <label className="flex flex-col gap-0.5"><span className="text-[10px] text-slate-500">Paid how · کیسے دیے</span>
-                                <select id={`money-method-${j.root}`} className={small} value={money.method} onChange={(e) => setMoney({ ...money, method: e.target.value })}>
-                                  <option value="Cash">Cash · نقد</option>
-                                  <option value="Online">Online / Easypaisa / JazzCash</option>
-                                  <option value="Bank">Bank transfer · بینک</option>
-                                  <option value="Cheque">Cheque · چیک</option>
-                                </select>
-                              </label>
-                              {j.legs.length > 1 ? (
-                                <label className="flex flex-col gap-0.5 col-span-2"><span className="text-[10px] text-slate-500">Stop · پڑاؤ</span>
-                                  <select className={small} value={money.tripId || j.last.id} onChange={(e) => setMoney({ ...money, tripId: Number(e.target.value) })}>
-                                    {j.legs.map((l) => <option key={l.id} value={l.id}>Stop {l.legNo || 1}: {l.origin} → {l.destination}</option>)}
-                                  </select>
-                                </label>
-                              ) : <div className="hidden md:block col-span-2" />}
-                              <label className="flex flex-col gap-0.5 col-span-2 md:col-span-5"><span className="text-[10px] text-slate-500">Description — what it was for, where, to whom · تفصیل — کس لیے، کہاں، کس کو</span>
-                                <input id={`money-note-${j.root}`} dir="auto" placeholder="e.g. Diesel at Sukkur pump, 120 litres · مثلاً سکھر پمپ پر ڈیزل" className={small} value={money.note}
-                                  onChange={(e) => setMoney({ ...money, note: e.target.value })}
-                                  onKeyDown={(e) => e.key === "Enter" && money.amount && addMoney(j)} />
-                              </label>
-                              <button onClick={() => addMoney(j)} disabled={addingMoney || !money.amount} className={btn}>
-                                {addingMoney ? "Saving…" : "Save · محفوظ کریں"}
-                              </button>
-                              {money.kind !== "cash" && cashLeft(entries).length > 0 && (
-                                <label className="col-span-2 md:col-span-6 flex items-start gap-2 text-[11px] text-slate-700">
-                                  <input id={`money-fromcash-${j.root}`} type="checkbox" className="mt-0.5" checked={fromCashNow()} onChange={(e) => setMoney({ ...money, fromCash: e.target.checked })} />
-                                  <span><b>Paid out of the trip cash already given to the driver · پہلے دی گئی ٹرپ نقد میں سے ادا</b> — the amount is taken out of that cash entry, so the total given is not counted twice. Leave unticked if it was given on top.</span>
-                                </label>
-                              )}
-                              {money.kind !== "cash" && fromCashNow() && cashLeft(entries).length > 1 && (
-                                <label className="col-span-2 md:col-span-6 flex flex-col gap-0.5 text-[11px] text-slate-700">
-                                  <span className="font-semibold">Out of which cash? · کس نقد میں سے؟</span>
-                                  <select id={`money-fromentry-${j.root}`} className={small} value={money.fromEntryId || oldestCash(entries, Number(money.amount))?.id || cashLeft(entries)[0].id} onChange={(e) => setMoney({ ...money, fromEntryId: Number(e.target.value) })}>
-                                    {cashLeft(entries).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
-                                  </select>
-                                </label>
-                              )}
-                            </div>
-                            {entries.length > 0 && (
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-xs">
-                                  <thead className="text-[10px] uppercase text-slate-500 bg-slate-50">
-                                    <tr><th className="text-left px-2 py-1.5">Date · تاریخ</th><th className="text-left px-2">For · کس لیے</th><th className="text-left px-2">How</th><th className="text-right px-2">Amount · رقم</th><th className="text-left px-2">Description · تفصیل</th><th className="w-16" /></tr>
-                                  </thead>
-                                  <tbody>
-                                    {entries.map((en) => (
-                                      <tr key={en.id} className="border-t border-slate-100">
-                                        {entryEdit?.id === en.id ? (
-                                          <>
-                                            <td className="px-2 py-1"><input type="date" className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.date} onChange={(e) => setEntryEdit({ ...entryEdit, date: e.target.value })} /></td>
-                                            <td className="px-2"><select className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.kind} onChange={(e) => setEntryEdit({ ...entryEdit, kind: e.target.value })}>{MONEY_FOR.map((m) => <option key={m.k} value={m.k}>{m.l}</option>)}</select></td>
-                                            <td className="px-2"><select className="border border-slate-300 rounded px-1.5 py-1" value={entryEdit.method} onChange={(e) => setEntryEdit({ ...entryEdit, method: e.target.value })}>{["Cash", "Online", "Bank", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></td>
-                                            <td className="px-2 text-right"><input type="number" className="border border-slate-300 rounded px-1.5 py-1 w-28 text-right" value={entryEdit.amount} onChange={(e) => setEntryEdit({ ...entryEdit, amount: e.target.value })} /></td>
-                                            <td className="px-2"><input className="border border-slate-300 rounded px-1.5 py-1 w-full" value={entryEdit.description} onChange={(e) => setEntryEdit({ ...entryEdit, description: e.target.value })} /></td>
-                                            <td className="px-2 whitespace-nowrap">
-                                              <button onClick={() => saveEntry(j.root)} className="font-semibold text-emerald-700 mr-2">Save</button>
-                                              <button onClick={() => setEntryEdit(null)} className="text-slate-500">Cancel</button>
-                                            </td>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <td className="px-2 py-1.5 whitespace-nowrap">{en.entryDate ? new Date(en.entryDate).toLocaleDateString() : "—"}</td>
-                                            <td className="px-2 whitespace-nowrap">{CATEGORY_LABEL[en.category] || en.category}</td>
-                                            <td className="px-2 text-slate-500">{en.method === "Diesel" ? "Cash" : en.method}</td>
-                                            <td className="px-2 text-right tabular-nums">
-                                              {fmt(en.paid)}
-                                              {en.spentFromIt > 0 && <div className="text-[10px] font-normal text-slate-500 leading-tight">left of {fmt(cashGiven(en))}<br />{fmt(en.spentFromIt)} spent · خرچ</div>}
-                                            </td>
-                                            <td className="px-2" dir="auto">
-                                              {en.description || "—"}
-                                              {en.paidFromEntryId ? (
-                                                <span className="ml-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 px-1.5 py-0.5" title="Taken out of the trip cash — not counted twice">
-                                                  from {(() => { const c = entries.find((x) => x.id === en.paidFromEntryId); return c ? `the ${fmt(cashGiven(c))} cash` : "trip cash"; })()}
-                                                </span>
-                                              ) : null}
-                                            </td>
-                                            <td className="px-2 whitespace-nowrap">
-                                              {en.paidFromEntryId ? (
-                                                <>
-                                                  {entries.filter((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).length > 0 && (
-                                                    linkPick?.id === en.id ? (
-                                                      <span className="inline-flex items-center gap-1 mr-2">
-                                                        <select className="border border-amber-300 rounded px-1 py-0.5 text-[10px] max-w-[260px]" value={linkPick.cash} onChange={(e) => setLinkPick({ id: en.id, cash: Number(e.target.value) })}>
-                                                          {entries.filter((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
-                                                        </select>
-                                                        <button onClick={() => fromCashLink(en, j.root, true, linkPick.cash)} className="text-[10px] font-semibold text-emerald-700">OK</button>
-                                                        <button onClick={() => setLinkPick(null)} className="text-[10px] text-slate-500">✕</button>
-                                                      </span>
-                                                    ) : (
-                                                      <button
-                                                        onClick={() => setLinkPick({ id: en.id, cash: entries.find((c) => c.category === "TripCash" && !c.paidFromEntryId && c.id !== en.paidFromEntryId && c.paid >= en.paid).id })}
-                                                        className="text-[10px] text-amber-700 hover:underline mr-2"
-                                                        title="It came out of a different cash — move it"
-                                                      >change</button>
-                                                    )
-                                                  )}
-                                                  <button onClick={() => fromCashLink(en, j.root, false)} className="text-[10px] text-amber-700 hover:underline mr-2" title="Put it back as a separate sum (the trip cash goes up again)">unlink</button>
-                                                </>
-                                              ) : en.category !== "TripCash" && cashLeft(entries).some((c) => c.paid >= en.paid) ? (
-                                                linkPick?.id === en.id ? (
-                                                  <span className="inline-flex items-center gap-1 mr-2">
-                                                    <select className="border border-amber-300 rounded px-1 py-0.5 text-[10px] max-w-[260px]" value={linkPick.cash} onChange={(e) => setLinkPick({ id: en.id, cash: Number(e.target.value) })}>
-                                                      {cashLeft(entries).filter((c) => c.paid >= en.paid).map((c) => <option key={c.id} value={c.id}>{cashLabel(c)}</option>)}
-                                                    </select>
-                                                    <button onClick={() => fromCashLink(en, j.root, true, linkPick.cash)} className="text-[10px] font-semibold text-emerald-700">OK</button>
-                                                    <button onClick={() => setLinkPick(null)} className="text-[10px] text-slate-500">✕</button>
-                                                  </span>
-                                                ) : (
-                                                  <button
-                                                    onClick={() => {
-                                                      const opts = cashLeft(entries).filter((c) => c.paid >= en.paid);
-                                                      if (opts.length === 1) fromCashLink(en, j.root, true, opts[0].id);
-                                                      else setLinkPick({ id: en.id, cash: oldestCash(entries, en.paid).id });
-                                                    }}
-                                                    className="text-[10px] text-amber-700 hover:underline mr-2"
-                                                    title="This was bought with cash already given — take it out of that cash so it is not counted twice"
-                                                  >↳ from trip cash</button>
-                                                )
-                                              ) : null}
-                                              <button onClick={() => setEntryEdit({ id: en.id, date: en.entryDate ? String(en.entryDate).slice(0, 10) : "", amount: String(en.paid), description: en.description || "", kind: kindOfCategory(en.category), method: ["Online", "Bank", "Cheque"].includes(en.method) ? en.method : "Cash" })} className="text-slate-500 hover:text-emerald-700 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5 inline" /></button>
-                                              <button onClick={() => deleteEntry(en.id, j.root)} className="text-slate-500 hover:text-red-600" title="Delete"><Trash2 className="w-3.5 h-3.5 inline" /></button>
-                                            </td>
-                                          </>
-                                        )}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr className="border-t-2 border-slate-200 font-semibold">
-                                      <td className="px-2 py-1.5" colSpan={3}>Total given on this trip · اس ٹرپ پر کل دیا ({entries.length})</td>
-                                      <td className="px-2 text-right tabular-nums">{fmt(entries.reduce((t, en) => t + (en.paid || 0), 0))}</td>
-                                      <td colSpan={2} />
-                                    </tr>
-                                    {entries.some((en) => en.paidFromEntryId) && (() => {
-                                      const given = entries.filter((en) => en.category === "TripCash" && !en.paidFromEntryId);
-                                      const spent = entries.filter((en) => en.paidFromEntryId);
-                                      const left = given.reduce((t, en) => t + en.paid, 0);
-                                      return (
-                                        <tr>
-                                          <td colSpan={6} className="px-2 pb-2">
-                                            <div className="mt-1 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs space-y-0.5" dir="auto">
-                                              <div className="font-semibold text-slate-700">Driver's cash · ڈرائیور کی نقد</div>
-                                              <div>Cash given · نقد دی: {given.map((g) => fmt(cashGiven(g))).join(" + ")} = <b>{fmt(given.reduce((t, g) => t + cashGiven(g), 0))}</b></div>
-                                              <div>Spent out of it · اس میں سے خرچ: {spent.map((sp) => `${CATEGORY_LABEL[sp.category] || sp.category} ${fmt(sp.paid)}`).join(" + ")} = <b>{fmt(spent.reduce((t, sp) => t + sp.paid, 0))}</b></div>
-                                              <div>Cash left with the driver · ڈرائیور کے پاس باقی: {given.map((g) => fmt(g.paid)).join(" + ")} = <b>{fmt(left)}</b></div>
-                                              <div className="text-slate-500">Total given on the trip = left {fmt(left)} + spent {fmt(spent.reduce((t, sp) => t + sp.paid, 0))} = <b>{fmt(left + spent.reduce((t, sp) => t + sp.paid, 0))}</b></div>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })()}
-                                  </tfoot>
-                                </table>
-                              </div>
-                            )}
-                          </div>
+                          <TripMoney root={j.root} stops={j.legs} onChanged={load} showFeedback={showFeedback} />
 
                           {khata && khata.rows.length > 0 && (
                             <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
-                              <div className="text-[11px] font-semibold text-slate-500">
-                                Truck ledger entries in this trip's days · ٹرک کھاتے کی انٹریاں جو اس ٹرپ کی ہیں ({khata.rows.length}) — counted in "given" above (out) / to tie to a customer in Close trip (in)
-                              </div>
+                              <button onClick={() => setShowKhata((v) => !v)} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800">
+                                {showKhata ? "▾" : "▸"} Other entries in the truck's khata in these days ({khata.rows.length}) · ٹرک کھاتے کی دوسری انٹریاں
+                              </button>
+                              {showKhata && (
                               <div className="overflow-x-auto max-h-64 overflow-y-auto">
                                 <table className="w-full text-xs">
                                   <thead className="text-[10px] uppercase text-slate-500 bg-slate-50 sticky top-0">
@@ -881,6 +634,7 @@ export default function TripDesk({
                                   </tbody>
                                 </table>
                               </div>
+                              )}
                             </div>
                           )}
 
