@@ -40,6 +40,16 @@ import { tripDeskRouter } from "./server/trip_desk.ts";
 import quotationsRouter from "./server/quotations.ts";
 import trackingRouter, { startTrackingSweep } from "./server/tracking.ts";
 import { systemResetRouter } from "./server/system_reset.ts";
+import mailRouter from "./server/mail.ts";
+import docMailRouter from "./server/documents_mail.ts";
+import creditNotesRouter from "./server/credit_notes.ts";
+import remindersRouter, { startReminderKeeper } from "./server/reminders.ts";
+import recurringRouter, { startRecurringKeeper } from "./server/recurring.ts";
+import approvalsRouter from "./server/approvals.ts";
+import commentsRouter from "./server/comments.ts";
+import searchRouter from "./server/search.ts";
+import stockRouter from "./server/stock.ts";
+import { currencyRouter, customFieldsRouter, depreciationRouter } from "./server/business_misc.ts";
 import { configureSecurity, centralErrorHandler, globalRateLimiter } from "./src/middleware/security.ts";
 import { SocketServer } from "./src/sockets/socket.ts";
 import { CronScheduler } from "./src/scheduler/cron.ts";
@@ -127,6 +137,18 @@ async function startServer() {
   app.use("/api/quotations", quotationsRouter);
   app.use("/api/tracking", trackingRouter);
   app.use("/api/system", systemResetRouter);
+  app.use("/api/mail", mailRouter);
+  app.use("/api/doc-mail", docMailRouter);
+  app.use("/api/credit-notes", creditNotesRouter);
+  app.use("/api/reminders", remindersRouter);
+  app.use("/api/recurring", recurringRouter);
+  app.use("/api/approvals", approvalsRouter);
+  app.use("/api/comments", commentsRouter);
+  app.use("/api/search", searchRouter);
+  app.use("/api/stock", stockRouter);
+  app.use("/api/currency", currencyRouter);
+  app.use("/api/custom-fields", customFieldsRouter);
+  app.use("/api/depreciation", depreciationRouter);
 
   // Unknown API path -> JSON 404 (never fall through to the SPA).
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
@@ -173,6 +195,8 @@ async function startServer() {
   await new Promise<void>((resolve) => httpServer.listen(PORT, "0.0.0.0", resolve));
   // the double-entry books keep themselves current from every module (server/books.ts)
   startBooksKeeper();
+  startRecurringKeeper(); // due recurring entries become drafts to approve
+  startReminderKeeper(); // automatic payment reminders — only when switched on
   console.log(
     `[ERP] listening on 0.0.0.0:${PORT} | env=${process.env.NODE_ENV || "development"} | jwt=${jwtSecretFingerprint()}`
   );

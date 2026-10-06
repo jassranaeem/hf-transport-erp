@@ -11,6 +11,7 @@ import { db, schema } from "../src/db/index.ts";
 import { rowIssues } from "./books_check.ts";
 import { and, eq, desc, asc, sql, inArray } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
+import { holdForApproval } from "./approvals.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { parseFreightLogWorkbook } from "../src/lib/dataio/freight-log-workbook.ts";
 import { parseCashbookWorkbook } from "../src/lib/dataio/cashbook-workbook.ts";
@@ -879,6 +880,20 @@ router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Re
     const paid = Math.max(0, Math.round(Number(b.paid) || 0));
     const amount = received > 0 ? received : paid;
     const refKey = String(b.description || "").trim().toLowerCase();
+
+    // a big payment from the truck's khata may need an approver first
+    if (
+      paid > 0 &&
+      (await holdForApproval(req, res, {
+        kind: "truck_payment",
+        amount: paid,
+        summary: `${led.registration} khata · paid · ${b.category || ""} ${b.description || ""}`.trim(),
+        method: "POST",
+        path: `/api/ledgers/${ledgerId}/entries`,
+        payload: b,
+      }))
+    )
+      return;
 
     // duplicate-slip guard: same truck, same amount, same date, same description
     let dupWarning: string | null = null;

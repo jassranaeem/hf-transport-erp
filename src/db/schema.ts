@@ -782,6 +782,7 @@ export const invoices = pgTable("invoices", {
   taxAmount: integer("tax_amount").notNull().default(0),
   totalAmount: integer("total_amount").notNull(),
   paidAmount: integer("paid_amount").default(0).notNull(),
+  creditedAmount: integer("credited_amount").default(0).notNull(), // credit notes (shortage / claim / discount) against it
   outstandingBalance: integer("outstanding_balance").notNull(),
   status: text("status").notNull().default("Unpaid"), // Unpaid, Partially Paid, Paid, Overdue
   pdfUrl: text("pdf_url"),
@@ -2242,6 +2243,7 @@ export const parties = pgTable("parties", {
   type: text("type").notNull().default("Other"),
   // Customer | Supplier | Lender | Borrower | Transporter | Agent | Broker | Bank | Other
   phone: text("phone"),
+  email: text("email"), // statements / reminders by email
   address: text("address"),
   city: text("city"),
   ntn: text("ntn"),

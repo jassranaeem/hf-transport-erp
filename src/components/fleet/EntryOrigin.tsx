@@ -5,6 +5,7 @@
  *
  *   GET /api/entry-origin/:kind/:id    (server/entry_origin.ts)
  */
+import Comments from "../business/Comments.tsx";
 import React, { useEffect, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { ExternalLink, Loader2, Truck, Wallet, Bot, Handshake, FileSpreadsheet, PenLine, Landmark } from "lucide-react";
@@ -110,6 +111,7 @@ export default function EntryOrigin({ kind, id, onNavigate }: { kind: "tle" | "p
           </div>
         </details>
       )}
+      <Comments entityType={kind === "tle" ? "truck_ledger_entry" : "party_ledger_entry"} entityId={id} compact />
     </div>
   );
 }

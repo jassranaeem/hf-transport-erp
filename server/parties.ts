@@ -16,6 +16,7 @@ import { db, schema } from "../src/db/index.ts";
 import { rowIssues } from "./books_check.ts";
 import { and, eq, desc, asc, sql, ilike, or, inArray, ne } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
+import { holdForApproval } from "./approvals.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { sendSms, ledgerSmsText, ledgerSmsTokens } from "./sms.ts";
 
@@ -465,6 +466,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         name: b.name,
         type: b.type || "Other",
         phone: b.phone || null,
+        email: b.email || null,
         address: b.address || null,
         city: b.city || null,
         ntn: b.ntn || null,
@@ -495,7 +497,7 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     if (!old) return res.status(404).json({ error: "Party not found" });
     const b = req.body || {};
     const patch: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
-    for (const k of ["name", "type", "phone", "address", "city", "ntn", "strn", "bankName", "bankAccountTitle", "bankAccountNo", "iban", "notes", "status"]) {
+    for (const k of ["name", "type", "phone", "email", "address", "city", "ntn", "strn", "bankName", "bankAccountTitle", "bankAccountNo", "iban", "notes", "status"]) {
       if (b[k] !== undefined) patch[k] = b[k] || null;
     }
     if (b.smsAlerts !== undefined) patch.smsAlerts = !!b.smsAlerts;
@@ -642,6 +644,21 @@ router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Re
     const credit = Math.max(0, Math.round(Number(b.credit) || 0));
     const amount = debit > 0 ? debit : credit;
     const refKey = String(b.refNo || b.description || "").trim().toLowerCase();
+
+    // money paid out to the party (not a charge / adjustment) may need an approver first
+    if (
+      debit > 0 &&
+      ["Cash", "Online", "Cheque", "Bank Transfer", "Bank"].includes(String(b.method || "")) &&
+      (await holdForApproval(req, res, {
+        kind: "party_payment",
+        amount: debit,
+        summary: `Payment to ${party.name} · ${b.method} · ${b.description || b.refNo || ""}`.trim(),
+        method: "POST",
+        path: `/api/parties/${partyId}/entries`,
+        payload: b,
+      }))
+    )
+      return;
 
     // "yeh banda double dey raha hai" — same party, amount, date, ref already recorded?
     let dupWarning: string | null = null;

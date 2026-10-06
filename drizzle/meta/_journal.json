@@ -253,6 +253,13 @@
       "when": 1790950000000,
       "tag": "0035_personal_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0036_business_tools",
+      "breakpoints": true
     }
   ]
 }

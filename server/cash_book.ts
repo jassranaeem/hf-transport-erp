@@ -37,6 +37,7 @@
  *
  * Mounted at /api/cash-book.
  */
+import { holdForApproval } from "./approvals.ts";
 import { Router, Response } from "express";
 import multer from "multer";
 import { and, asc, eq, inArray, isNull, lt, gte, lte, sql } from "drizzle-orm";
@@ -438,6 +439,18 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
       return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
     }
+    if (
+      patch.direction === "Out" &&
+      (await holdForApproval(req, res, {
+        kind: "cash_book",
+        amount: Number(patch.amount) || 0,
+        summary: `Cash Book · Out · ${[req.body?.person, req.body?.description].filter(Boolean).join(" — ") || "payment"}`,
+        method: "POST",
+        path: "/api/cash-book",
+        payload: req.body,
+      }))
+    )
+      return;
     const [row] = await db.insert(T).values({ ...patch, createdBy: req.user?.id } as any).returning();
     await syncLink(row, req.user?.id);
     const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);

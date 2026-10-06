@@ -15,7 +15,7 @@
  * or an embedded EnterpriseDashboard tab body).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { LogOut, Menu, Bell, X, RefreshCw, ChevronDown } from "lucide-react";
+import { LogOut, Menu, Bell, X, RefreshCw, ChevronDown, Search } from "lucide-react";
 import { DbUser } from "../../types.ts";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { hasPermission, Resource } from "../../lib/rbac.ts";
@@ -69,6 +69,18 @@ import CustomerPortal from "../fleet/CustomerPortal.tsx";
 import VendorPortal from "../fleet/VendorPortal.tsx";
 import ExecutiveBI from "../fleet/ExecutiveBI.tsx";
 import AIAssistant from "../fleet/AIAssistant.tsx";
+import GlobalSearch from "../business/GlobalSearch.tsx";
+import HomeDashboard from "../business/HomeDashboard.tsx";
+import Reminders from "../business/Reminders.tsx";
+import CreditNotes from "../business/CreditNotes.tsx";
+import CurrencyRates from "../business/CurrencyRates.tsx";
+import Approvals from "../business/Approvals.tsx";
+import Recurring from "../business/Recurring.tsx";
+import Depreciation from "../business/Depreciation.tsx";
+import StockItems from "../business/StockItems.tsx";
+import PurchaseOrders from "../business/PurchaseOrders.tsx";
+import EmailSettings from "../business/EmailSettings.tsx";
+import CustomFieldsSettings from "../business/CustomFieldsSettings.tsx";
 
 interface Props {
   dbUser: DbUser;
@@ -82,6 +94,7 @@ interface Props {
 }
 
 const LS_KEY = "hf_workbook_nav_v1";
+type Focus = { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number; invoiceId?: number; q?: string };
 
 export default function WorkbookShell({
   dbUser,
@@ -132,7 +145,7 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null => {
+  const readFocus = (): Focus | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
@@ -145,7 +158,7 @@ export default function WorkbookShell({
     if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null>(readFocus);
+  const [focus, setFocus] = useState<Focus | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -155,6 +168,21 @@ export default function WorkbookShell({
     setTimeout(() => setSpinning(false), 600);
   };
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName || "") || (e.target as HTMLElement)?.isContentEditable;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "/" && !typing) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   const [alertCount, setAlertCount] = useState<{ total: number; critical: number; high: number } | null>(null);
 
   // poll the alert feed for the header badge
@@ -199,7 +227,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: Focus | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -217,6 +245,28 @@ export default function WorkbookShell({
         return <GpsTracking showFeedback={showFeedback} role={role} />;
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
+      case "HomeDashboard":
+        return <HomeDashboard dbUser={dbUser} showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "Reminders":
+        return <Reminders showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "CreditNotes":
+        return <CreditNotes showFeedback={showFeedback} />;
+      case "CurrencyRates":
+        return <CurrencyRates showFeedback={showFeedback} />;
+      case "Approvals":
+        return <Approvals showFeedback={showFeedback} />;
+      case "Recurring":
+        return <Recurring showFeedback={showFeedback} />;
+      case "Depreciation":
+        return <Depreciation showFeedback={showFeedback} />;
+      case "StockItems":
+        return <StockItems showFeedback={showFeedback} />;
+      case "PurchaseOrders":
+        return <PurchaseOrders showFeedback={showFeedback} />;
+      case "EmailSettings":
+        return <EmailSettings showFeedback={showFeedback} />;
+      case "CustomFieldsSettings":
+        return <CustomFieldsSettings showFeedback={showFeedback} />;
       case "TruckLedgers":
         return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "Parties":
@@ -301,7 +351,7 @@ export default function WorkbookShell({
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":
-        return <InvoicesList showFeedback={showFeedback} />;
+        return <InvoicesList showFeedback={showFeedback} focusInvoiceId={focus?.invoiceId} focusQuery={focus?.q} />;
       case "QuotationsList":
         return <QuotationsList showFeedback={showFeedback} />;
       case "CompanyProfile":
@@ -479,6 +529,17 @@ export default function WorkbookShell({
             <div className="text-[11px] text-[#6B7280] truncate">{activeWb?.label}</div>
             <div className="text-[15px] font-semibold text-[#111827] truncate leading-tight" dir="auto">{activeSheet?.label}</div>
           </div>
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="hidden md:flex items-center gap-2 w-64 lg:w-80 rounded-lg border border-[#E3E8EF] bg-[#F8FAFC] px-3 py-1.5 text-[13px] text-[#9CA3AF] hover:border-[#C9D7EC]"
+            title="Search everything (Ctrl+K)"
+          >
+            <Search className="w-4 h-4" /> <span className="flex-1 text-left">Search… · تلاش</span>
+            <kbd className="text-[10px] border border-[#E3E8EF] rounded px-1 bg-white">Ctrl K</kbd>
+          </button>
+          <button onClick={() => setSearchOpen(true)} title="Search" className="md:hidden p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <Search className="w-[18px] h-[18px]" />
+          </button>
           <button onClick={hardRefresh} title="Refresh this page · تازہ کریں" className="p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
             <RefreshCw className={`w-[18px] h-[18px] ${spinning ? "animate-spin" : ""}`} />
           </button>
@@ -508,6 +569,8 @@ export default function WorkbookShell({
           {activeSheet ? renderSheet(activeSheet) : <div className="p-6 text-sm text-[#6B7280]">No page available for your role.</div>}
         </main>
       </div>
+
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} onPick={(h) => go(h.wb, h.sheet, h.focus || null)} />
 
       {/* alerts drawer */}
       {alertsOpen && (

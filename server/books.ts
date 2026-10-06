@@ -21,6 +21,8 @@
  *   Opening (books start) cash, party and partner balances brought in on 01.07.2025, the rest
  *                         to "opening balance equity" (3900) for the accountant to split.
  *
+ * Credit notes          freight deductions (4090) ↔ the customer's receivable (1100).
+ *
  * Invoices, bills and their payments keep their own entries (finance_engine), re-dated to the
  * document's date. Payments made by "Close trip" (TRIP-…) are not posted again: the khata row
  * that recorded the kiraya clears the customer.
@@ -68,6 +70,7 @@ export const BOOK_ACCOUNTS: Array<{ code: string; name: string; type: string; ca
   { code: "4000", name: "Freight Revenue", type: "Income", category: "Revenue" },
   { code: "4001", name: "Other Operating Revenue", type: "Income", category: "Revenue" },
   { code: "4002", name: "Bank profit", type: "Income", category: "Revenue" },
+  { code: "4090", name: "Freight deductions — shortage, claims, discounts (credit notes)", type: "Income", category: "Revenue" },
   { code: "4098", name: "Truck income — not classified", type: "Income", category: "Revenue", review: true },
   { code: "5001", name: "Fuel Expense", type: "Expense", category: "Fuel" },
   { code: "5002", name: "Salary Expense", type: "Expense", category: "Salary" },
@@ -386,6 +389,17 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
         union all
         select 'bs:' || id, txn_date, descr, counter, withdrawal, deposit, null::int, null::int, null::int, null::int from k`);
 
+      // 4j. credit notes: what was taken off an invoice (shortage, claim, discount) — never to be paid
+      await run(sql`insert into _p
+        with n as (
+          select n.id, n.note_date, n.amount::bigint amt, n.contractor_id con,
+                 left(n.note_number || ' · ' || n.kind || ' on ' || i.invoice_number || coalesce(' — ' || n.reason, ''), 300) descr
+          from credit_notes n join invoices i on i.id = n.invoice_id
+          where not n.is_deleted and not i.is_deleted and n.note_date >= ${START} and n.amount > 0)
+        select 'cn:' || id, note_date, descr, '4090', amt, 0, null::int, null::int, null::int, con from n
+        union all
+        select 'cn:' || id, note_date, descr, '1100', 0, amt, null::int, null::int, null::int, con from n`);
+
       // 5. write: one entry per source row, its lines under it
       const missing = await run(sql`select distinct code from _p where code not in (select code from accounts)`);
       if (missing.length) throw new Error(`Accounts missing in the chart: ${missing.map((m) => m.code).join(", ")}`);
@@ -457,6 +471,7 @@ async function booksSignature(): Promise<string> {
       ${part("bank_statement_lines", "deposit + withdrawal + coalesce(length(matched_key), 0) + coalesce(length(kind), 0)")},
       ${part("bank_accounts", "opening_balance")},
       ${part("tax_entries", "tax_amount + gross_amount")},
+      ${part("credit_notes", "amount")},
       (select count(*) || '/' || coalesce(sum(extract(epoch from updated_at))::bigint, 0) from posting_rules),
       (select count(*) || '/' || coalesce(max(id), 0) from journal_entries where not is_auto),
       (select to_char(books_start, 'YYYY-MM-DD') || '/' || coalesce(to_char(locked_through, 'YYYY-MM-DD'), '') from books_settings where id = 1))) sig`);

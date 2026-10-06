@@ -225,6 +225,7 @@ router.get("/invoices", requireAuth, requirePermission("finance", "read"), async
         taxAmount: schema.invoices.taxAmount,
         totalAmount: schema.invoices.totalAmount,
         paidAmount: schema.invoices.paidAmount,
+        creditedAmount: schema.invoices.creditedAmount,
         outstandingBalance: schema.invoices.outstandingBalance,
         status: schema.invoices.status,
         pdfUrl: schema.invoices.pdfUrl,
@@ -233,6 +234,7 @@ router.get("/invoices", requireAuth, requirePermission("finance", "read"), async
         tripNumber: schema.trips.tripNumber,
         contractorId: schema.invoices.contractorId,
         contractorName: schema.contractors.company,
+        contractorEmail: schema.contractors.email,
         routeFrom: schema.invoices.routeFrom,
         routeTo: schema.invoices.routeTo,
         advanceReceived: schema.invoices.advanceReceived,
@@ -295,6 +297,7 @@ router.get("/invoices/:id(\\d+)", requireAuth, requirePermission("finance", "rea
       .select({
         invoice: schema.invoices,
         contractorName: schema.contractors.company,
+        contractorEmail: schema.contractors.email,
         tripNumber: schema.trips.tripNumber,
         vehicleNumber: schema.vehicles.vehicleNumber,
         driverName: schema.drivers.driverName,
@@ -572,8 +575,9 @@ router.delete("/invoices/:id(\\d+)/payments/:paymentId(\\d+)", requireAuth, requ
     await db.delete(schema.invoicePayments).where(eq(schema.invoicePayments.id, link.id));
     await db.delete(schema.payments).where(eq(schema.payments.id, paymentId));
     const paid = Math.max(0, (inv.paidAmount || 0) - amount);
-    const status = paid <= 0 ? "Unpaid" : paid >= inv.totalAmount ? "Paid" : "Partially Paid";
-    await db.update(schema.invoices).set({ paidAmount: paid, outstandingBalance: Math.max(0, inv.totalAmount - paid), status }).where(eq(schema.invoices.id, invoiceId));
+    const settled = paid + (inv.creditedAmount || 0);
+    const status = settled <= 0 ? "Unpaid" : settled >= inv.totalAmount ? "Paid" : "Partially Paid";
+    await db.update(schema.invoices).set({ paidAmount: paid, outstandingBalance: Math.max(0, inv.totalAmount - settled), status }).where(eq(schema.invoices.id, invoiceId));
     const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
     if (c) await db.update(schema.contractors).set({ outstandingBalance: (c.bal || 0) + amount }).where(eq(schema.contractors.id, inv.contractorId));
     if (pay.bankAccountId) {
@@ -581,7 +585,7 @@ router.delete("/invoices/:id(\\d+)/payments/:paymentId(\\d+)", requireAuth, requ
       if (b) await db.update(schema.bankAccounts).set({ currentBalance: (b.bal || 0) - amount }).where(eq(schema.bankAccounts.id, pay.bankAccountId));
     }
     await finAudit(req, "DELETE", "payments", paymentId, { ...pay, invoiceId, amount }, null);
-    res.json({ ok: true, status, outstandingBalance: Math.max(0, inv.totalAmount - paid) });
+    res.json({ ok: true, status, outstandingBalance: Math.max(0, inv.totalAmount - settled) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

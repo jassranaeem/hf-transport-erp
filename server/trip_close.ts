@@ -334,7 +334,11 @@ export async function undoTripPayments(stopId: number): Promise<number> {
   const paid = Math.max(0, (inv.paidAmount || 0) - total);
   await db
     .update(schema.invoices)
-    .set({ paidAmount: paid, outstandingBalance: Math.max(0, inv.totalAmount - paid), status: paid <= 0 ? "Unpaid" : paid >= inv.totalAmount ? "Paid" : "Partially Paid" })
+    .set({
+      paidAmount: paid,
+      outstandingBalance: Math.max(0, inv.totalAmount - paid - (inv.creditedAmount || 0)),
+      status: paid + (inv.creditedAmount || 0) <= 0 ? "Unpaid" : paid + (inv.creditedAmount || 0) >= inv.totalAmount ? "Paid" : "Partially Paid",
+    })
     .where(eq(schema.invoices.id, inv.id));
   const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
   if (c) await db.update(schema.contractors).set({ outstandingBalance: (c.bal || 0) + total }).where(eq(schema.contractors.id, inv.contractorId));

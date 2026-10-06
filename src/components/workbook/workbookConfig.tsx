@@ -20,6 +20,7 @@ import {
   BarChart3,
   ShieldCheck,
   Calculator,
+  Home,
 } from "lucide-react";
 
 export type SheetKind = "entity" | "component" | "embed";
@@ -72,6 +73,13 @@ const b = (id: string, label: string, tab: string, resource?: Resource): SheetDe
 
 export const WORKBOOKS: WorkbookDef[] = [
   {
+    id: "home",
+    label: "Home",
+    icon: Home,
+    // what needs you today, across the company, on one page
+    sheets: [c("home", "Home · ہوم", "HomeDashboard")],
+  },
+  {
     id: "fleet",
     label: "Fleet",
     icon: Truck,
@@ -99,6 +107,7 @@ export const WORKBOOKS: WorkbookDef[] = [
       e("party_list", "Parties List", "parties", "finance"),
       c("parties", "Party Ledgers", "Parties", "finance"),
       c("dues", "Dues & Alerts", "DuesAlerts", "finance"),
+      c("reminders", "Payment Reminders · یاد دہانی", "Reminders", "finance"),
       c("receipt_search", "Receipt Search", "ReceiptSearch", "finance"),
     ],
   },
@@ -122,8 +131,10 @@ export const WORKBOOKS: WorkbookDef[] = [
       c("zakat", "Zakat", "Zakat", "finance"),
       c("monthly", "Monthly Report", "MonthlyReport", "finance"),
       c("invoices", "Invoices", "InvoicesList", "finance"),
+      c("credit_notes", "Credit Notes · کریڈٹ نوٹ", "CreditNotes", "finance"),
       c("quotations", "Quotations", "QuotationsList", "finance"),
       c("bills_payments_expenses", "Bills / Payments / Expenses", "BillsPaymentsExpenses", "finance"),
+      c("currency", "Currency Rates · کرنسی ریٹ", "CurrencyRates", "finance"),
     ],
   },
   {
@@ -136,11 +147,14 @@ export const WORKBOOKS: WorkbookDef[] = [
     sheets: [
       c("home", "Accounting Home · اکاؤنٹنگ", "AccountingHome", "finance"),
       c("ai_accountant", "AI Accountant · اے آئی منشی", "AIAccountant", "finance"),
+      c("approvals", "Approvals · منظوری", "Approvals", "finance"),
+      c("recurring", "Recurring Entries · ہر ماہ کی اندراجات", "Recurring", "finance"),
       c("books_check", "Books Check · حساب صحت", "BooksCheck", "finance"),
       c("books", "Books · کتاب", "Books", "finance"),
       c("banks", "Banks · بینک", "Banks", "finance"),
       c("statements", "Statements · حسابات", "Statements", "finance"),
       c("tax", "Tax · ٹیکس", "Tax", "finance"),
+      c("depreciation", "Depreciation Register · فرسودگی", "Depreciation", "finance"),
       e("accounts", "Chart of Accounts · کھاتوں کی فہرست", "accounts", "finance"),
       e("journal_entries", "Journal Entries · جرنل", "journal_entries", "finance"),
       e("journal_lines", "Journal Lines (raw)", "journal_lines", "finance"),
@@ -196,6 +210,8 @@ export const WORKBOOKS: WorkbookDef[] = [
     // (maintenance/schedules/job cards/parts), then breakdowns & reminders.
     sheets: [
       c("overview", "Overview", "FleetMaintenance", "maintenance"),
+      c("stock", "Parts Stock · اسٹاک", "StockItems", "maintenance"),
+      c("purchase_orders", "Purchase Orders · خریداری آرڈر", "PurchaseOrders", "maintenance"),
       e("workshops", "Workshops", "workshops", "maintenance"),
       e("mechanics", "Mechanics", "mechanics", "maintenance"),
       e("vehicle_maintenance", "Maintenance", "vehicle_maintenance", "maintenance"),
@@ -242,6 +258,8 @@ export const WORKBOOKS: WorkbookDef[] = [
       c("gps_provider", "GPS Provider", "GpsProviderSettings", "settings"),
       c("sms_gateway", "SMS Gateway", "SmsGatewaySettings", "settings"),
       e("sms_logs", "SMS Log", "sms_logs", "settings"),
+      c("email", "Email · ای میل", "EmailSettings", "settings"),
+      c("custom_fields", "Custom Fields · اپنے خانے", "CustomFieldsSettings", "settings"),
       c("data_portal", "Data Import / Export", "DataPortal", "settings"),
       e("saved_reports", "Saved Reports", "saved_reports", "reports"),
       e("workflows", "Workflows", "workflows", "settings"),

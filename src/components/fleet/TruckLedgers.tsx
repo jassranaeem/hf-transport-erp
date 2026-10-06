@@ -322,6 +322,12 @@ export default function TruckLedgers({
           paid: Number(form.paid) || 0,
         }),
       });
+      if (created?.pendingApproval) {
+        showFeedback("success", created.message);
+        setShowAdd(false);
+        setForm({ entryDate: "", description: "", received: "", paid: "", category: "Other", method: "" });
+        return;
+      }
       if (created?.duplicateWarning) {
         setDupWarn(created.duplicateWarning);
         showFeedback("error", "⚠ Possible DUPLICATE — same amount, date & description already in this ledger");

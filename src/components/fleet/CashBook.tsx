@@ -71,8 +71,8 @@ export default function CashBook({
     if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setSaving(true);
     try {
-      await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...form, entryDate: `${date}T${new Date().toTimeString().slice(0, 8)}` }) });
-      showFeedback("success", "Saved · محفوظ ہو گیا");
+      const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...form, entryDate: `${date}T${new Date().toTimeString().slice(0, 8)}` }) });
+      showFeedback("success", r?.pendingApproval ? r.message : "Saved · محفوظ ہو گیا");
       setForm(BLANK);
       setShowAdd(false);
       load();
@@ -384,6 +384,25 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
   value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions; title?: string;
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
+  // foreign money: $1,100 × 284 → PKR 312,400, with the rate written into the description
+  const [fx, setFx] = useState<{ open: boolean; code: string; amount: string; rate: string; rates: any[] }>({ open: false, code: "USD", amount: "", rate: "", rates: [] });
+  const openFx = () => {
+    setFx((f) => ({ ...f, open: !f.open }));
+    if (!fx.rates.length)
+      enterpriseFetch("/api/currency")
+        .then((r) => {
+          const first = (r.latest || []).find((x: any) => x.code === "USD") || (r.latest || [])[0];
+          setFx((f) => ({ ...f, rates: r.latest || [], code: first?.code || f.code, rate: first ? String(first.rate) : f.rate }));
+        })
+        .catch(() => {});
+  };
+  const fxPkr = Math.round((Number(fx.amount) || 0) * (Number(fx.rate) || 0));
+  const applyFx = () => {
+    if (!fxPkr) return;
+    const note = `(${fx.code} ${Number(fx.amount).toLocaleString()} × ${Number(fx.rate).toLocaleString()})`;
+    onChange({ ...value, amount: String(fxPkr), description: `${String(value.description || "").replace(/\s*\([A-Z]{3} [\d,.]+ × [\d,.]+\)$/, "")} ${note}`.trim() });
+    setFx((f) => ({ ...f, open: false }));
+  };
   const lbl = "flex flex-col gap-1 text-[11.5px] font-medium text-[#4B5563]";
   const inp = "border border-[#CBD5E1] rounded-lg px-3 py-2 text-[13px] text-[#111827] bg-white";
   return (
@@ -406,9 +425,24 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
             ))}
           </div>
         </div>
-        <label className={lbl}>Amount (PKR) · رقم
+        <label className={lbl}>
+          <span className="flex items-center justify-between">Amount (PKR) · رقم <button type="button" onClick={openFx} className="text-[11px] text-[#24539B] hover:underline font-normal" title="Dollar / Toman / Afghani → PKR">$ → PKR</button></span>
           <input inputMode="numeric" value={value.amount} onChange={(e) => set("amount", e.target.value.replace(/[^\d]/g, ""))} className={`${inp} font-semibold tabular-nums`} autoFocus={!compact} placeholder="0" />
         </label>
+        {fx.open && (
+          <div className="col-span-2 md:col-span-4 rounded-lg border border-[#C9D7EC] bg-white p-3 flex flex-wrap items-end gap-2">
+            <label className={lbl}>Currency
+              <select value={fx.code} onChange={(e) => { const r = fx.rates.find((x) => x.code === e.target.value); setFx({ ...fx, code: e.target.value, rate: r ? String(r.rate) : "" }); }} className={inp}>
+                {["USD", "TMN", "IRR", "AFN", "AED", "SAR", "CNY", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className={lbl}>Amount<input inputMode="decimal" value={fx.amount} onChange={(e) => setFx({ ...fx, amount: e.target.value })} className={`${inp} w-28`} placeholder="1100" /></label>
+            <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value })} className={`${inp} w-28`} placeholder="284" /></label>
+            <div className="text-[13px] pb-2">= <b className="tabular-nums">PKR {fxPkr.toLocaleString()}</b></div>
+            <Btn size="sm" kind="primary" onClick={applyFx} disabled={!fxPkr}>Use this</Btn>
+            <span className="text-[11px] text-[#9CA3AF] basis-full">The rate is the one you got — saved rates are in Finance → Currency Rates. The description will note the conversion.</span>
+          </div>
+        )}
         <label className={`${lbl} col-span-2`}>Person · کس کو / کس سے
           <input dir="auto" value={value.person} onChange={(e) => set("person", e.target.value)} className={inp} placeholder="e.g. driver, pump, customer" />
         </label>

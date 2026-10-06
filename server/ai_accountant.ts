@@ -35,7 +35,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
-import { INTERNAL_CALL_TOKEN } from "../src/middleware/security.ts";
+import { selfApi as sharedSelfApi } from "./self_api.ts";
 import { aiStatus, aiJson, aiText, AiOffError, Attachment } from "./ai/llm.ts";
 import { loadDirectory, readByRules, shapeDraft, findDuplicate, Directory, ReadRow, TRUCK_CATEGORIES, MONEY_KINDS, METHODS, KIND_CATEGORY, todayPk, amountIn, dateIn } from "./ai/context.ts";
 import { partnershipLedgerForPlate } from "./partnership.ts";
@@ -54,15 +54,9 @@ const D = schema.aiDrafts;
 
 /** The server calling its own API, as the person who asked (their login, their permissions). */
 async function selfApi(req: AuthRequest, method: string, path: string, body?: unknown) {
-  const port = Number(process.env.PORT) || 3000;
-  const r = await fetch(`http://127.0.0.1:${port}${path}`, {
-    method,
-    headers: { authorization: String(req.headers.authorization || ""), "content-type": "application/json", "x-internal-call": INTERNAL_CALL_TOKEN },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  });
-  const json: any = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(json?.error || `HTTP ${r.status} on ${path}`);
+  const json: any = await sharedSelfApi(req, method, path, body);
+  // a big payment by someone who is not an approver waits for approval (approvals.ts)
+  if (json?.pendingApproval) throw new Error(json.message || `Sent for approval #${json.requestId}`);
   return json;
 }
 

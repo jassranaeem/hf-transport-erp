@@ -7,10 +7,13 @@ import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import DuesAlerts from "./DuesAlerts.tsx";
 import {
   Users, Search, AlertTriangle, Plus, Loader2, ChevronDown, ChevronRight,
-  FileSpreadsheet, Upload, CheckCircle, Save, Building2, Paperclip, Pencil, Trash2, RefreshCw,
+  FileSpreadsheet, Upload, CheckCircle, Save, Building2, Paperclip, Pencil, Trash2, RefreshCw, FileText,
 } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import { PageHeader, Btn, Card, SidePanel, Empty, Tabs } from "../ui/kit.tsx";
+import StatementOfAccount from "../business/StatementOfAccount.tsx";
+import CustomFieldsPanel from "../business/CustomFieldsPanel.tsx";
+import Comments from "../business/Comments.tsx";
 
 const TYPES = ["Customer", "Supplier", "Lender", "Borrower", "Transporter", "Agent", "Broker", "Bank", "Other"];
 const STATUSES = ["Active", "Inactive", "Blocked"];
@@ -66,6 +69,7 @@ export default function Parties({
   // opposite: collapsed by default (showLedger), one click to open — most
   // of the time you're here to log today's naam/jama, not review history.
   const [ptab, setPtab] = useState<"entry" | "ledger" | "details">("entry");
+  const [showStatement, setShowStatement] = useState(false);
   const setShowLedger = (v: boolean) => setPtab(v ? "ledger" : "entry");
   const [entryForm, setEntryForm] = useState<any>({ entryDate: "", description: "", refNo: "", method: "Cash", debit: "", credit: "", category: "Other" });
   const [entryFile, setEntryFile] = useState<File | null>(null);
@@ -170,6 +174,12 @@ export default function Parties({
         method: "POST",
         body: JSON.stringify({ ...entryForm, debit, credit }),
       });
+      if (created?.pendingApproval) {
+        showFeedback("success", created.message);
+        setEntryForm({ entryDate: "", description: "", refNo: "", method: "Cash", debit: "", credit: "", category: "Other" });
+        setEntryFile(null);
+        return;
+      }
       if (created?.duplicateWarning) {
         setDupWarn(created.duplicateWarning);
         showFeedback("error", "⚠ Possible DUPLICATE — same amount, date & ref already recorded");
@@ -433,6 +443,7 @@ export default function Parties({
                     <div className="text-[11.5px] text-[#6B7280]">{detail.party.closingBalance > 0 ? "Receivable · لینا" : detail.party.closingBalance < 0 ? "Payable · دینا" : "Balance"}</div>
                     <div className={`text-[20px] font-semibold tabular-nums leading-tight ${balTone(detail.party.closingBalance)}`}>{detail.party.closingBalance ? fmt(detail.party.closingBalance) : "Clear · صاف"}</div>
                   </div>
+                  <Btn onClick={() => setShowStatement(true)} icon={<FileText />} title="Statement of account — print / PDF, WhatsApp, email">Statement</Btn>
                   <Btn kind="danger" onClick={deleteParty} title="Delete this whole party (ledger) and all its entries" icon={<Trash2 />} />
                 </div>
                 <div className="mt-3 -mb-px">
@@ -481,7 +492,7 @@ export default function Parties({
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {([
-                        ["name", "Name"], ["phone", "Phone"], ["city", "City"],
+                        ["name", "Name"], ["phone", "Phone"], ["email", "Email"], ["city", "City"],
                         ["ntn", "NTN"], ["strn", "STRN"], ["address", "Address"],
                         ["bankName", "Bank name"], ["bankAccountTitle", "Account title"], ["bankAccountNo", "Account no"],
                         ["iban", "IBAN"], ["notes", "Notes"],
@@ -514,6 +525,8 @@ export default function Parties({
                       <span dir="auto">SMS alerts — text this party on every credit/debit entry (once an SMS gateway is set up) · ہر اندراج پر SMS</span>
                     </label>
                     <Btn kind="primary" onClick={saveParty} icon={<Save />}>Save details</Btn>
+                    <CustomFieldsPanel entity="party" recordId={detail.party.id} showFeedback={showFeedback} />
+                    <Comments entityType="party" entityId={detail.party.id} />
                   </div>
                 )}
 
@@ -690,6 +703,8 @@ export default function Parties({
         </Card>
       </div>
 
+      {showStatement && detail && <StatementOfAccount partyId={detail.party.id} onClose={() => setShowStatement(false)} showFeedback={showFeedback} />}
+
       {/* new party */}
       {newParty && (
         <SidePanel title="New party · نئی پارٹی" subtitle="Contact and bank details; a receipt goes with each credit / debit entry" onClose={() => setNewParty(null)}>
@@ -698,6 +713,7 @@ export default function Parties({
               {([
                 ["name", "Name · نام *", "sm:col-span-2"],
                 ["phone", "Phone · رابطہ نمبر", ""],
+                ["email", "Email · ای میل", ""],
                 ["city", "City · شہر", ""],
                 ["address", "Address · پتہ", "sm:col-span-2"],
                 ["ntn", "NTN", ""],

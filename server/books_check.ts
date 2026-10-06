@@ -486,10 +486,10 @@ export const CHECKS: Check[] = [
         await rows(sql`select i.id, i.invoice_number, c.company, i.invoice_date, i.total_amount, i.paid_amount, i.outstanding_balance, i.status, count(*) over() total
           from invoices i left join contractors c on c.id = i.contractor_id
           where not i.is_deleted and (
-            i.outstanding_balance <> greatest(0, i.total_amount - i.paid_amount)
-            or (i.status = 'Paid' and i.paid_amount < i.total_amount)
-            or (i.status in ('Unpaid', 'Overdue') and i.paid_amount > 0)
-            or (i.status = 'Partially Paid' and (i.paid_amount = 0 or i.paid_amount >= i.total_amount)))
+            i.outstanding_balance <> greatest(0, i.total_amount - i.paid_amount - i.credited_amount)
+            or (i.status = 'Paid' and i.paid_amount + i.credited_amount < i.total_amount)
+            or (i.status in ('Unpaid', 'Overdue') and i.paid_amount + i.credited_amount > 0)
+            or (i.status = 'Partially Paid' and (i.paid_amount + i.credited_amount = 0 or i.paid_amount + i.credited_amount >= i.total_amount)))
             and ${notDismissed("INVOICE_FIGURES", sql`'inv:' || i.id`)}
           order by i.invoice_date desc limit ${LIMIT}`),
         (r) => ({ key: `inv:${r.id}`, date: day(r.invoice_date), title: `${r.invoice_number} · ${r.company || ""}`, detail: `total ${num(r.total_amount).toLocaleString()} · paid ${num(r.paid_amount).toLocaleString()} · balance ${num(r.outstanding_balance).toLocaleString()} · ${r.status}`, amount: num(r.total_amount), link: { wb: "finance", sheet: "invoices" } }),
@@ -705,15 +705,15 @@ const FIXES: Record<string, () => Promise<number>> = {
   INVOICE_FIGURES: async () =>
     (
       await rows(sql`update invoices set
-          outstanding_balance = greatest(0, total_amount - paid_amount),
-          status = case when paid_amount >= total_amount then 'Paid' when paid_amount > 0 then 'Partially Paid'
+          outstanding_balance = greatest(0, total_amount - paid_amount - credited_amount),
+          status = case when paid_amount + credited_amount >= total_amount then 'Paid' when paid_amount + credited_amount > 0 then 'Partially Paid'
                         when status = 'Overdue' then 'Overdue' else 'Unpaid' end,
           updated_at = now()
         where not is_deleted and (
-          outstanding_balance <> greatest(0, total_amount - paid_amount)
-          or (status = 'Paid' and paid_amount < total_amount)
-          or (status in ('Unpaid', 'Overdue') and paid_amount > 0)
-          or (status = 'Partially Paid' and (paid_amount = 0 or paid_amount >= total_amount)))
+          outstanding_balance <> greatest(0, total_amount - paid_amount - credited_amount)
+          or (status = 'Paid' and paid_amount + credited_amount < total_amount)
+          or (status in ('Unpaid', 'Overdue') and paid_amount + credited_amount > 0)
+          or (status = 'Partially Paid' and (paid_amount + credited_amount = 0 or paid_amount + credited_amount >= total_amount)))
           and ${notDismissed("INVOICE_FIGURES", sql`'inv:' || id`)}
         returning id`)
     ).length,

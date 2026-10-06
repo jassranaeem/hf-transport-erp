@@ -14,10 +14,11 @@ import { enterpriseFetch } from "../../../client/api.ts";
 import InvoiceDocument from "./InvoiceDocument.tsx";
 import NewInvoice from "./NewInvoice.tsx";
 import {
-  FileText, Plus, Printer, RefreshCw, Loader2, Search, Wallet, ArrowLeft, CheckCircle, Pencil, Trash2, History, Undo2,
+  FileText, Plus, Printer, RefreshCw, Loader2, Search, Wallet, ArrowLeft, CheckCircle, Pencil, Trash2, History, Undo2, ReceiptText, Mail,
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import { PageHeader, Btn, Card, KpiStrip, Empty } from "../ui/kit.tsx";
+import { NewCreditNote } from "../business/CreditNotes.tsx";
 
 const PKR = (n: number) => "Rs " + Math.round(n || 0).toLocaleString("en-PK");
 const d = (s: string) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
@@ -30,8 +31,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function InvoicesList({
   showFeedback,
+  focusInvoiceId,
+  focusQuery,
 }: {
   showFeedback: (t: "success" | "error", m: string) => void;
+  focusInvoiceId?: number;
+  focusQuery?: string;
 }) {
   const [rows, setRows] = useState<any[]>([]);
   const [aging, setAging] = useState<any>(null);
@@ -46,6 +51,28 @@ export default function InvoicesList({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [histFor, setHistFor] = useState<number | null>(null);
   const [hist, setHist] = useState<any[] | null>(null);
+  const [creditFor, setCreditFor] = useState<any>(null);
+  const [mailing, setMailing] = useState<number | null>(null);
+  // opened from the search: show that invoice / filter to that customer
+  useEffect(() => {
+    if (focusInvoiceId) setViewId(focusInvoiceId);
+  }, [focusInvoiceId]);
+  useEffect(() => {
+    if (focusQuery) setQ(focusQuery);
+  }, [focusQuery]);
+  const emailInvoice = async (r: any) => {
+    const to = window.prompt(`Email invoice ${r.invoiceNumber} to:`, r.contractorEmail || "");
+    if (!to) return;
+    setMailing(r.id);
+    try {
+      await enterpriseFetch(`/api/doc-mail/invoice/${r.id}`, { method: "POST", body: JSON.stringify({ to }) });
+      showFeedback("success", `Invoice emailed to ${to} · ای میل ہو گئی`);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setMailing(null);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -238,7 +265,10 @@ export default function InvoicesList({
                       <td className="px-3 py-2.5 text-[#1F2937]" dir="auto">{r.contractorName || "—"}</td>
                       <td className="px-3 py-2.5 text-[#6B7280]">{r.tripNumber || "—"}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-[#111827]">{PKR(r.totalAmount)}</td>
-                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B91C1C]" : "text-[#9CA3AF]"}`}>{PKR(r.outstandingBalance)}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B91C1C]" : "text-[#9CA3AF]"}`}>
+                        {PKR(r.outstandingBalance)}
+                        {r.creditedAmount > 0 && <div className="text-[10.5px] font-normal text-[#92400E]" title="Taken off by credit notes">− {PKR(r.creditedAmount)} credited</div>}
+                      </td>
                       <td className="px-3 py-2.5">
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${isOverdue ? "bg-[#FEE2E2] text-[#991B1B]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
                           {isOverdue ? "Overdue" : r.status || "—"}
@@ -258,6 +288,12 @@ export default function InvoicesList({
                               <button onClick={() => markPaid(r)} disabled={posting} className="p-1.5 rounded text-[#6B7280] hover:text-[#166534] hover:bg-white" title="The whole balance received — mark as paid"><CheckCircle className="w-3.5 h-3.5" /></button>
                             )}
                             <button onClick={() => openHistory(r.id)} className="p-1.5 rounded text-[#6B7280] hover:text-[#24539B] hover:bg-white" title="Payments received — undo a wrong one"><History className="w-3.5 h-3.5" /></button>
+                            {r.outstandingBalance > 0 && (
+                              <button onClick={() => setCreditFor(r)} className="p-1.5 rounded text-[#6B7280] hover:text-[#92400E] hover:bg-white" title="Credit note — shortage, claim or discount taken off"><ReceiptText className="w-3.5 h-3.5" /></button>
+                            )}
+                            <button onClick={() => emailInvoice(r)} disabled={mailing === r.id} className="p-1.5 rounded text-[#6B7280] hover:text-[#24539B] hover:bg-white" title="Email this invoice">
+                              {mailing === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                            </button>
                             <button
                               onClick={() => deleteInvoice(r)}
                               className="p-1.5 rounded text-[#6B7280] hover:text-red-700 hover:bg-white"
@@ -344,6 +380,7 @@ export default function InvoicesList({
       </Card>
 
       {viewId != null && <InvoiceDocument invoiceId={viewId} onClose={() => setViewId(null)} />}
+      {creditFor && <NewCreditNote invoice={creditFor} onClose={() => setCreditFor(null)} onSaved={() => { setCreditFor(null); load(); }} showFeedback={showFeedback} />}
     </div>
   );
 }

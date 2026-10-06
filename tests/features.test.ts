@@ -7,6 +7,9 @@ import { buildTemplateWorkbook } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
 import { amountIn, dateIn, readByRules } from "../server/ai/context.ts";
 import { parseJsonLoose } from "../server/ai/llm.ts";
+import { nextDue } from "../server/recurring.ts";
+import { depreciationSchedule } from "../server/business_misc.ts";
+import { waNumber } from "../src/lib/share.ts";
 
 let failures = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -96,6 +99,19 @@ console.log("AI Accountant — reading without AI");
   ok("money from a party = In, online, matched by name", a2?.direction === "In" && a2?.method === "Online" && a2?.party === "Haji Akbar Goods" && a2?.amount === 200000, a2);
   ok("one line per entry", readByRules(dir, "TLE-730 diesel 1000 diye\nghar ke liye 2000 kharcha").length === 2);
   ok("AI reply with fences and words is parsed", parseJsonLoose('Sure:\n```json\n{"rows":[{"d":"a}b"}]}\n```').rows[0].d === "a}b");
+}
+
+console.log("business tools");
+{
+  ok("monthly on the 31st stays at the month's end", nextDue("2026-01-31", "monthly", 31) === "2026-02-28" && nextDue("2026-02-28", "monthly", 31) === "2026-03-31");
+  ok("weekly is 7 days on", nextDue("2026-10-06", "weekly") === "2026-10-13");
+  ok("quarterly and yearly", nextDue("2026-10-06", "quarterly", 6) === "2027-01-06" && nextDue("2026-10-06", "yearly", 6) === "2027-10-06");
+  const sch = depreciationSchedule({ cost: 10000000, method: "reducing", ratePercent: 15, usefulLifeYears: null, salvage: 0, start: "2024-01-15" }, new Date("2026-10-06T12:00:00"));
+  ok("first year charged for the months owned (Jan–Jun = 6)", sch[0]?.fy === "2023-24" && sch[0]?.charge === 750000, sch[0]);
+  ok("reducing balance on the written-down value", sch[1]?.charge === 1387500 && sch.length === 4, sch);
+  const sl = depreciationSchedule({ cost: 1200000, method: "straight", ratePercent: null, usefulLifeYears: 4, salvage: 0, start: "2025-07-01" }, new Date("2026-10-06T12:00:00"));
+  ok("straight line = cost / years", sl[0]?.charge === 300000 && sl[1]?.charge === 300000, sl);
+  ok("phone 0300-1234567 → 923001234567", waNumber("0300-1234567") === "923001234567" && waNumber("+92 300 1234567") === "923001234567" && waNumber("12") === null);
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);
