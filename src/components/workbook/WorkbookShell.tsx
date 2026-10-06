@@ -1,20 +1,21 @@
 /**
  * WorkbookShell — the Excel-style frame for the whole ERP.
  *
- *  ┌───────────────────────────────────────────────┐
- *  │ HF Transport · Workbook / Sheet · API · user   │
- *  ├──────┬────────────────────────────────────────┤
- *  │ rail │  active sheet (grid / screen / view)    │
- *  ├──────┴────────────────────────────────────────┤
- *  │  ▸ Sheet1  Sheet2  Sheet3 …  (bottom tabs)     │
- *  └───────────────────────────────────────────────┘
+ *  ┌──────────┬────────────────────────────────────┐
+ *  │ HFK      │ Module › Page        ⟳  🔔  ● user  │
+ *  │ ▾ Fleet  ├────────────────────────────────────┤
+ *  │   Trips  │                                    │
+ *  │   …      │   the page                         │
+ *  │ ▸ Ledgers│                                    │
+ *  └──────────┴────────────────────────────────────┘
  *
- * Left rail = workbooks. Bottom tabs = the sheets in the active workbook.
+ * A Zoho-style sidebar: each module (workbook) opens its pages (sheets); it folds to icons, and on
+ * a phone it slides in from the menu button.
  * Nothing was removed: every legacy tab is a sheet here (grid, mounted screen,
  * or an embedded EnterpriseDashboard tab body).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, LogOut, Menu, Bell, X, RefreshCw } from "lucide-react";
+import { LogOut, Menu, Bell, X, RefreshCw, ChevronDown } from "lucide-react";
 import { DbUser } from "../../types.ts";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { hasPermission, Resource } from "../../lib/rbac.ts";
@@ -347,147 +348,177 @@ export default function WorkbookShell({
     );
   };
 
-  return (
-    <div className="h-screen w-full flex flex-col bg-[#F7F9FC] overflow-hidden print:h-auto print:overflow-visible print:block">
-      {/* top bar */}
-      <header className="h-12 shrink-0 border-b border-[#E5E7EB] bg-white px-3 flex items-center gap-3 print:hidden">
-        <button
-          onClick={() => setRailOpen((o) => !o)}
-          className="p-1.5 rounded-md hover:bg-[#F4F6FA] text-[#4B5563]"
-          title="Toggle workbooks"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
-        <div className="flex items-center gap-2 min-w-0">
-          <img src="/hfk-logo.png" alt="HFK Enterprises" className="h-6 w-[46px] min-w-[46px] shrink-0 object-contain" />
-          <span className="text-[13px] font-extrabold tracking-tight uppercase text-[#24539B] hidden sm:inline">HFK Enterprises</span>
-          <span className="text-[#9CA3AF]">/</span>
-          <span className="text-[12px] font-semibold">{activeWb?.label}</span>
-          <span className="text-[#9CA3AF]">/</span>
-          <span className="text-[12px] text-[#4B5563] truncate">{activeSheet?.label}</span>
+  // ---- navigation: a sidebar of modules, each opening its pages (Zoho-style) -------------
+  const [mobileNav, setMobileNav] = useState(false);
+  const [openWbs, setOpenWbs] = useState<Set<string>>(() => new Set(nav.wb ? [nav.wb] : []));
+  useEffect(() => {
+    if (activeWb) setOpenWbs((s) => (s.has(activeWb.id) ? s : new Set([...s, activeWb.id])));
+  }, [activeWb?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const en = (label: string) => label.split(" · ")[0];
+  const pickSheet = (wbId: string, sheetId: string) => {
+    setNav({ wb: wbId, sheet: sheetId });
+    setFocus(null);
+    setMobileNav(false);
+  };
+  const toggleWb = (wb: WorkbookDef) => {
+    if (!railOpen) {
+      setRailOpen(true);
+      setOpenWbs(new Set([wb.id]));
+      if (wb.id !== activeWb?.id) pickSheet(wb.id, wb.sheets[0].id);
+      return;
+    }
+    setOpenWbs((s) => {
+      const n = new Set(s);
+      n.has(wb.id) ? n.delete(wb.id) : n.add(wb.id);
+      return n;
+    });
+    if (wb.id !== activeWb?.id) pickSheet(wb.id, wb.sheets[0].id);
+  };
+
+  const sidebar = (collapsed: boolean) => (
+    <div className="h-full flex flex-col bg-[#13294B] text-white">
+      <div className={`h-14 shrink-0 flex items-center gap-2.5 border-b border-white/10 ${collapsed ? "justify-center px-2" : "px-4"}`}>
+        <div className="w-8 h-8 shrink-0 rounded-lg bg-white flex items-center justify-center overflow-hidden">
+          <img src="/hfk-logo.png" alt="HFK" className="w-7 h-7 object-contain" />
         </div>
-        <div className="flex-1" />
-        <button
-          onClick={hardRefresh}
-          title="Refresh this sheet · تازہ کریں"
-          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold border bg-white border-[#E5E7EB] text-[#4B5563] hover:bg-[#F4F6FA]"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} /> Refresh
-        </button>
-        <button
-          onClick={() => setAlertsOpen(true)}
-          title="Alerts"
-          className={`relative flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold border ${
-            alertCount && alertCount.total > 0
-              ? "bg-[#D70006] border-[#B00005] text-white"
-              : "bg-white border-[#E5E7EB] text-[#4B5563]"
-          }`}
-        >
-          <Bell className="w-3.5 h-3.5" style={alertCount && alertCount.total > 0 ? { color: "#fff", stroke: "#fff" } : undefined} />
-          {alertCount ? alertCount.total : 0}
-          {alertCount && alertCount.critical > 0 && (
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#8C0004] animate-pulse" />
-          )}
-        </button>
-        <button
-          onClick={fetchHealth}
-          className={`flex items-center gap-1.5 border rounded-full px-2.5 py-1 font-mono text-[10px] ${
-            apiHealth ? "bg-[#E6ECF6] border-[#24539B]" : "bg-[#FFE0E0] border-[#D70006]"
-          }`}
-        >
-          <Activity className={`w-3 h-3 ${apiHealthLoading ? "animate-spin" : ""}`} />
-          {apiHealth ? "ONLINE" : "OFFLINE"}
-        </button>
-        <div className="flex items-center gap-2 pl-1">
-          <div className="w-7 h-7 rounded-full bg-[#E9EEF5] border border-[#BFD3EC] flex items-center justify-center font-mono text-[10px] font-bold uppercase">
+        {!collapsed && (
+          <div className="min-w-0 leading-tight">
+            <div className="text-[13px] font-bold tracking-wide text-white truncate">HFK Enterprises</div>
+            <div className="text-[10px] text-white/60 truncate">Transport ERP · Quetta</div>
+          </div>
+        )}
+      </div>
+      <nav className="flex-1 overflow-y-auto py-2 sidebar-scroll">
+        {visibleWorkbooks.map((wb) => {
+          const Icon = wb.icon;
+          const isActive = wb.id === activeWb?.id;
+          const isOpen = !collapsed && openWbs.has(wb.id);
+          return (
+            <div key={wb.id} className="px-2">
+              <button
+                onClick={() => toggleWb(wb)}
+                title={collapsed ? wb.label : undefined}
+                className={`w-full flex items-center gap-2.5 rounded-lg ${collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2"} text-[13px] font-medium ${
+                  isActive ? "bg-white/12 text-white" : "text-white/75 hover:bg-white/8 hover:text-white"
+                }`}
+                style={isActive ? { backgroundColor: "rgba(255,255,255,.12)" } : undefined}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left truncate">{wb.label}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 opacity-60 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                  </>
+                )}
+              </button>
+              {isOpen && (
+                <div className="mt-0.5 mb-1.5 ml-[22px] border-l border-white/15 pl-2 space-y-px">
+                  {wb.sheets.map((s) => {
+                    const on = isActive && s.id === activeSheet?.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => pickSheet(wb.id, s.id)}
+                        title={s.label}
+                        className={`w-full text-left rounded-md px-2.5 py-1.5 text-[12.5px] truncate ${on ? "bg-white text-[#13294B] font-semibold" : "text-white/70 hover:text-white hover:bg-white/8"}`}
+                        style={on ? { color: "#13294B" } : undefined}
+                      >
+                        {en(s.label)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </nav>
+      {!collapsed && (
+        <div className="shrink-0 border-t border-white/10 px-4 py-3 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold uppercase text-white">
             {dbUser.name ? dbUser.name.slice(0, 2) : "OP"}
           </div>
-          <div className="hidden sm:block leading-tight">
-            <div className="text-[11px] font-semibold truncate max-w-[140px]">{dbUser.name || "Operator"}</div>
-            <div className="text-[9px] font-mono text-[#4B5563] capitalize">{dbUser.role}</div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="text-[12px] font-semibold text-white truncate">{dbUser.name || "Operator"}</div>
+            <div className="text-[10px] text-white/60 capitalize truncate">{dbUser.role}</div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="p-1.5 rounded-md hover:bg-[#FFE0E0] text-[#B00005]"
-            title="Sign out"
-          >
+          <button onClick={handleLogout} title="Sign out" className="p-1.5 rounded-md text-white/70 hover:text-white hover:bg-white/10">
             <LogOut className="w-4 h-4" />
           </button>
         </div>
-      </header>
+      )}
+    </div>
+  );
 
-      <div className="flex-1 min-h-0 flex print:block print:h-auto">
-        {/* workbook rail */}
-        {railOpen && (
-          <nav className="w-[132px] shrink-0 border-r border-[#E5E7EB] bg-white overflow-y-auto py-2 print:hidden">
-            {visibleWorkbooks.map((wb) => {
-              const Icon = wb.icon;
-              const on = wb.id === activeWb?.id;
-              return (
-                <button
-                  key={wb.id}
-                  onClick={() => go(wb.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-semibold border-l-2 ${
-                    on
-                      ? "border-[#24539B] bg-[#E9EEF5]"
-                      : "border-transparent text-[#4B5563] hover:bg-[#F4F6FA]"
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{wb.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        {/* sheet content */}
-        <main className="flex-1 min-w-0 min-h-0 bg-[#F7F9FC] overflow-hidden print:h-auto print:overflow-visible print:block">
-          {activeSheet ? (
-            renderSheet(activeSheet)
-          ) : (
-            <div className="p-6 text-sm text-[#6B7280]">No sheet available for your role.</div>
-          )}
-        </main>
-      </div>
-
-      {/* bottom sheet tabs (Excel style) */}
-      {activeWb && (
-        <div className="h-9 shrink-0 border-t border-[#E5E7EB] bg-[#F2F5FA] flex items-stretch overflow-x-auto scrollbar-none print:hidden">
-          {activeWb.sheets.map((s) => {
-            const on = s.id === activeSheet?.id;
-            return (
-              <button
-                key={s.id}
-                onClick={() => { setNav((n) => ({ ...n, sheet: s.id })); setFocus(null); }}
-                className={`px-3 text-[11px] font-medium whitespace-nowrap border-r border-[#E5E7EB] -mt-px ${
-                  on
-                    ? "bg-white border-t-2 border-t-[#24539B] font-semibold"
-                    : "bg-[#EEF1F6] text-[#4B5563] hover:bg-[#F4F6FA]"
-                }`}
-              >
-                {s.label}
-                {s.kind === "entity" && <span className="ml-1 text-[#24539B]">▦</span>}
-              </button>
-            );
-          })}
+  return (
+    <div className="h-screen w-full flex bg-[#F4F6FA] overflow-hidden print:h-auto print:overflow-visible print:block">
+      {/* sidebar — desktop */}
+      <aside className={`hidden md:block shrink-0 transition-[width] duration-150 print:hidden ${railOpen ? "w-60" : "w-16"}`} style={{ backgroundColor: "#13294B", borderRight: 0 }}>
+        {sidebar(!railOpen)}
+      </aside>
+      {/* sidebar — phone */}
+      {mobileNav && (
+        <div className="md:hidden fixed inset-0 z-50 flex print:hidden">
+          <div className="w-72 max-w-[85vw] h-full shadow-2xl">{sidebar(false)}</div>
+          <div className="flex-1 bg-black/30" onClick={() => setMobileNav(false)} />
         </div>
       )}
+
+      <div className="flex-1 min-w-0 flex flex-col print:block">
+        {/* top bar */}
+        <header className="h-14 shrink-0 border-b border-[#E3E8EF] bg-white px-3 md:px-5 flex items-center gap-3 print:hidden">
+          <button
+            onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setRailOpen((o) => !o))}
+            className="p-2 -ml-1 rounded-lg hover:bg-[#F1F4F9] text-[#4B5563]"
+            title="Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] text-[#6B7280] truncate">{activeWb?.label}</div>
+            <div className="text-[15px] font-semibold text-[#111827] truncate leading-tight" dir="auto">{activeSheet?.label}</div>
+          </div>
+          <button onClick={hardRefresh} title="Refresh this page · تازہ کریں" className="p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <RefreshCw className={`w-[18px] h-[18px] ${spinning ? "animate-spin" : ""}`} />
+          </button>
+          <button onClick={() => setAlertsOpen(true)} title="Alerts" className="relative p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <Bell className="w-[18px] h-[18px]" />
+            {alertCount && alertCount.total > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#D70006] text-white text-[10px] font-bold flex items-center justify-center">
+                {alertCount.total > 99 ? "99+" : alertCount.total}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={fetchHealth}
+            title={apiHealth ? "Connected to the server" : "Not connected — click to retry"}
+            className={`hidden sm:flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium border ${apiHealth ? "border-[#CFE3D6] bg-[#F1F8F4] text-[#166534]" : "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]"}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${apiHealth ? "bg-[#16A34A]" : "bg-[#D70006]"} ${apiHealthLoading ? "animate-pulse" : ""}`} style={{ backgroundColor: apiHealth ? "#16A34A" : "#D70006" }} />
+            {apiHealth ? "Online" : "Offline"}
+          </button>
+          <div className="w-8 h-8 rounded-full bg-[#EAF0F8] border border-[#C9D7EC] flex items-center justify-center text-[11px] font-bold uppercase text-[#24539B] md:hidden">
+            {dbUser.name ? dbUser.name.slice(0, 2) : "OP"}
+          </div>
+        </header>
+
+        {/* the page */}
+        <main className="flex-1 min-w-0 min-h-0 bg-[#F4F6FA] overflow-hidden print:h-auto print:overflow-visible print:block">
+          {activeSheet ? renderSheet(activeSheet) : <div className="p-6 text-sm text-[#6B7280]">No page available for your role.</div>}
+        </main>
+      </div>
 
       {/* alerts drawer */}
       {alertsOpen && (
         <div className="fixed inset-0 z-[60] flex" onMouseDown={() => setAlertsOpen(false)}>
           <div className="flex-1 bg-black/20" />
-          <div
-            className="w-[460px] max-w-[94vw] bg-white h-full shadow-2xl border-l border-[#E5E7EB] flex flex-col"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 h-12 border-b border-[#E5E7EB] bg-[#D70006]">
-              <span className="font-bold text-white flex items-center gap-2">
-                <Bell className="w-4 h-4" style={{ color: "#fff", stroke: "#fff" }} /> Alerts
+          <div className="w-[460px] max-w-[94vw] bg-white h-full shadow-2xl border-l border-[#E3E8EF] flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 h-14 border-b border-[#E3E8EF]">
+              <span className="font-semibold text-[#111827] flex items-center gap-2">
+                <Bell className="w-4 h-4 text-[#D70006]" /> Alerts · الرٹس
               </span>
-              <button onClick={() => setAlertsOpen(false)}>
-                <X className="w-4 h-4" style={{ color: "#fff", stroke: "#fff" }} />
+              <button onClick={() => setAlertsOpen(false)} className="p-1.5 rounded-lg hover:bg-[#F1F4F9] text-[#4B5563]">
+                <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-hidden p-3">

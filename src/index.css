@@ -163,28 +163,28 @@
   --color-pink-800: #8C0004;
   --color-pink-900: #6B0003;
   --color-pink-950: #3D0002;
-  --color-amber-50: #F9FAFB;
-  --color-amber-100: #F3F4F6;
-  --color-amber-200: #E5E7EB;
-  --color-amber-300: #D1D5DB;
-  --color-amber-400: #9CA3AF;
-  --color-amber-500: #6B7280;
-  --color-amber-600: #4B5563;
-  --color-amber-700: #374151;
-  --color-amber-800: #1F2937;
-  --color-amber-900: #111827;
-  --color-amber-950: #030712;
-  --color-yellow-50: #F9FAFB;
-  --color-yellow-100: #F3F4F6;
-  --color-yellow-200: #E5E7EB;
-  --color-yellow-300: #D1D5DB;
-  --color-yellow-400: #9CA3AF;
-  --color-yellow-500: #6B7280;
-  --color-yellow-600: #4B5563;
-  --color-yellow-700: #374151;
-  --color-yellow-800: #1F2937;
-  --color-yellow-900: #111827;
-  --color-yellow-950: #030712;
+  --color-amber-50: #FFFBEB;
+  --color-amber-100: #FEF3C7;
+  --color-amber-200: #FDE68A;
+  --color-amber-300: #FCD34D;
+  --color-amber-400: #FBBF24;
+  --color-amber-500: #F59E0B;
+  --color-amber-600: #D97706;
+  --color-amber-700: #B45309;
+  --color-amber-800: #92400E;
+  --color-amber-900: #78350F;
+  --color-amber-950: #451A03;
+  --color-yellow-50: #FFFBEB;
+  --color-yellow-100: #FEF3C7;
+  --color-yellow-200: #FDE68A;
+  --color-yellow-300: #FCD34D;
+  --color-yellow-400: #FBBF24;
+  --color-yellow-500: #F59E0B;
+  --color-yellow-600: #D97706;
+  --color-yellow-700: #B45309;
+  --color-yellow-800: #92400E;
+  --color-yellow-900: #78350F;
+  --color-yellow-950: #451A03;
   --color-orange-50: #F9FAFB;
   --color-orange-100: #F3F4F6;
   --color-orange-200: #E5E7EB;
@@ -218,421 +218,143 @@ input, textarea, [contenteditable] { unicode-bidi: plaintext; }
 }
 
 /* ==========================================================================
-   GLOBAL THEME RULES (WHITE & NAVY THEME (HFK brand: navy #24539B, red #D70006) - ONLY BLACK TEXT)
+   DESIGN SYSTEM — HFK Enterprises (professional, Zoho-style)
+   navy primary #24539B · red #D70006 for danger · amber for "look at this" · slate neutrals.
+   Text is near-black on light surfaces and white on solid fills. Nothing here hides a
+   status colour: red / amber rows, coloured borders and badges show as written.
    ========================================================================== */
+:root {
+  --hfk-bg: #F4F6FA;
+  --hfk-surface: #FFFFFF;
+  --hfk-line: #E3E8EF;
+  --hfk-line-strong: #CBD5E1;
+  --hfk-text: #111827;
+  --hfk-muted: #4B5563;
+  --hfk-faint: #6B7280;
+  --hfk-primary: #24539B;
+  --hfk-primary-hover: #1E4480;
+  --hfk-primary-weak: #EAF0F8;
+  --hfk-danger: #D70006;
+  --hfk-warn: #B45309;
+  --hfk-radius: 10px;
+}
 
-/* 1. Global Page Background & Text Base */
 html, body {
-  background-color: #F7F9FC !important; /* Very light navy-tinted surface background */
-  color: #000000 !important; /* Strict Black text color */
-  font-family: "Inter", "Noto Naskh Arabic", "Noto Nastaliq Urdu", ui-sans-serif, system-ui, sans-serif !important;
+  background-color: var(--hfk-bg);
+  color: var(--hfk-text);
+  font-family: "Inter", "Noto Naskh Arabic", "Noto Nastaliq Urdu", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+/* the default line colour (a class that names a colour still wins) */
+*, ::before, ::after { border-color: var(--hfk-line); }
+
+/* links */
+a { color: var(--hfk-primary); }
+a:hover { color: var(--hfk-primary-hover); }
+
+/* ---- screens from the original dark app render light ---------------------------------- */
+.bg-slate-900, .bg-slate-950, .bg-gray-900, .bg-zinc-900, .bg-neutral-900,
+.bg-gray-800, .bg-zinc-800, .bg-neutral-800, .bg-indigo-900, .bg-indigo-950, .bg-emerald-900, .bg-emerald-950,
+.bg-slate-900\/35, .bg-slate-900\/40, .bg-slate-900\/60, .bg-slate-950\/20, .bg-slate-950\/40, .bg-slate-950\/60, .bg-slate-950\/80,
+.bg-slate-800\/40, .bg-slate-800\/50 {
+  background-color: var(--hfk-surface) !important;
+}
+/* …including their see-through shades (bg-slate-900/45 …) and the darker hover */
+[class^="bg-slate-900/"], [class*=" bg-slate-900/"], [class^="bg-slate-950/"], [class*=" bg-slate-950/"],
+[class^="bg-slate-800/"], [class*=" bg-slate-800/"], [class^="bg-gray-900/"], [class*=" bg-gray-900/"] {
+  background-color: var(--hfk-surface) !important;
+}
+[class*="hover:bg-slate-9"]:hover, [class*="hover:bg-slate-8"]:hover, [class*="hover:bg-gray-9"]:hover {
+  background-color: #F8FAFC !important;
 }
 
-/* 2. Global Text Specificity Overrides (All Headings, Labels, Descriptions, etc.) */
-h1, h2, h3, h4, h5, h6, 
-p, span, div, label, th, td, option, li, strong, small, em {
-  color: #000000 !important; /* All text MUST be Black */
+/* ---- text colours: readable everywhere ------------------------------------------------- */
+/* light text written for the old dark screens reads dark on the light surfaces… */
+.text-white, .text-slate-50, .text-slate-100, .text-gray-50, .text-gray-100, .text-zinc-100, .text-indigo-50, .text-indigo-100, .text-emerald-50, .text-emerald-100 { color: var(--hfk-text); }
+.text-slate-200, .text-slate-300, .text-gray-200, .text-gray-300, .text-zinc-200, .text-zinc-300, .text-indigo-200 { color: var(--hfk-faint); }
+.text-slate-400, .text-gray-400, .text-zinc-400, .text-neutral-400 { color: #64748B; }
+.text-slate-500, .text-gray-500, .text-zinc-500, .text-neutral-500, .text-muted-foreground { color: var(--hfk-muted); }
+/* …and stays white on a solid fill (buttons, badges, the red alert bar) */
+:is(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-green-600, .bg-green-700, .bg-teal-600, .bg-sky-600,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-600, .bg-purple-600,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-amber-500, .bg-amber-600, .bg-orange-500, .bg-orange-600,
+    .bg-slate-600, .bg-slate-700, .bg-slate-800, .bg-gray-700, .bg-black,
+    [class^="bg-[#0"], [class*=" bg-[#0"], [class^="bg-[#1"], [class*=" bg-[#1"], [class^="bg-[#2"], [class*=" bg-[#2"], [class^="bg-[#3"], [class*=" bg-[#3"], [class^="bg-[#8C"], [class*=" bg-[#8C"], [class^="bg-[#B0"], [class*=" bg-[#B0"], [class^="bg-[#B9"], [class*=" bg-[#B9"],
+    [class^="bg-[#D7"], [class*=" bg-[#D7"], [class^="bg-[#DC"], [class*=" bg-[#DC"], [class^="bg-[#E0"], [class*=" bg-[#E0"], [class^="bg-[#F59E"], [class*=" bg-[#F59E"], [class^="bg-[#D9"], [class*=" bg-[#D9"]):is(.text-white, .text-slate-50, .text-slate-100, .text-white\/90),
+:is(.bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-800, .bg-green-600, .bg-green-700, .bg-teal-600, .bg-sky-600,
+    .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-violet-600, .bg-purple-600,
+    .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-500, .bg-rose-600, .bg-amber-500, .bg-amber-600, .bg-orange-500, .bg-orange-600,
+    .bg-slate-600, .bg-slate-700, .bg-slate-800, .bg-gray-700, .bg-black,
+    [class^="bg-[#0"], [class*=" bg-[#0"], [class^="bg-[#1"], [class*=" bg-[#1"], [class^="bg-[#2"], [class*=" bg-[#2"], [class^="bg-[#3"], [class*=" bg-[#3"], [class^="bg-[#8C"], [class*=" bg-[#8C"], [class^="bg-[#B0"], [class*=" bg-[#B0"], [class^="bg-[#B9"], [class*=" bg-[#B9"],
+    [class^="bg-[#D7"], [class*=" bg-[#D7"], [class^="bg-[#DC"], [class*=" bg-[#DC"], [class^="bg-[#E0"], [class*=" bg-[#E0"], [class^="bg-[#F59E"], [class*=" bg-[#F59E"], [class^="bg-[#D9"], [class*=" bg-[#D9"]) :is(.text-white, .text-slate-50, .text-slate-100, .text-white\/90) {
+  color: #FFFFFF;
 }
 
-/* Sub-text / secondary descriptions: Dark Gray (#4B5563) */
-.text-slate-400,
-.text-slate-500,
-.text-gray-400,
-.text-gray-500,
-.text-zinc-400,
-.text-zinc-500,
-.text-neutral-400,
-.text-neutral-500,
-.text-muted-foreground {
-  color: #4B5563 !important;
+/* ---- buttons ------------------------------------------------------------------------- */
+button { transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease; }
+button:disabled { cursor: not-allowed; }
+button[type="submit"]:not([class*="bg-"]), .btn-primary {
+  background-color: var(--hfk-primary);
+  border: 1px solid var(--hfk-primary);
+  color: #FFFFFF;
 }
+button[type="submit"]:not([class*="bg-"]):hover, .btn-primary:hover { background-color: var(--hfk-primary-hover); }
+.btn-secondary { background-color: #FFFFFF; border: 1px solid var(--hfk-line-strong); color: var(--hfk-text); }
+.btn-secondary:hover { background-color: var(--hfk-bg); }
+.btn-danger { background-color: var(--hfk-danger); border: 1px solid var(--hfk-danger); color: #FFFFFF; }
+:focus-visible { outline: 2px solid rgba(36, 83, 155, .45); outline-offset: 1px; }
 
-/* 3. Link Overrides */
-a, .text-indigo-600, .text-emerald-600, .text-blue-600, .text-green-600 {
-  color: #24539B !important; /* Links: Navy (#24539B) */
+/* ---- forms ----------------------------------------------------------------------------- */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea {
+  background-color: #FFFFFF;
+  color: var(--hfk-text);
+  border-radius: 8px;
 }
-a:hover {
-  color: #1E4480 !important; /* Primary hover navy */
-  text-decoration: underline !important;
-}
-
-/* 4. Background Overrides - All core backgrounds must be White */
-aside, 
-header, 
-nav, 
-table,
-thead,
-tbody,
-tr,
-th,
-td,
-.bg-white,
-.bg-slate-900,
-.bg-slate-950,
-.bg-gray-900,
-.bg-zinc-900,
-.bg-neutral-900,
-.bg-slate-800,
-.bg-gray-800,
-.bg-zinc-800,
-.bg-neutral-800,
-.bg-indigo-900,
-.bg-indigo-950,
-.bg-emerald-900,
-.bg-emerald-950,
-.bg-slate-900\/35,
-.bg-slate-900\/40,
-.bg-slate-900\/60,
-.bg-slate-950\/20,
-.bg-slate-950\/40,
-.bg-slate-950\/60,
-.bg-slate-950\/80,
-.bg-black\/60,
-.bg-black\/40 {
-  background-color: #FFFFFF !important; /* All pages, cards, modals, sidebars, dropdowns: White */
-}
-
-/* Surface / Secondary Backgrounds: Very Light Navy (#F7F9FC) */
-.bg-slate-50,
-.bg-slate-100,
-.bg-gray-50,
-.bg-gray-100,
-.bg-zinc-50,
-.bg-zinc-100,
-.bg-neutral-50,
-.bg-neutral-100,
-.bg-indigo-50,
-.bg-emerald-50,
-.bg-slate-100\/50,
-.bg-slate-200\/50 {
-  background-color: #F7F9FC !important; /* Very light navy-tinted surface bg */
-}
-
-/* Active Item / Selected Row Background: Light Navy (#E9EEF5) */
-.bg-indigo-100,
-.bg-emerald-100,
-.bg-green-100,
-.bg-indigo-600\/10,
-.bg-emerald-600\/10,
-.bg-slate-200,
-.bg-gray-200,
-.bg-zinc-200,
-.bg-neutral-200,
-[class*="active"],
-.active-item {
-  background-color: #E9EEF5 !important; /* Active item background (navy tint) */
-}
-
-/* Selected row and highlighted cards */
-.bg-emerald-500\/20,
-.bg-emerald-500\/10,
-.bg-green-500\/10 {
-  background-color: #E9EEF5 !important;
-}
-
-/* 5. Border Overrides: Light Gray (#E5E7EB) */
-*,
-.border,
-.border-t,
-.border-b,
-.border-l,
-.border-r,
-.border-slate-100,
-.border-slate-200,
-.border-slate-300,
-.border-slate-400,
-.border-slate-500,
-.border-slate-600,
-.border-slate-700,
-.border-slate-800,
-.border-slate-850,
-.border-slate-900,
-.border-gray-100,
-.border-gray-200,
-.border-zinc-200,
-.border-neutral-200,
-.border-indigo-100,
-.border-indigo-200,
-.border-emerald-100,
-.border-emerald-200 {
-  border-color: #E5E7EB !important; /* Borders: Light Gray */
-}
-
-/* 6. Text Color Force Override for Tailwind Utilities */
-.text-white,
-.text-slate-50,
-.text-slate-100,
-.text-slate-200,
-.text-slate-300,
-.text-slate-700,
-.text-slate-800,
-.text-slate-900,
-.text-gray-50,
-.text-gray-100,
-.text-gray-200,
-.text-gray-300,
-.text-gray-700,
-.text-gray-800,
-.text-gray-900,
-.text-indigo-50,
-.text-indigo-100,
-.text-indigo-200,
-.text-indigo-600,
-.text-indigo-700,
-.text-indigo-800,
-.text-emerald-50,
-.text-emerald-100,
-.text-emerald-600,
-.text-emerald-700,
-.text-emerald-800,
-.text-green-600,
-.text-green-700 {
-  color: #000000 !important; /* ALL text MUST be Black */
-}
-
-/* 7. Button Overrides */
-
-/* Primary Buttons */
-button[type="submit"],
-.bg-indigo-600,
-.bg-emerald-600,
-.bg-green-600,
-.bg-blue-600,
-.bg-slate-900:has(span),
-button:has(.text-white),
-.btn-primary {
-  background-color: #24539B !important; /* Background: Navy */
-  color: #000000 !important; /* Text: Black */
-  border: 1px solid #24539B !important;
-  box-shadow: none !important;
-}
-
-button[type="submit"]:hover,
-.bg-indigo-600:hover,
-.bg-emerald-600:hover,
-.bg-green-600:hover,
-.bg-blue-600:hover,
-.btn-primary:hover {
-  background-color: #1E4480 !important; /* Hover: Dark Navy */
-  color: #000000 !important;
-  border-color: #1E4480 !important;
-}
-
-/* Secondary / Outline Buttons */
-button.bg-white,
-button.border-slate-200,
-button.bg-slate-100,
-.bg-slate-100:has(span),
-.btn-secondary {
-  background-color: #FFFFFF !important; /* Background: White */
-  border: 1px solid #24539B !important; /* Border: Navy */
-  color: #000000 !important; /* Text: Black */
-}
-
-button.bg-white:hover,
-button.border-slate-200:hover,
-button.bg-slate-100:hover,
-.btn-secondary:hover {
-  background-color: #F7F9FC !important; /* Hover: Very Light Navy */
-  color: #000000 !important;
-}
-
-/* Danger Buttons */
-.bg-rose-600,
-.bg-red-600,
-.bg-red-500,
-.btn-danger {
-  background-color: #D70006 !important; /* Background: Red */
-  color: #000000 !important; /* Text: Black */
-  border: 1px solid #D70006 !important;
-}
-.bg-rose-600:hover,
-.bg-red-600:hover,
-.bg-red-500:hover,
-.btn-danger:hover {
-  background-color: #B00005 !important;
-  color: #000000 !important;
-}
-
-/* Force black text on ALL buttons */
-button, button * {
-  color: #000000 !important;
-}
-
-/* 8. Forms & Inputs */
-input, select, textarea {
-  background-color: #FFFFFF !important; /* Background: White */
-  border: 1px solid #E5E7EB !important; /* Border: Light Gray */
-  color: #000000 !important; /* Input Text: Black */
-  border-radius: 8px !important;
-}
-
+input:not([type="checkbox"]):not([type="radio"]), select, textarea { border-color: var(--hfk-line-strong); }
 input:focus, select:focus, textarea:focus {
-  border-color: #24539B !important; /* Focus Border: Navy */
-  outline: none !important;
-  box-shadow: 0 0 0 2px rgba(36, 83, 155, 0.12) !important;
+  border-color: var(--hfk-primary) !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(36, 83, 155, 0.12);
 }
+input::placeholder, textarea::placeholder { color: #94A3B8; opacity: 1; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--hfk-primary); }
+/* the old dark inputs */
+input.bg-slate-900, input.bg-slate-950, select.bg-slate-900, select.bg-slate-950, textarea.bg-slate-900, textarea.bg-slate-950 { background-color: #FFFFFF !important; }
 
-/* All Placeholder Text: Dark Gray */
-input::placeholder, textarea::placeholder {
-  color: #4B5563 !important;
-  opacity: 1 !important;
-}
+/* ---- tables ------------------------------------------------------------------------------ */
+table { border-collapse: collapse; }
+thead th { font-weight: 600; color: var(--hfk-muted); letter-spacing: .02em; }
+thead tr { background-color: #F8FAFC; }
+thead th { border-bottom: 1px solid var(--hfk-line); }
 
-/* Dropdowns & Select Options */
-select, option {
-  background-color: #FFFFFF !important; /* Dropdown Background: White */
-  color: #000000 !important; /* Dropdown Text: Black */
-}
+/* ---- cards: a white box with a border lifts a little off the page -------------------------- */
+.bg-white:is(.rounded-xl, .rounded-2xl, .rounded-lg):is(.border, [class*=" border-"]) { box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
+tbody tr { transition: background-color .1s ease; }
 
-/* Labels: Black */
-label {
-  color: #000000 !important;
-}
-
-/* 9. Sidebar Overrides */
-aside {
-  background-color: #FFFFFF !important; /* Background: White */
-  border-right: 1px solid #E5E7EB !important; /* Border Right: Light Gray */
-}
-
-aside a, aside button {
-  color: #000000 !important; /* Text Color: Black */
-}
-
-aside a:hover, aside button:hover {
-  background-color: #F4F6FA !important; /* Hover Background: Very Light Navy */
-}
-
-aside .active, aside [class*="active"] {
-  background-color: #E9EEF5 !important; /* Active Item Background: Light Navy */
-  color: #000000 !important; /* Active Item Text: Black */
-}
-
-/* 10. Table Design Overrides */
-table {
-  background-color: #FFFFFF !important; /* Background: White */
-}
-
-thead tr, thead th {
-  background-color: #EEF1F6 !important; /* Header Background: Very Light Navy */
-  color: #000000 !important; /* Header Text: Black */
-  font-weight: 600 !important;
-}
-
-tbody tr {
-  background-color: #FFFFFF !important;
-}
-
-tbody tr:hover {
-  background-color: #F4F6FA !important; /* Hover Row: Very Light Navy */
-}
-
-tbody tr.selected, tbody tr[class*="selected"] {
-  background-color: #E9EEF5 !important; /* Selected Row: Light Navy */
-}
-
-td, th {
-  border-bottom: 1px solid #E5E7EB !important; /* Borders: Light Gray */
-  color: #000000 !important; /* Row Text: Black */
-}
-
-/* 11. Modals & Drawers Overrides */
+/* ---- overlays ------------------------------------------------------------------------------ */
 .fixed.inset-0.bg-slate-950\/80,
 .fixed.inset-0.bg-black\/60,
-.fixed.inset-0.bg-slate-900\/40,
-[class*="backdrop-blur"] {
-  background-color: rgba(0, 0, 0, 0.15) !important; /* Soft Overlay */
-  backdrop-filter: blur(4px) !important;
+.fixed.inset-0.bg-slate-900\/40 {
+  background-color: rgba(15, 23, 42, 0.28) !important;
+  backdrop-filter: blur(2px);
 }
 
-.modal-content,
-div[class*="rounded-2xl"]:has(h3),
-div[class*="rounded-xl"]:has(h3),
-.fixed.inset-0 + div > div {
-  background-color: #FFFFFF !important; /* Background: White */
-  color: #000000 !important; /* Text: Black */
-  border: 1px solid #E5E7EB !important; /* Border: Light Gray */
-  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.08) !important; /* Soft Shadow */
+/* ---- AI assistant bubbles (old dark styling) ---------------------------------------------- */
+div[class*="bg-indigo-600/10"]:has(p), div[class*="bg-emerald-600/10"]:has(p), div[class*="bg-green-600/10"]:has(p), .user-message-bubble {
+  background-color: var(--hfk-primary-weak) !important;
+}
+.ai-message-bubble { background-color: #FFFFFF !important; border: 1px solid var(--hfk-line) !important; }
+
+/* ---- code ------------------------------------------------------------------------------ */
+code, pre, kbd, samp {
+  background-color: #EEF2F7;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  border-radius: 4px;
 }
 
-/* 12. Icons Override (Icons: Navy #24539B) */
-svg {
-  color: #24539B !important;
-  stroke: #24539B !important;
-}
-
-/* Icons inside primary buttons, danger buttons, or active tab indicators must match their text color */
-button svg,
-button:hover svg,
-[type="submit"] svg,
-.btn-primary svg,
-.bg-indigo-600 svg,
-.bg-emerald-600 svg,
-.bg-green-600 svg,
-.bg-rose-600 svg,
-.bg-red-600 svg,
-.bg-red-500 svg,
-.btn-danger svg {
-  color: #000000 !important;
-  stroke: #000000 !important;
-}
-
-/* Let's keep specific success, warning, and error icons semantic if they represent state */
-.text-rose-600 svg,
-.text-red-600 svg,
-.text-rose-500 svg,
-.text-red-500 svg {
-  color: #D70006 !important;
-  stroke: #D70006 !important;
-}
-
-.text-amber-600 svg,
-.text-yellow-600 svg,
-.text-amber-500 svg,
-.text-yellow-500 svg {
-  color: #6B7280 !important;
-  stroke: #6B7280 !important;
-}
-
-.text-blue-600 svg,
-.text-blue-500 svg,
-.text-sky-600 svg,
-.text-sky-500 svg {
-  color: #24539B !important;
-  stroke: #24539B !important;
-}
-
-/* 13. AI Module Overrides (AI Chat / Assistant) */
-/* User message bubbles: Light Navy */
-div[class*="bg-indigo-600/10"]:has(p),
-div[class*="bg-emerald-600/10"]:has(p),
-div[class*="bg-green-600/10"]:has(p),
-.user-message-bubble {
-  background-color: #E9EEF5 !important; /* User Messages: Light Navy */
-  color: #000000 !important;
-}
-
-/* AI message bubbles: White */
-div[class*="bg-slate-900/35"]:has(p),
-div[class*="bg-slate-800/40"]:has(p),
-.ai-message-bubble {
-  background-color: #FFFFFF !important; /* AI Messages: White */
-  color: #000000 !important;
-  border: 1px solid #E5E7EB !important;
-}
-
-/* 14. Code, Mono, and Terminal Overrides: Very Light Navy */
-.font-mono,
-code,
-pre,
-kbd,
-samp {
-  background-color: #EEF1F6 !important; /* Very Light Navy */
-  color: #000000 !important; /* Code text: Black */
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace !important;
-  border: 1px solid #E5E7EB !important;
-}
+/* numbers line up */
+.tabular-nums, td.text-right { font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
    SPREADSHEET LAYER  (Excel-style workbook shell + editable grid)
@@ -672,16 +394,16 @@ samp {
 
 /* 15. Scrollbar overrides */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #F7F9FC;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #24539B;
-  border-radius: 3px;
+  background: #CBD5E1;
+  border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #1E4480;
+  background: #94A3B8;
 }
