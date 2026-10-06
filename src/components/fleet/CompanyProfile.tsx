@@ -132,8 +132,8 @@ export default function CompanyProfile({
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <Building2 className="w-4 h-4" /> Company Profile <span className="text-[#9CA3AF] font-normal text-sm">· کمپنی پروفائل / لیٹر ہیڈ</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <Building2 className="w-5 h-5 text-[#24539B]" /> Company Profile <span className="text-[#9CA3AF] font-normal text-sm">· کمپنی پروفائل / لیٹر ہیڈ</span>
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
           This is printed at the top of every invoice. It is copied when an invoice is created, so later changes do not affect old invoices. · یہ ہر انوائس کے اوپر چھپتا ہے۔ انوائس بنتے وقت کاپی ہو جاتا ہے، اس لیے بعد کی تبدیلی پرانی انوائسز کو نہیں بدلتی۔
@@ -141,7 +141,7 @@ export default function CompanyProfile({
       </div>
 
       {/* logo */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4">
         <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5 mb-2"><ImageIcon className="w-3.5 h-3.5" /> Logo</div>
         <div className="flex items-center gap-4">
           <div className="w-40 h-20 border border-dashed border-slate-300 rounded flex items-center justify-center bg-slate-50 overflow-hidden">
@@ -163,7 +163,7 @@ export default function CompanyProfile({
       </section>
 
       {/* identity */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <F l="Trade name · نام"><input className="i" value={p.tradeName || ""} onChange={(e) => set("tradeName", e.target.value)} dir="auto" /></F>
         <F l="Legal name"><input className="i" value={p.legalName || ""} onChange={(e) => set("legalName", e.target.value)} dir="auto" /></F>
         <F l="Tagline"><input className="i" value={p.tagline || ""} onChange={(e) => set("tagline", e.target.value)} dir="auto" /></F>
@@ -178,7 +178,7 @@ export default function CompanyProfile({
       </section>
 
       {/* invoice defaults */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <F l="Invoice prefix"><input className="i" value={p.invoicePrefix || "INV"} onChange={(e) => set("invoicePrefix", e.target.value)} /></F>
         <F l="Default payment terms"><input className="i" value={p.defaultPaymentTerms || "Net 30"} onChange={(e) => set("defaultPaymentTerms", e.target.value)} /></F>
         <F l="Invoice footer note · فوٹر" wide><input className="i" value={p.invoiceFooterNote || ""} onChange={(e) => set("invoiceFooterNote", e.target.value)} dir="auto" /></F>
@@ -196,7 +196,7 @@ export default function CompanyProfile({
       </section>
 
       {/* bank accounts */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <div className="text-xs font-bold text-slate-600">Bank accounts (payment details on the invoice) · بینک تفصیل</div>
         {banks.map((bk, i) => (
           <div key={i} className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs items-end">

@@ -286,8 +286,8 @@ export default function FleetAssetValue({
     <div className="space-y-4 p-1">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Truck className="w-4 h-4" /> Fleet Asset Value <span className="text-[#9CA3AF] font-normal text-sm">· ٹرکوں کی مالیت</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Truck className="w-5 h-5 text-[#24539B]" /> Fleet Asset Value <span className="text-[#9CA3AF] font-normal text-sm">· ٹرکوں کی مالیت</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             The market value of every truck — add a new purchase, remove a truck when sold or written off. · ہر ٹرک کی مارکیٹ ویلیو — نیا خریدیں تو شامل کریں، بیچ دیں یا خراب ہو جائے تو ہٹا دیں۔
@@ -303,7 +303,7 @@ export default function FleetAssetValue({
 
       {/* headline total */}
       <div className="rounded-xl border border-[#C9D7EC] bg-[#F2F5FA] p-4">
-        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#1E4480]">
+        <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-[#6B7280] text-[#1E4480]">
           <Wallet className="w-3.5 h-3.5" /> Total Fleet Worth (Owned trucks)
         </div>
         <div className="text-2xl font-extrabold mt-1 tabular-nums text-[#1E4480]">{PKR(groups.owned.total)}</div>
@@ -335,7 +335,7 @@ export default function FleetAssetValue({
 
       {/* add truck */}
       {canWrite && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3">
           {!adding ? (
             <button
               onClick={() => setAdding(true)}
@@ -408,7 +408,7 @@ export default function FleetAssetValue({
 
       {/* update many trucks from a pasted list */}
       {canWrite && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 space-y-2">
           <div
             role="button"
             tabIndex={0}
@@ -436,7 +436,7 @@ export default function FleetAssetValue({
               {preview.length > 0 && (
                 <div className="overflow-x-auto border border-[#E5E7EB] rounded">
                   <table className="w-full text-[12px]">
-                    <thead className="bg-[#F9FAFB] text-[#6B7280]">
+                    <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                       <tr>
                         <th className="text-left px-2 py-1">Line</th>
                         <th className="text-left px-2 py-1">Truck (list)</th>
@@ -489,7 +489,7 @@ export default function FleetAssetValue({
       )}
 
       {/* table */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead className="bg-[#F9FAFB] text-[#6B7280] text-[11px] uppercase">

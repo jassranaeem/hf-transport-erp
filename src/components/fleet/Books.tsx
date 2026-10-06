@@ -82,8 +82,8 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
     <div className="p-3 space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-0 basis-64">
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <BookOpenCheck className="w-4 h-4" /> Books <span className="text-[#9CA3AF] font-normal text-sm">· کتاب (double-entry)</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <BookOpenCheck className="w-5 h-5 text-[#24539B]" /> Books <span className="text-[#9CA3AF] font-normal text-sm">· کتاب (double-entry)</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             The company's one book, made by the system from the cash book, truck and party ledgers, Partner P&amp;L, household, zakat, invoices and bills — every rupee once. ·
@@ -96,7 +96,7 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
       </div>
 
       {status && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-[12px] text-[#374151] flex flex-wrap gap-x-5 gap-y-1">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] px-3 py-2 text-[12px] text-[#374151] flex flex-wrap gap-x-5 gap-y-1">
           <span>Books start · کتاب کا آغاز: <b>{status.booksStart ? dmy(status.booksStart) : "—"}</b> (with opening balances)</span>
           <span>Last built · آخری بار: <b>{status.lastRebuildAt ? new Date(status.lastRebuildAt).toLocaleString("en-GB") : "never"}</b></span>
           <span>Entries · انٹریاں: <b>{(status.autoEntries || 0).toLocaleString()}</b></span>
@@ -127,8 +127,8 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
             {balanced ? `Balanced: debit ${fmt(tb.totals.debit)} = credit ${fmt(tb.totals.credit)} · ڈیبٹ کریڈٹ برابر` : `NOT balanced: debit ${fmt(tb.totals.debit)} · credit ${fmt(tb.totals.credit)} — see Books Check`}
           </div>
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-x-auto">
-            <table className="w-full text-xs">
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
+            <table className="w-full text-[12.5px]">
               <thead className="text-[#6B7280] bg-[#F9FAFB]">
                 <tr>
                   <th className="text-left px-3 py-2">Account · کھاتہ</th>
@@ -151,9 +151,9 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
                           {a.name}
                           {review.has(a.code) && a.closing !== 0 && <span className="ml-2 text-[10px] font-semibold text-[#92400E]">review · جانچ</span>}
                         </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280] whitespace-nowrap">{drcr(a.opening)}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{a.debit ? fmt(a.debit) : ""}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{a.credit ? fmt(a.credit) : ""}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#6B7280] whitespace-nowrap">{drcr(a.opening)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{a.debit ? fmt(a.debit) : ""}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{a.credit ? fmt(a.credit) : ""}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums font-semibold whitespace-nowrap">{drcr(a.closing)}</td>
                       </tr>
                     ))}
@@ -178,7 +178,7 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
         </>
       )}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
         <button onClick={() => setShowRules((v) => !v)} className="w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-1.5">
           <Settings2 className="w-3.5 h-3.5" /> Which account · کون سا کھاتہ — where each kind of truck-khata row goes
         </button>
@@ -197,7 +197,7 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
             ) : lines.list.length === 0 ? (
               <div className="text-sm text-[#6B7280]">No entries in these dates.</div>
             ) : (
-              <table className="w-full text-xs">
+              <table className="w-full text-[12.5px]">
                 <thead className="text-[#6B7280]"><tr><th className="text-left py-1">Date</th><th className="text-left">Detail</th><th className="text-left">Truck / party</th><th className="text-right">Debit</th><th className="text-right">Credit</th><th /></tr></thead>
                 <tbody>
                   {lines.list.map((l, i) => {

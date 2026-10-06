@@ -162,8 +162,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Handshake className="w-4 h-4" /> Partners <span className="text-[#9CA3AF] font-normal text-sm">· شراکت دار</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Handshake className="w-5 h-5 text-[#24539B]" /> Partners <span className="text-[#9CA3AF] font-normal text-sm">· شراکت دار</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">Partner-owned trucks on lease-to-own — partner, agreement, and every settlement together.</p>
         </div>
@@ -238,8 +238,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
         </div>
       )}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">
           Truck partners · ٹرک کے شریک · {truckPartners.length}
           <span className="font-normal text-[#6B7280]"> — shared trucks (50/50 etc.) from Partner P&amp;L; open one to see, edit or delete its entries</span>
         </div>
@@ -250,16 +250,16 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-[12.5px]">
               <thead className="text-[#6B7280]">
                 <tr>
                   <th className="text-left px-3 py-1.5">Partner · شریک</th>
-                  <th className="text-left px-2 py-1.5">Truck</th>
-                  <th className="text-right px-2 py-1.5">Share</th>
-                  <th className="text-right px-2 py-1.5">His money in the pool · مشترکہ جمع</th>
-                  <th className="text-right px-2 py-1.5">Qarz · قرض (taken − paid back)</th>
-                  <th className="text-right px-2 py-1.5">This cycle · موجودہ</th>
-                  <th className="text-right px-2 py-1.5">With us · ہمارے پاس</th>
+                  <th className="text-left px-3 py-2">Truck</th>
+                  <th className="text-right px-3 py-2">Share</th>
+                  <th className="text-right px-3 py-2">His money in the pool · مشترکہ جمع</th>
+                  <th className="text-right px-3 py-2">Qarz · قرض (taken − paid back)</th>
+                  <th className="text-right px-3 py-2">This cycle · موجودہ</th>
+                  <th className="text-right px-3 py-2">With us · ہمارے پاس</th>
                   <th />
                 </tr>
               </thead>
@@ -267,14 +267,14 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                 {truckPartners.map((a) => (
                   <tr key={a.id} onClick={() => onNavigate?.("finance", "partner_pnl", { ledgerId: a.truckLedgerId })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
                     <td className="px-3 py-1.5 font-semibold" dir="auto">{a.partnerName}</td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">{a.truck || a.truckTitle}</td>
-                    <td className="px-2 py-1.5 text-right whitespace-nowrap">{a.partnerPercent}% / {100 - a.partnerPercent}%</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums ${(a.partner?.inPool || 0) < 0 ? "text-[#B91C1C]" : ""}`}>{pkr(a.partner?.inPool || 0)}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums whitespace-nowrap ${(a.partner?.debt || 0) > 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
+                    <td className="px-3 py-2 whitespace-nowrap">{a.truck || a.truckTitle}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">{a.partnerPercent}% / {100 - a.partnerPercent}%</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${(a.partner?.inPool || 0) < 0 ? "text-[#B91C1C]" : ""}`}>{pkr(a.partner?.inPool || 0)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${(a.partner?.debt || 0) > 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
                       {(a.partner?.debt || 0) > 0 ? PKR(a.partner.debt) : (a.partner?.debt || 0) < 0 ? `+${PKR(a.partner.debt)} paid back · واپس دیا` : "—"}
                     </td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums ${(a.cycleNet || 0) < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>{pkr(a.cycleNet || 0)}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold whitespace-nowrap ${(a.partner?.net || 0) < 0 ? "text-[#B91C1C]" : (a.partner?.net || 0) > 0 ? "text-[#047857]" : ""}`}>
+                    <td className={`px-3 py-2 text-right tabular-nums ${(a.cycleNet || 0) < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>{pkr(a.cycleNet || 0)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-semibold whitespace-nowrap ${(a.partner?.net || 0) < 0 ? "text-[#B91C1C]" : (a.partner?.net || 0) > 0 ? "text-[#047857]" : ""}`}>
                       {(a.partner?.net || 0) > 0 ? `${PKR(a.partner.net)} جمع ہے` : (a.partner?.net || 0) < 0 ? `owes ${PKR(a.partner.net)} · قرضدار` : "Clear · برابر"}
                     </td>
                     <td className="px-3 py-1.5 text-right whitespace-nowrap text-[#24539B]">Open ↗</td>
@@ -284,13 +284,13 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
               <tfoot>
                 <tr className="border-t-2 border-[#E5E7EB] font-semibold">
                   <td colSpan={6} className="px-3 py-1.5 text-right">Partners' money with us · شریکوں کا ہمارے پاس جمع</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-[#047857]">{PKR(truckPartners.reduce((s, a) => s + Math.max(0, a.partner?.net || 0), 0))}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#047857]">{PKR(truckPartners.reduce((s, a) => s + Math.max(0, a.partner?.net || 0), 0))}</td>
                   <td />
                 </tr>
                 {truckPartners.some((a) => (a.partner?.net || 0) < 0) && (
                   <tr className="font-semibold">
                     <td colSpan={6} className="px-3 py-1.5 text-right">Partners who owe us · شریکوں پر قرض</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B91C1C]">{PKR(truckPartners.reduce((s, a) => s + Math.min(0, a.partner?.net || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#B91C1C]">{PKR(truckPartners.reduce((s, a) => s + Math.min(0, a.partner?.net || 0), 0))}</td>
                     <td />
                   </tr>
                 )}
@@ -301,9 +301,9 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
       </div>
 
       {partners.length > 0 && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-          <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Lease-to-own partners · {partners.length} <span className="font-normal text-[#6B7280]">— buying a truck from HFK in instalments</span></div>
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+          <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Lease-to-own partners · {partners.length} <span className="font-normal text-[#6B7280]">— buying a truck from HFK in instalments</span></div>
+          <table className="w-full text-[12.5px]">
             <tbody>
               {partners.map((pt) =>
                 editPartner?.id === pt.id ? (
@@ -333,9 +333,9 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                 ) : (
                   <tr key={pt.id} className="border-t border-[#F3F4F6]">
                     <td className="px-3 py-1.5 font-semibold" dir="auto">{pt.name}</td>
-                    <td className="px-2 py-1.5 text-[#6B7280]">{pt.cnic || ""}</td>
-                    <td className="px-2 py-1.5 text-[#6B7280]">{pt.phone || ""}</td>
-                    <td className="px-2 py-1.5 text-[#6B7280]" dir="auto">{pt.address || ""}</td>
+                    <td className="px-3 py-2 text-[#6B7280]">{pt.cnic || ""}</td>
+                    <td className="px-3 py-2 text-[#6B7280]">{pt.phone || ""}</td>
+                    <td className="px-3 py-2 text-[#6B7280]" dir="auto">{pt.address || ""}</td>
                     <td className="px-3 py-1.5 text-right whitespace-nowrap">
                       <button title="Edit" onClick={() => setEditPartner({ ...pt })} className="text-[#6B7280] hover:text-[#24539B] mr-3"><Pencil className="w-3.5 h-3.5" /></button>
                       <button
@@ -354,8 +354,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
         </div>
       )}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Agreements · {agreements.length}</div>
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Agreements · {agreements.length}</div>
         <div className="divide-y divide-[#F3F4F6]">
           {agreements.map((a) => (
             <div key={a.id}>
@@ -497,21 +497,21 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
 
       <div className="rounded-lg border border-[#E5E7EB] bg-white overflow-hidden">
         <table className="w-full text-[11px]">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
-            <tr><th className="text-left px-2 py-1.5">Settlement</th><th className="text-left px-2 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Period" /></th><th className="text-right px-2 py-1.5">Revenue</th><th className="text-right px-2 py-1.5">Expenses</th><th className="text-right px-2 py-1.5">To Company</th><th className="text-left px-2 py-1.5">Flags</th><th /></tr>
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
+            <tr><th className="text-left px-3 py-2">Settlement</th><th className="text-left px-3 py-2"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Period" /></th><th className="text-right px-3 py-2">Revenue</th><th className="text-right px-3 py-2">Expenses</th><th className="text-right px-3 py-2">To Company</th><th className="text-left px-3 py-2">Flags</th><th /></tr>
           </thead>
           <tbody>
             {inOrder(data.settlements, newestFirst).map((s: any) => (
               <tr key={s.id} className="border-t border-[#F3F4F6]">
-                <td className="px-2 py-1.5 font-mono">{s.settlementNumber}</td>
-                <td className="px-2 py-1.5 text-[#6B7280]">{s.periodFrom?.slice(0, 10)} → {s.periodTo?.slice(0, 10)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{PKR(s.grossRevenue)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(s.totalExpenses)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#1E4480]">{PKR(s.amountToCompany)}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-3 py-2 font-mono">{s.settlementNumber}</td>
+                <td className="px-3 py-2 text-[#6B7280]">{s.periodFrom?.slice(0, 10)} → {s.periodTo?.slice(0, 10)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{PKR(s.grossRevenue)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(s.totalExpenses)}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#1E4480]">{PKR(s.amountToCompany)}</td>
+                <td className="px-3 py-2">
                   {s.flags?.length ? <span className="text-[#B00005] flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{s.flags.join(", ")}</span> : <CheckCircle className="w-3 h-3 text-[#1E4480]" />}
                 </td>
-                <td className="px-2 py-1.5 text-right">
+                <td className="px-3 py-2 text-right">
                   {s.id === lastId && (
                     <button onClick={() => onUndoSettlement(s.id, s.settlementNumber)} className="inline-flex items-center gap-1 text-[#6B7280] hover:text-[#B91C1C]" title="Take back the latest settlement">
                       <Undo2 className="w-3 h-3" /> Take back · واپس
@@ -537,7 +537,7 @@ function Big({ label, value, tone }: { label: string; value: string; tone: "good
   return (
     <div className={`rounded-xl border p-2.5 ${c}`}>
       <div className="text-[9px] font-bold uppercase tracking-wide">{label}</div>
-      <div className="text-base font-extrabold tabular-nums">{value}</div>
+      <div className="text-base font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

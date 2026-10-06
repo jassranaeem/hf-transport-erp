@@ -109,13 +109,13 @@ export default function PersonalCategories({
       </div>
 
       <div className="overflow-x-auto bg-white border border-slate-200 rounded-lg">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-slate-500">
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">Name · نام</th>
-              <th className="text-left px-2 py-1.5">Urdu name · اردو نام</th>
-              <th className="text-right px-2 py-1.5">Entries</th>
-              <th className="px-2 py-1.5 w-40"></th>
+              <th className="text-left px-3 py-2">Name · نام</th>
+              <th className="text-left px-3 py-2">Urdu name · اردو نام</th>
+              <th className="text-right px-3 py-2">Entries</th>
+              <th className="px-3 py-2 w-40"></th>
             </tr>
           </thead>
           <tbody>

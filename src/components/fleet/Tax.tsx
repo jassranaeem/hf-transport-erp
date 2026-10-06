@@ -77,7 +77,7 @@ export default function Tax({ showFeedback }: { showFeedback: Feedback }) {
   return (
     <div className="p-3 space-y-4">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2"><Receipt className="w-4 h-4" /> Tax <span className="text-[#9CA3AF] font-normal text-sm">· ٹیکس</span></h2>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight"><Receipt className="w-5 h-5 text-[#24539B]" /> Tax <span className="text-[#9CA3AF] font-normal text-sm">· ٹیکس</span></h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
           Withholding tax kept by customers and by us, payments to FBR, and the year's figures for the return. The system uses only the rates your tax consultant enters; filing on FBR is done by you / the consultant. ·
           شرحیں ٹیکس کنسلٹنٹ درج کریں گے؛ سسٹم خود کوئی شرح نہیں لگاتا۔
@@ -129,8 +129,8 @@ function Summary({ s }: { s: any }) {
       {s.ratesMissing > 0 && (
         <div className="rounded-xl border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E] flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {s.ratesMissing} tax rate(s) not entered yet — ask the tax consultant to fill “Rates”. Until then no estimate is made.</div>
       )}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <table className="w-full text-xs">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <table className="w-full text-[12.5px]">
           <tbody>
             <tr className="bg-[#F2F5FA]"><td colSpan={2} className="px-3 py-1.5 font-semibold text-[#1E3A6E]">From the books · کتاب سے</td></tr>
             <Line l="Turnover (freight & other operating income) · کل آمدن" v={s.turnover} />
@@ -158,8 +158,8 @@ function Summary({ s }: { s: any }) {
         </table>
       </div>
       {s.months.length > 0 && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-x-auto">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280] bg-[#F9FAFB]"><tr><th className="text-left px-3 py-1.5">Month</th><th className="text-right px-2">We deducted</th><th className="text-right px-2">Paid to FBR</th><th className="text-right px-3">Pending</th></tr></thead>
             <tbody>
               {s.months.map((m: any) => (
@@ -176,7 +176,7 @@ function Summary({ s }: { s: any }) {
 
 function Register({ title, list, loading, onDelete, onExport, rateLabel }: { title: string; list: any[]; loading: boolean; onDelete: (e: any) => void; onExport: () => void; rateLabel: (c: string) => string }) {
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <div className="px-3 py-2 text-xs font-bold flex items-center gap-2">
         {title}
         <span className="font-normal text-[#6B7280]">— {list.length} · total {PKR(list.reduce((s, e) => s + Number(e.tax_amount), 0))}</span>
@@ -184,7 +184,7 @@ function Register({ title, list, loading, onDelete, onExport, rateLabel }: { tit
       </div>
       {loading ? <div className="px-3 pb-3"><Wait /></div> : list.length === 0 ? <div className="px-3 pb-3 text-xs text-[#6B7280]">Nothing entered for this year.</div> : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280] bg-[#F9FAFB]"><tr><th className="text-left px-3 py-1.5">Date</th><th className="text-left px-2">Who</th><th className="text-left px-2">Type</th><th className="text-right px-2">Gross</th><th className="text-right px-2">Tax</th><th className="text-left px-2">Certificate / CPR</th><th /></tr></thead>
             <tbody>
               {list.map((e) => (
@@ -237,7 +237,7 @@ function EntryForm({ kind, opts, rates, showFeedback, onSaved }: { kind: string;
   const t = KIND_TEXT[kind];
   const input = "border rounded px-2 py-1 w-full";
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <button onClick={() => setOpen((v) => !v)} className="w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-1.5 text-[#24539B]"><Plus className="w-3.5 h-3.5" /> {t.title}</button>
       {open && (
         <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
@@ -315,7 +315,7 @@ function Rates({ rates, showFeedback, onSaved }: { rates: any[]; showFeedback: F
     }
   };
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2 text-xs">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 space-y-2 text-xs">
       <p className="text-[#6B7280]" dir="auto">For the tax consultant: enter the rate (%) and the section of the law for each line, as they apply to HFK Enterprises (Pvt) Ltd this year. Leave a line empty if it does not apply. Rates change with each budget — check them every July. · ہر بجٹ کے بعد شرحیں چیک کریں۔</p>
       <div className="overflow-x-auto">
         <table className="w-full">

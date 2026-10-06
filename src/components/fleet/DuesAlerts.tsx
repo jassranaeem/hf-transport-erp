@@ -102,7 +102,7 @@ export default function DuesAlerts({
         : "text-[#1F2937] border-[#E5E7EB] bg-white";
     return (
       <div className={`rounded-xl border p-3 ${c}`}>
-        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide">
+        <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-[#6B7280]">
           <Icon className="w-3.5 h-3.5" /> {label}
         </div>
         <div className="text-[11px] opacity-70" dir="auto">{urdu}</div>
@@ -124,7 +124,7 @@ export default function DuesAlerts({
     tone: "good" | "bad" | "block";
     showAge?: boolean;
   }) => (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden flex flex-col min-h-0">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden flex flex-col min-h-0">
       <div
         className={`px-3 py-2 text-xs font-bold flex items-center justify-between ${
           tone === "good" ? "bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "bg-[#FFF1F1] text-[#B00005]" : "bg-[#FFF1F1] text-[#B00005]"
@@ -167,7 +167,7 @@ export default function DuesAlerts({
       {!compact && (
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-bold">Dues &amp; Alerts <span className="text-[#9CA3AF] font-normal text-sm">· بقایا جات و انتباہ</span></h2>
+            <h2 className="text-[19px] font-semibold text-[#111827] leading-tight">Dues &amp; Alerts <span className="text-[#9CA3AF] font-normal text-sm">· بقایا جات و انتباہ</span></h2>
             <p className="text-[12px] text-[#6B7280]" dir="auto">
               Who to collect from, who to pay, who NOT to pay — all dues at a glance ·
               کس سے وصولی · کس کو ادائیگی · کس کو نہیں دینا
@@ -209,7 +209,7 @@ export default function DuesAlerts({
         <PartyList title="Do NOT pay (blocked)" urdu="اِن کو ادائیگی نہ کریں" rows={data.doNotPay} tone="block" />
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#F9FAFB] text-[#4B5563] flex items-center gap-1.5" dir="auto">
           <Clock className="w-3.5 h-3.5" /> Overdue — no entry for {data.overdueDays}+ days, balance still open
           <span className="ml-auto text-[10px] font-medium opacity-70">پرانے بقایا جات</span>

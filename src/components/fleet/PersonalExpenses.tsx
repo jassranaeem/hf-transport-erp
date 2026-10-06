@@ -10,6 +10,7 @@
  *   /api/personal-expenses/:id        edit / delete
  *   /api/personal-expenses/summary    monthly roll-up
  */
+import { KpiStrip, Btn } from "../ui/kit.tsx";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import {
@@ -212,8 +213,8 @@ export default function PersonalExpenses({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Wallet className="w-4 h-4" /> Personal &amp; Household <span className="text-[#9CA3AF] font-normal text-sm">· ذاتی و گھریلو اخراجات</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Wallet className="w-5 h-5 text-[#24539B]" /> Personal &amp; Household <span className="text-[#9CA3AF] font-normal text-sm">· ذاتی و گھریلو اخراجات</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             Household expenses, pocket money, personal spend — kept separate from the business P&amp;L. · کاروبار سے الگ ذاتی کھاتہ۔
@@ -226,7 +227,7 @@ export default function PersonalExpenses({
             <button
               key={m}
               onClick={() => pickView(m)}
-              className={`px-3 py-2 ${pane === m ? "bg-[#15803D] text-white font-semibold" : "bg-white text-[#374151] hover:bg-[#F3F4F6]"}`}
+              className={`px-3 py-2 ${pane === m ? "bg-[#24539B] text-white font-semibold" : "bg-white text-[#374151] hover:bg-[#F3F4F6]"}`}
             >
               {lbl}
             </button>
@@ -260,9 +261,7 @@ export default function PersonalExpenses({
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
         </button>
         <ModuleDataIO entityKey="personal_expenses" label="Personal Expenses" onImported={load} />
-        <button onClick={() => { setShowAdd((s) => !s); setEditId(null); }} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> Add expense · نیا اندراج
-        </button>
+        <Btn kind="primary" onClick={() => { setShowAdd((s) => !s); setEditId(null); }} icon={<Plus />}>Add expense · نیا اندراج</Btn>
       </div>
 
       {/* add form */}
@@ -298,22 +297,22 @@ export default function PersonalExpenses({
 
       {pane === "register" && (<>
       {/* month-by-month history */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <button onClick={() => setShowTrend((s) => !s)} className="w-full flex items-center justify-between px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">
           <span className="flex items-center gap-1.5"><History className="w-3.5 h-3.5" /> Month-by-month history · مہینہ وار ہسٹری (last 12)</span>
           {showTrend ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </button>
         {showTrend && (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-[#F9FAFB] text-[#6B7280]">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                 <tr>
-                  <th className="text-left px-2 py-1.5">Month</th>
-                  <th className="text-right px-2 py-1.5">Spend · خرچہ</th>
-                  <th className="text-right px-2 py-1.5">Funds in · جمع</th>
-                  <th className="text-right px-2 py-1.5">Net · صافی</th>
-                  <th className="text-right px-2 py-1.5">Pocket money</th>
-                  <th className="text-right px-2 py-1.5">Entries</th>
+                  <th className="text-left px-3 py-2">Month</th>
+                  <th className="text-right px-3 py-2">Spend · خرچہ</th>
+                  <th className="text-right px-3 py-2">Funds in · جمع</th>
+                  <th className="text-right px-3 py-2">Net · صافی</th>
+                  <th className="text-right px-3 py-2">Pocket money</th>
+                  <th className="text-right px-3 py-2">Entries</th>
                 </tr>
               </thead>
               <tbody>
@@ -324,12 +323,12 @@ export default function PersonalExpenses({
                     className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${mode === "month" && month === mo.month ? "bg-[#F2F5FA]" : ""}`}
                     title="Open this month · یہ مہینہ کھولیں"
                   >
-                    <td className="px-2 py-1.5 font-medium">{mo.month}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(mo.expense)}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{mo.income ? PKR(mo.income) : "—"}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold">{PKR(mo.net)}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{mo.pocketMoney ? PKR(mo.pocketMoney) : "—"}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{mo.entries}</td>
+                    <td className="px-3 py-2 font-medium">{mo.month}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(mo.expense)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{mo.income ? PKR(mo.income) : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{PKR(mo.net)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{mo.pocketMoney ? PKR(mo.pocketMoney) : "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{mo.entries}</td>
                   </tr>
                 ))}
                 {trend.length === 0 && (
@@ -339,12 +338,12 @@ export default function PersonalExpenses({
               {trend.length > 0 && (
                 <tfoot className="border-t-2 border-[#E5E7EB] bg-[#F9FAFB] font-bold">
                   <tr>
-                    <td className="px-2 py-1.5">12-month total</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(trend.reduce((s: number, m: any) => s + (m.expense || 0), 0))}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(trend.reduce((s: number, m: any) => s + (m.income || 0), 0))}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{PKR(trend.reduce((s: number, m: any) => s + (m.net || 0), 0))}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{PKR(trend.reduce((s: number, m: any) => s + (m.pocketMoney || 0), 0))}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{trend.reduce((s: number, m: any) => s + (m.entries || 0), 0)}</td>
+                    <td className="px-3 py-2">12-month total</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(trend.reduce((s: number, m: any) => s + (m.expense || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(trend.reduce((s: number, m: any) => s + (m.income || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{PKR(trend.reduce((s: number, m: any) => s + (m.net || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{PKR(trend.reduce((s: number, m: any) => s + (m.pocketMoney || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{trend.reduce((s: number, m: any) => s + (m.entries || 0), 0)}</td>
                   </tr>
                 </tfoot>
               )}
@@ -357,14 +356,16 @@ export default function PersonalExpenses({
       {t && (
         <>
           <div className="text-[11px] text-[#6B7280] font-semibold" dir="auto">Showing: {win.label}</div>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <Big label="Total spend · کل خرچہ" value={PKR(t.expense)} tone="bad" big />
-            <Big label="Funds in · رقم جمع" value={PKR(t.income)} tone="good" />
-            <Big label="Net from pocket · جیب سے صافی" value={PKR(t.net)} tone="neutral" />
-            <Big label="Pocket money · جیب خرچ" value={PKR(t.pocketMoney)} tone="neutral" />
-            <Big label="Entries · اندراجات" value={String(t.entries)} tone="neutral" />
-          </div>
-          <p className="text-[11px] text-[#4B5563] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2" dir="auto">
+          <KpiStrip
+            items={[
+              { label: "Total spend · کل خرچہ", value: PKR(t.expense), tone: "bad" },
+              { label: "Funds in · رقم جمع", value: PKR(t.income), tone: "good" },
+              { label: "Net from pocket · جیب سے صافی", value: PKR(t.net) },
+              { label: "Pocket money · جیب خرچ", value: PKR(t.pocketMoney) },
+              { label: "Entries · اندراجات", value: String(t.entries) },
+            ]}
+          />
+          <p className="text-[12px] text-[#6B7280] px-1" dir="auto">
             {view.note}
           </p>
         </>
@@ -373,11 +374,11 @@ export default function PersonalExpenses({
       {/* breakdowns */}
       {view && (
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+            <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center gap-1.5">
               <TrendingDown className="w-3.5 h-3.5" /> By category · کس مد میں <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span>
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full text-[12.5px]">
               <tbody>
                 {view.byCategory.map((c: any) => (
                   <tr
@@ -385,16 +386,16 @@ export default function PersonalExpenses({
                     onClick={() => setFilterCategory((cur) => (cur === c.category ? null : c.category))}
                     className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${filterCategory === c.category ? "bg-[#E6ECF6]" : ""}`}
                   >
-                    <td className="px-2 py-1.5" dir="auto">
+                    <td className="px-3 py-2" dir="auto">
                       {c.category}<span className="text-[#9CA3AF]"> · {CAT_UR[c.category] || ""}</span>
                       <button
                         onClick={(e) => { e.stopPropagation(); setLedgerSel({ kind: "category", name: c.category }); pickView("ledgers"); }}
-                        className="ml-2 text-[10px] text-[#15803D] hover:underline"
+                        className="ml-2 text-[10px] text-[#24539B] hover:underline"
                         title="Open this category's ledger"
                       >ledger →</button>
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{c.count}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${c.net >= 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{c.count}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${c.net >= 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                       {c.net >= 0 ? "" : "+"}{PKR(c.net)}
                     </td>
                   </tr>
@@ -406,11 +407,11 @@ export default function PersonalExpenses({
             </table>
           </div>
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+            <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" /> By person · فرد کے حساب سے (pocket money etc.) <span className="text-[#9CA3AF] font-normal">(click a row for its entries)</span>
             </div>
-            <table className="w-full text-xs">
+            <table className="w-full text-[12.5px]">
               <tbody>
                 {view.byPerson.map((p: any) => (
                   <tr
@@ -418,9 +419,9 @@ export default function PersonalExpenses({
                     onClick={() => setFilterPerson((cur) => (cur === p.person ? null : p.person))}
                     className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA] ${filterPerson === p.person ? "bg-[#E6ECF6]" : ""}`}
                   >
-                    <td className="px-2 py-1.5" dir="auto">{p.person}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{p.count}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-[#B00005]">{PKR(p.spend)}</td>
+                    <td className="px-3 py-2" dir="auto">{p.person}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{p.count}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#B00005]">{PKR(p.spend)}</td>
                   </tr>
                 ))}
                 {view.byPerson.length === 0 && (
@@ -442,8 +443,8 @@ export default function PersonalExpenses({
       )}
 
       {/* entries for the month */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-2 flex-wrap" dir="auto">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center gap-2 flex-wrap" dir="auto">
           <span>Entries · {win.label} ({displayRows.length}{displayRows.length !== rows.length ? ` of ${rows.length}` : ""})</span>
           {filterCategory && (
             <button onClick={() => setFilterCategory(null)} className="text-[10px] bg-[#E6ECF6] text-[#173563] rounded-full px-2 py-0.5 font-semibold">
@@ -457,16 +458,16 @@ export default function PersonalExpenses({
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-[#F9FAFB] text-[#6B7280]">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr>
-                <th className="text-left px-2 py-1.5">Date</th>
-                <th className="text-left px-2 py-1.5">Category</th>
-                <th className="text-left px-2 py-1.5">Person</th>
-                <th className="text-left px-2 py-1.5">Description</th>
-                <th className="text-left px-2 py-1.5">Payee</th>
-                <th className="text-left px-2 py-1.5">Method</th>
-                <th className="text-right px-2 py-1.5">Amount</th>
+                <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">Category</th>
+                <th className="text-left px-3 py-2">Person</th>
+                <th className="text-left px-3 py-2">Description</th>
+                <th className="text-left px-3 py-2">Payee</th>
+                <th className="text-left px-3 py-2">Method</th>
+                <th className="text-right px-3 py-2">Amount</th>
                 <th className="px-1"></th>
               </tr>
             </thead>
@@ -474,16 +475,16 @@ export default function PersonalExpenses({
               {displayRows.map((r) => (
                 <React.Fragment key={r.id}>
                   <tr className="border-t border-[#F3F4F6]">
-                    <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{r.entryDate?.slice(0, 10)}</td>
-                    <td className="px-2 py-1.5" dir="auto">
+                    <td className="px-3 py-2 whitespace-nowrap text-[#6B7280]">{r.entryDate?.slice(0, 10)}</td>
+                    <td className="px-3 py-2" dir="auto">
                       {r.category}
                       {r.direction === "income" && <span className="ml-1 text-[9px] bg-[#E6ECF6] text-[#173563] rounded px-1">funds in</span>}
                     </td>
-                    <td className="px-2 py-1.5" dir="auto">{r.person || "—"}</td>
-                    <td className="px-2 py-1.5 max-w-[220px] truncate" dir="auto" title={r.description || ""}>{r.description || <span className="text-[#B00005]">no description · تفصیل نہیں</span>}</td>
-                    <td className="px-2 py-1.5" dir="auto">{r.payee || "—"}</td>
-                    <td className="px-2 py-1.5">{r.method}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.direction === "income" ? "text-[#1E4480]" : "text-[#B00005]"}`}>
+                    <td className="px-3 py-2" dir="auto">{r.person || "—"}</td>
+                    <td className="px-3 py-2 max-w-[220px] truncate" dir="auto" title={r.description || ""}>{r.description || <span className="text-[#B00005]">no description · تفصیل نہیں</span>}</td>
+                    <td className="px-3 py-2" dir="auto">{r.payee || "—"}</td>
+                    <td className="px-3 py-2">{r.method}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${r.direction === "income" ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                       {r.direction === "income" ? "+" : "−"}{PKR(r.amount)}
                     </td>
                     <td className="px-1 whitespace-nowrap">
@@ -532,17 +533,3 @@ export default function PersonalExpenses({
   );
 }
 
-function Big({ label, value, tone, big }: { label: string; value: string; tone: "good" | "bad" | "neutral"; big?: boolean }) {
-  const c =
-    tone === "good"
-      ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]"
-      : tone === "bad"
-      ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
-      : "border-[#E5E7EB] bg-white text-[#1F2937]";
-  return (
-    <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-lg"} font-extrabold tabular-nums`}>{value}</div>
-    </div>
-  );
-}

@@ -133,8 +133,8 @@ export default function Banks({ showFeedback }: { showFeedback: Feedback }) {
   return (
     <div className="p-3 space-y-4">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <Landmark className="w-4 h-4" /> Banks <span className="text-[#9CA3AF] font-normal text-sm">· بینک</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <Landmark className="w-5 h-5 text-[#24539B]" /> Banks <span className="text-[#9CA3AF] font-normal text-sm">· بینک</span>
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
           Upload each bank's statement (Excel or CSV from internet banking). Every line is matched to its entry in the ledgers, or you say what it is — then the books know every rupee in every bank. ·
@@ -167,7 +167,7 @@ export default function Banks({ showFeedback }: { showFeedback: Feedback }) {
       )}
 
       {bank && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-3">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-3 text-xs">
             <b className="text-sm">{bank.bank_name} {bank.account_number}</b>
             <span>
@@ -208,15 +208,15 @@ export default function Banks({ showFeedback }: { showFeedback: Feedback }) {
             <div className="text-xs text-[#6B7280]">{status === "unexplained" ? (bank.lines ? "Every line is matched or explained ✓ · سب ٹھیک" : "No statement uploaded for this bank yet.") : "Nothing here."}</div>
           ) : (
             <div className="overflow-x-auto max-h-[560px] overflow-y-auto border border-[#F3F4F6] rounded-lg">
-              <table className="w-full text-xs">
+              <table className="w-full text-[12.5px]">
                 <thead className="text-[#6B7280] bg-[#F9FAFB] sticky top-0">
-                  <tr><th className="text-left px-2 py-1.5">Date</th><th className="text-left px-2">Statement says</th><th className="text-right px-2">Out · نکلا</th><th className="text-right px-2">In · آیا</th><th className="text-right px-2">Balance</th><th className="text-left px-2">Is · ہے</th></tr>
+                  <tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-2">Statement says</th><th className="text-right px-2">Out · نکلا</th><th className="text-right px-2">In · آیا</th><th className="text-right px-2">Balance</th><th className="text-left px-2">Is · ہے</th></tr>
                 </thead>
                 <tbody>
                   {lines.map((l) => (
                     <React.Fragment key={l.id}>
                       <tr onClick={() => toggleLine(l.id)} className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB] ${!l.matched_key && !l.kind ? "bg-[#FFFBEB]" : ""}`}>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{dmy(l.txn_date)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{dmy(l.txn_date)}</td>
                         <td className="px-2" dir="auto">{l.description || "—"}{l.ref ? <span className="text-[#9CA3AF]"> · {l.ref}</span> : null}</td>
                         <td className="px-2 text-right tabular-nums text-[#B91C1C]">{l.withdrawal ? PKR(l.withdrawal) : ""}</td>
                         <td className="px-2 text-right tabular-nums text-[#047857]">{l.deposit ? PKR(l.deposit) : ""}</td>

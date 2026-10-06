@@ -83,8 +83,8 @@ export default function GpsProviderSettings({
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <h2 className="text-base font-bold flex items-center gap-2">
-        <Satellite className="w-4 h-4" /> GPS Provider <span className="text-[#9CA3AF] font-normal text-sm">· جی پی ایس فراہم کنندہ</span>
+      <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+        <Satellite className="w-5 h-5 text-[#24539B]" /> GPS Provider <span className="text-[#9CA3AF] font-normal text-sm">· جی پی ایس فراہم کنندہ</span>
       </h2>
 
       <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 text-[12px] text-[#173563] space-y-1">
@@ -93,7 +93,7 @@ export default function GpsProviderSettings({
         <p className="text-[11px]">Trucks are matched to devices by number (e.g. device "Les-1384" → vehicle "LES 1384"). If a device doesn't match, rename it in the Eagle panel or link it under Live Map → devices.</p>
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
           Enable live pull

@@ -165,7 +165,7 @@ export default function TripMoney({
   const row = (e: Entry) =>
     edit?.id === e.id ? (
       <tr key={e.id} className="border-t border-slate-100 bg-emerald-50/40">
-        <td className="px-2 py-1.5"><input type="date" className={small} value={edit.date} onChange={(x) => setEdit({ ...edit, date: x.target.value })} /></td>
+        <td className="px-3 py-2"><input type="date" className={small} value={edit.date} onChange={(x) => setEdit({ ...edit, date: x.target.value })} /></td>
         <td className="px-2">
           {edit.type === "cash" || edit.type === "return" ? (
             <span className="text-slate-500">{edit.type === "cash" ? "Cash · نقد" : "Returned · واپس"}</span>
@@ -188,7 +188,7 @@ export default function TripMoney({
       </tr>
     ) : (
       <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50">
-        <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{dmy(e.entryDate)}</td>
+        <td className="px-3 py-2 whitespace-nowrap text-slate-600">{dmy(e.entryDate)}</td>
         <td className="px-2 whitespace-nowrap">{typeOf(e) === "cash" ? "Cash · نقد" : typeOf(e) === "return" ? "Returned · واپس" : forLabel(e.category)}</td>
         <td className="px-2 text-right tabular-nums font-semibold whitespace-nowrap">{fmt(shown(e))}</td>
         <td className="px-2 text-slate-600" dir="auto">{e.description || ""}</td>

@@ -22,7 +22,7 @@ type Nav = (wb: string, sheet: string, focus?: any) => void;
 const PKR = (v: number | null | undefined) => (v == null ? "" : (v < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(v)).toLocaleString("en-US"));
 const dmy = (d: string | null | undefined) => (d ? d.slice(0, 10).split("-").reverse().join(".") : "—");
 const btn = "inline-flex items-center gap-1.5 text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5 hover:bg-[#F9FAFB] disabled:opacity-50";
-const btnGreen = "inline-flex items-center gap-1.5 text-xs rounded-lg px-3 py-1.5 bg-[#15803D] text-white hover:bg-[#166534] disabled:opacity-50";
+const btnGreen = "inline-flex items-center gap-1.5 text-xs rounded-lg px-3 py-1.5 bg-[#24539B] text-white hover:bg-[#166534] disabled:opacity-50";
 const input = "border border-[#D1D5DB] rounded px-1.5 py-1 text-xs bg-white";
 
 const TABS = [
@@ -85,7 +85,7 @@ export default function AIAccountant({ showFeedback, onNavigate }: { showFeedbac
             tabIndex={0}
             onClick={() => pick(id)}
             onKeyDown={(e) => e.key === "Enter" && pick(id)}
-            className={`inline-flex items-center gap-1.5 text-xs px-3 py-2 -mb-px border-b-2 cursor-pointer select-none ${tab === id ? "border-[#15803D] text-[#14532D] font-semibold" : "border-transparent text-[#4B5563] hover:text-[#111827]"}`}
+            className={`inline-flex items-center gap-1.5 text-xs px-3 py-2 -mb-px border-b-2 cursor-pointer select-none ${tab === id ? "border-[#24539B] text-[#14532D] font-semibold" : "border-transparent text-[#4B5563] hover:text-[#111827]"}`}
           >
             <Icon className="w-3.5 h-3.5" /> {label}
             {id === "enter" && status?.drafts ? <span className="ml-1 rounded-full bg-[#F59E0B] text-white px-1.5 text-[10px]">{status.drafts}</span> : null}
@@ -387,7 +387,7 @@ function EnterByAi({ aiOn, showFeedback, onNavigate, onChanged }: { aiOn: boolea
       </div>
 
       <div className="overflow-x-auto border border-[#E5E7EB] rounded-lg">
-        <table className="w-full text-xs">
+        <table className="w-full text-[12.5px]">
           <thead className="bg-[#F9FAFB] text-[#374151]">
             <tr>
               {show === "open" && (
@@ -637,7 +637,7 @@ function Categories({ aiOn, showFeedback, onChanged }: { aiOn: boolean; showFeed
 
       {!!data.summary.length && (
         <div className="overflow-x-auto border border-[#E5E7EB] rounded-lg">
-          <table className="w-full text-xs">
+          <table className="w-full text-[12.5px]">
             <thead className="bg-[#F9FAFB]">
               <tr>
                 <th className="p-2 text-left">Proposed category</th>
@@ -688,7 +688,7 @@ function Categories({ aiOn, showFeedback, onChanged }: { aiOn: boolean; showFeed
         )}
       </div>
       <div className="overflow-x-auto border border-[#E5E7EB] rounded-lg max-h-[560px] overflow-y-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-[12.5px]">
           <thead className="bg-[#F9FAFB] sticky top-0">
             <tr>
               <th className="p-2 w-6">
@@ -856,7 +856,7 @@ function Report({ aiOn, showFeedback }: { aiOn: boolean; showFeedback: Feedback 
       <div className="flex flex-wrap gap-3">
         <div className="basis-56 grow-0 shrink-0 space-y-1">
           {list.map((r) => (
-            <div key={r.id} className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${cur?.id === r.id ? "border-[#15803D] bg-[#F0FDF4]" : "border-[#E5E7EB]"}`}>
+            <div key={r.id} className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${cur?.id === r.id ? "border-[#24539B] bg-[#F0FDF4]" : "border-[#E5E7EB]"}`}>
               <div role="button" tabIndex={0} className="flex-1 cursor-pointer" onClick={() => view(r.id)} onKeyDown={(e) => e.key === "Enter" && view(r.id)}>
                 {r.period} <span className="text-[#9CA3AF]">· {new Date(r.created_at).toLocaleDateString("en-GB")}</span>
               </div>
@@ -913,7 +913,7 @@ function Reminders({ showFeedback }: { showFeedback: Feedback }) {
         <input id="ai-acc-urdu" type="checkbox" checked={urdu} onChange={(e) => setUrdu(e.target.checked)} /> Message in Urdu script · اردو میں
       </label>
       <div className="overflow-x-auto border border-[#E5E7EB] rounded-lg">
-        <table className="w-full text-xs">
+        <table className="w-full text-[12.5px]">
           <thead className="bg-[#F9FAFB]">
             <tr>
               <th className="p-2 text-left">Party</th>

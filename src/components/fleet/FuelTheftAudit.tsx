@@ -73,8 +73,8 @@ export default function FuelTheftAudit({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Fuel className="w-4 h-4" /> Fuel Theft Audit <span className="text-[#9CA3AF] font-normal text-sm">· فیول چوری کی جانچ</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Fuel className="w-5 h-5 text-[#24539B]" /> Fuel Theft Audit <span className="text-[#9CA3AF] font-normal text-sm">· فیول چوری کی جانچ</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             Litres a driver / truck drew vs the km actually driven — with the calculation ·
@@ -116,7 +116,7 @@ export default function FuelTheftAudit({
       )}
 
       {/* rule-based anomalies */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="px-3 py-2 text-xs font-bold bg-[#D70006] text-white flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5" style={{ color: "#fff", stroke: "#fff" }} />
           Anomalies ({withMeta.length}) · بے قاعدگیاں — click a row for the calculation
@@ -204,23 +204,23 @@ export default function FuelTheftAudit({
 
       {/* per-driver integrity audit with calculation columns */}
       {drivers.length > 0 && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
           <div className="px-3 py-2 text-xs font-bold bg-[#6B7280] text-white flex items-center gap-1.5">
             <TrendingDown className="w-3.5 h-3.5" style={{ color: "#fff", stroke: "#fff" }} />
             Per driver — litres drawn vs km driven · فی ڈرائیور — ڈلوایا بمقابلہ سفر
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-[#F9FAFB] text-[#6B7280]">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                 <tr>
-                  <th className="text-left px-2 py-1.5">Driver</th>
-                  <th className="text-right px-2 py-1.5">Litres drawn</th>
-                  <th className="text-right px-2 py-1.5">Km driven</th>
-                  <th className="text-right px-2 py-1.5">Expected L</th>
-                  <th className="text-right px-2 py-1.5">Over-draw L (%)</th>
-                  <th className="text-right px-2 py-1.5">km/L</th>
-                  <th className="text-right px-2 py-1.5">Loss value</th>
-                  <th className="text-left px-2 py-1.5">Risk</th>
+                  <th className="text-left px-3 py-2">Driver</th>
+                  <th className="text-right px-3 py-2">Litres drawn</th>
+                  <th className="text-right px-3 py-2">Km driven</th>
+                  <th className="text-right px-3 py-2">Expected L</th>
+                  <th className="text-right px-3 py-2">Over-draw L (%)</th>
+                  <th className="text-right px-3 py-2">km/L</th>
+                  <th className="text-right px-3 py-2">Loss value</th>
+                  <th className="text-left px-3 py-2">Risk</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,16 +228,16 @@ export default function FuelTheftAudit({
                   const risky = d.riskLevel && d.riskLevel !== "Low";
                   return (
                     <tr key={d.driverId} className={`border-t border-[#F3F4F6] ${risky ? "bg-[#FFF1F1]" : ""}`}>
-                      <td className="px-2 py-1.5" dir="auto">{d.driverName}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{d.litresDrawn}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{d.distanceKm}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{d.expectedLitres}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${d.overdrawLitres > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
+                      <td className="px-3 py-2" dir="auto">{d.driverName}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{d.litresDrawn}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{d.distanceKm}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{d.expectedLitres}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${d.overdrawLitres > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                         {d.overdrawLitres} {d.overdrawPercent != null ? `(${d.overdrawPercent}%)` : ""}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{d.impliedKmPerLitre ?? "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{d.estimatedLossValue ? PKR(d.estimatedLossValue) : "—"}</td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-3 py-2 text-right tabular-nums">{d.impliedKmPerLitre ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{d.estimatedLossValue ? PKR(d.estimatedLossValue) : "—"}</td>
+                      <td className="px-3 py-2">
                         <span
                           className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
                             risky ? "bg-[#FFE0E0] text-[#B00005]" : "bg-[#E6ECF6] text-[#1E4480]"
@@ -280,8 +280,8 @@ function Tile({ label, value, tone }: { label: string; value: string; tone: "goo
       : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
-      <div className="text-lg font-extrabold tabular-nums">{value}</div>
+      <div className="text-[11.5px] font-medium text-[#6B7280]" dir="auto">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

@@ -138,8 +138,8 @@ export default function PartnerPnL({ showFeedback, onNavigate, focusLedgerId }: 
       {/* header */}
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Handshake className="w-4 h-4" /> Partner P&amp;L <span className="text-[#9CA3AF] font-normal text-sm">· شراکت کا حساب</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Handshake className="w-5 h-5 text-[#24539B]" /> Partner P&amp;L <span className="text-[#9CA3AF] font-normal text-sm">· شراکت کا حساب</span>
           </h2>
           <p className="text-[12px] text-[#6B7280] max-w-3xl" dir="auto">
             Trucks shared with a partner, kept like the paper book. Each cycle's صافی بچت is split into the partner's ledger and HFK's ledger;
@@ -190,8 +190,8 @@ export default function PartnerPnL({ showFeedback, onNavigate, focusLedgerId }: 
       )}
 
       {/* step 1: which truck */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] rounded-t-xl flex items-center justify-between flex-wrap gap-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] rounded-t-xl flex items-center justify-between flex-wrap gap-2">
           <span>Partnership trucks · شراکتی ٹرک</span>
           <label className="flex items-center gap-1.5 font-normal relative">
             <Search className="w-3.5 h-3.5 text-[#6B7280]" />
@@ -228,7 +228,7 @@ export default function PartnerPnL({ showFeedback, onNavigate, focusLedgerId }: 
         )}
         {list && list.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-[12.5px]">
               <thead className="text-[#6B7280]">
                 <tr>
                   <th className="text-left px-3 py-1.5">Truck · ٹرک</th>
@@ -264,13 +264,13 @@ export default function PartnerPnL({ showFeedback, onNavigate, focusLedgerId }: 
       </div>
 
       {deleted.length > 0 && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
           <div className="px-3 py-2 text-xs font-bold bg-[#F9FAFB] rounded-t-xl">
             Deleted partnerships · حذف شدہ شراکتی حساب{" "}
             <span className="font-normal text-[#6B7280]">— the truck's khata is still in Truck Ledgers; bring the partnership back as it was, or start it again</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-[12.5px]">
               <tbody>
                 {deleted.map((dl) => (
                   <tr key={dl.id} className="border-t border-[#F3F4F6]">
@@ -421,7 +421,7 @@ function Clip({ n }: { n: number }) {
 function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: any[]; ledgerId: number; onOpen: (d: Detail) => void; showBalance?: boolean }) {
   const [newestFirst, toggleNewest] = useNewestFirst();
   return (
-    <table className="w-full text-xs">
+    <table className="w-full text-[12.5px]">
       <thead className="text-[#6B7280] sticky top-0 bg-white">
         <tr>
           <th className="text-left px-3 py-1.5"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Date · تاریخ" /></th>
@@ -440,7 +440,7 @@ function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: an
             <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{r.received ? PKR(r.received) : ""}</td>
             <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{r.paid ? PKR(r.paid) : ""}</td>
             {showBalance && <td className={`px-3 py-1.5 text-right tabular-nums ${r.balance < 0 ? "text-[#B91C1C]" : ""}`}>{r.balance != null ? PKR(r.balance) : ""}</td>}
-            <td className="px-2 py-1.5 text-right"><Clip n={r.files} /></td>
+            <td className="px-3 py-2 text-right"><Clip n={r.files} /></td>
           </tr>
         ))}
       </tbody>
@@ -523,7 +523,7 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
         </div>
       )}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="px-3 py-2 bg-[#F2F5FA] flex items-center justify-between flex-wrap gap-2">
           <div className="text-xs font-bold">
             Open cycle {cyc.cycleNo} · موجودہ حساب — {cyc.lines.length} khata rows since the last close
@@ -591,11 +591,11 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
       <AddEntry d={d} busy={busy} act={act} />
 
       {/* what was just entered shows here straight away (full list: History) */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">
           Latest entries · حالیہ انٹریاں <span className="font-normal text-[#6B7280]">(partner &amp; HFK — click to see, edit or delete · all of them in History)</span>
         </div>
-        <table className="w-full text-xs">
+        <table className="w-full text-[12.5px]">
           <tbody>
             {d.history.slice(0, 6).map((h: any) => {
               const partner = h.side === "partner";
@@ -679,7 +679,7 @@ function AddEntry({ d, busy, act }: { d: any; busy: boolean; act: (fn: () => Pro
 
   const inp = "border border-[#E5E7EB] rounded px-2 py-1.5";
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 space-y-2">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 space-y-2">
       <div className="text-xs font-bold">Add an entry · نئی انٹری</div>
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
         <label className="flex flex-col gap-1 md:col-span-2">
@@ -799,12 +799,12 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
   return (
     <div className="space-y-3">
       {/* partner + HFK entries */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">
           Partner &amp; HFK entries · شریکوں کی انٹریاں <span className="font-normal text-[#6B7280]">(these lines are in the two party ledgers · click for receipts)</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280]">
               <tr>
                 <th className="text-left px-3 py-1.5">Date</th>
@@ -825,7 +825,7 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
                   <td className="px-3 py-1.5" dir="auto">{h.description}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-[#047857]">{h.credit ? PKR(h.credit) : ""}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-[#B91C1C]">{h.debit ? PKR(h.debit) : ""}</td>
-                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
                     <Clip n={h.files} />
                     {h.kind !== "safi" && h.kind !== "loss" && (
                       <button
@@ -861,12 +861,12 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
       </div>
 
       {/* cycles */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">
           Cycles · حساب <span className="font-normal text-[#6B7280]">(click a cycle to see every khata row in it)</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280]">
               <tr>
                 <th className="text-left px-3 py-1.5 w-6" />
@@ -945,7 +945,7 @@ function ReportTab({ ledgerId, showFeedback, onOpen }: { ledgerId: number; showF
   const inp = "border border-[#E5E7EB] rounded px-2 py-1.5 text-sm";
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-3 flex items-end gap-3 flex-wrap text-xs">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 flex items-end gap-3 flex-wrap text-xs">
         <label className="flex flex-col gap-1">
           <span className="text-[#6B7280]">From · سے</span>
           <input id="ppl-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inp} />
@@ -975,9 +975,9 @@ function ReportTab({ ledgerId, showFeedback, onOpen }: { ledgerId: number; showF
             <Card label={`HFK ${100 - r.pct}% · HFK`} value={PKR(t.hfkShare)} />
           </div>
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Where the money came from and went · تفصیل <span className="font-normal text-[#6B7280]">(click a line for its rows)</span></div>
-            <table className="w-full text-xs">
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+            <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Where the money came from and went · تفصیل <span className="font-normal text-[#6B7280]">(click a line for its rows)</span></div>
+            <table className="w-full text-[12.5px]">
               <thead className="text-[#6B7280]">
                 <tr>
                   <th className="text-left px-3 py-1.5 w-6" />
@@ -1013,14 +1013,14 @@ function ReportTab({ ledgerId, showFeedback, onOpen }: { ledgerId: number; showF
           </div>
 
           {r.leftOut.length > 0 && (
-            <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+            <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
               <button onClick={() => setShowLeft((v) => !v)} className="w-full px-3 py-2 text-xs font-bold bg-[#F9FAFB] flex items-center gap-2 text-left">
                 {showLeft ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                 Not counted ({r.leftOut.length}) · شمار نہیں کیا
                 <span className="font-normal text-[#6B7280]" dir="auto">— carried lines, page-settling lines and side-box figures would count the same money twice</span>
               </button>
               {showLeft && (
-                <table className="w-full text-xs">
+                <table className="w-full text-[12.5px]">
                   <tbody>
                     {r.leftOut.map((x: any) => (
                       <tr key={x.id} onClick={() => onOpen({ type: "khata", ledgerId, row: x })} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">

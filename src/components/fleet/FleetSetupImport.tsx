@@ -109,7 +109,7 @@ export default function FleetSetupImport({
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
           <FileSpreadsheet className="w-4 h-4 text-[#24539B]" /> Fleet Setup — Import Excel
         </h2>
         <p className="text-[12px] text-[#6B7280] mt-1" dir="auto">
@@ -149,8 +149,8 @@ export default function FleetSetupImport({
 
       {/* preview */}
       {preview && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden divide-y divide-[#E5E7EB]">
-          <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center justify-between">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden divide-y divide-[#E5E7EB]">
+          <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center justify-between">
             <span>
               {preview.files.length} file{preview.files.length === 1 ? "" : "s"} read — {totalRecognisedFiles} with recognised data
             </span>

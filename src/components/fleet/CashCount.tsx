@@ -162,7 +162,7 @@ export function CashSummary({ showFeedback, onPickDay }: { showFeedback: Feedbac
     return r.key;
   };
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white">
+    <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <button onClick={() => setOpen((v) => !v)} className="w-full text-left px-3 py-2 text-xs font-bold flex items-center gap-1.5">
         <BarChart3 className="w-3.5 h-3.5" /> Summary · خلاصہ — day, week, month, year (this financial year)
       </button>

@@ -86,7 +86,7 @@ export default function QuotationsList({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2"><FileText className="w-4 h-4" /> Quotations <span className="text-[#9CA3AF] font-normal text-sm">· قیمتی تخمینے</span></h2>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight"><FileText className="w-5 h-5 text-[#24539B]" /> Quotations <span className="text-[#9CA3AF] font-normal text-sm">· قیمتی تخمینے</span></h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">Send a rate quote to a company with a validity window; convert it to an invoice once accepted. · کسی کمپنی کو ریٹ کوٹ بھیجیں، مدتِ قبولیت کے ساتھ۔ منظور ہونے پر انوائس میں تبدیل کریں۔</p>
         </div>
         <div className="flex-1" />
@@ -107,33 +107,33 @@ export default function QuotationsList({
         ))}
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-[#F9FAFB] text-[#6B7280]">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr>
-                <th className="text-left px-2 py-1.5">Quotation #</th>
-                <th className="text-left px-2 py-1.5">Date</th>
-                <th className="text-left px-2 py-1.5">Company</th>
-                <th className="text-left px-2 py-1.5">Route</th>
-                <th className="text-right px-2 py-1.5">Total</th>
-                <th className="text-left px-2 py-1.5">Valid until</th>
-                <th className="text-left px-2 py-1.5">Status</th>
-                <th className="px-2 py-1.5"></th>
+                <th className="text-left px-3 py-2">Quotation #</th>
+                <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">Company</th>
+                <th className="text-left px-3 py-2">Route</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-left px-3 py-2">Valid until</th>
+                <th className="text-left px-3 py-2">Status</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.id} className="border-t border-[#F3F4F6]">
-                  <td className="px-2 py-1.5 font-semibold whitespace-nowrap">{r.quotationNumber}</td>
-                  <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{d(r.quotationDate)}</td>
-                  <td className="px-2 py-1.5" dir="auto">{r.clientCompany}</td>
-                  <td className="px-2 py-1.5 text-slate-500">{[r.routeFrom, r.routeTo].filter(Boolean).join(" → ") || "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{PKR(r.totalAmount)}</td>
-                  <td className={`px-2 py-1.5 whitespace-nowrap ${r.isExpired ? "text-[#B00005] font-semibold" : "text-slate-500"}`}>
+                  <td className="px-3 py-2 font-semibold whitespace-nowrap">{r.quotationNumber}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{d(r.quotationDate)}</td>
+                  <td className="px-3 py-2" dir="auto">{r.clientCompany}</td>
+                  <td className="px-3 py-2 text-slate-500">{[r.routeFrom, r.routeTo].filter(Boolean).join(" → ") || "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{PKR(r.totalAmount)}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap ${r.isExpired ? "text-[#B00005] font-semibold" : "text-slate-500"}`}>
                     <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> {d(r.validUntil)}</span>
                   </td>
-                  <td className="px-2 py-1.5">
+                  <td className="px-3 py-2">
                     {r.convertedInvoiceId ? (
                       <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-[#E6ECF6] text-[#173563]">INVOICED</span>
                     ) : (
@@ -142,7 +142,7 @@ export default function QuotationsList({
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap text-right">
+                  <td className="px-3 py-2 whitespace-nowrap text-right">
                     <button onClick={() => setViewId(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="View / Print / Download"><Printer className="w-3.5 h-3.5" /> View</button>
                     <button onClick={() => setEditingId(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="Edit"><Pencil className="w-3.5 h-3.5" /> Edit</button>
                     {!r.convertedInvoiceId && (

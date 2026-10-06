@@ -61,8 +61,8 @@ export default function MonthlyReport({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <CalendarDays className="w-4 h-4" /> Monthly Report
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <CalendarDays className="w-5 h-5 text-[#24539B]" /> Monthly Report
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">Pick a month and get the whole picture in one click · مہینہ منتخب کریں، ایک کلک میں پورا حساب</p>
         </div>
@@ -143,8 +143,8 @@ export default function MonthlyReport({
           </div>
 
           {z && (
-            <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-              <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
+            <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+              <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center gap-1.5">
                 <Landmark className="w-3.5 h-3.5" /> Zakat · زکوٰۃ — 1 Ramadan {z.ramadanHijriYear} AH (≈ {z.ramadanStart})
               </div>
               <div className="p-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -165,18 +165,18 @@ export default function MonthlyReport({
               <div className="mx-3 mb-3 rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3">
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280]">Total due · کل واجب</div>
-                    <div className="text-lg font-extrabold tabular-nums text-[#1F2937]">{PKR(z.zakatDue)}</div>
+                    <div className="text-[11.5px] font-medium text-[#6B7280] text-[#6B7280]">Total due · کل واجب</div>
+                    <div className="text-lg font-semibold tabular-nums text-[#1F2937]">{PKR(z.zakatDue)}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[#1E4480]">Given since Ramadan · اب تک دی گئی</div>
-                    <div className="text-lg font-extrabold tabular-nums text-[#1E4480]">{PKR(z.givenSinceRamadan)}</div>
+                    <div className="text-[11.5px] font-medium text-[#6B7280] text-[#1E4480]">Given since Ramadan · اب تک دی گئی</div>
+                    <div className="text-lg font-semibold tabular-nums text-[#1E4480]">{PKR(z.givenSinceRamadan)}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[#4B5563]">
+                    <div className="text-[11.5px] font-medium text-[#6B7280] text-[#4B5563]">
                       {z.remaining >= 0 ? "Remaining · باقی" : "Overpaid · زائد ادا"}
                     </div>
-                    <div className={`text-2xl font-extrabold tabular-nums ${z.remaining >= 0 ? "text-[#4B5563]" : "text-[#1E4480]"}`}>
+                    <div className={`text-2xl font-semibold tabular-nums ${z.remaining >= 0 ? "text-[#4B5563]" : "text-[#1E4480]"}`}>
                       {PKR(z.remaining)}
                     </div>
                   </div>
@@ -189,27 +189,27 @@ export default function MonthlyReport({
 
               {z.givenByMonth?.length > 0 && (
                 <div className="mx-3 mb-3 rounded-lg border border-[#E5E7EB] overflow-hidden">
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-[#6B7280] bg-[#F9FAFB]" dir="auto">
+                  <div className="px-3 py-1.5 text-[11.5px] font-medium text-[#6B7280] text-[#6B7280] bg-[#F9FAFB]" dir="auto">
                     Month-by-month, since 1 Ramadan ({z.ramadanStart}) — so nothing gets forgotten
                   </div>
-                  <table className="w-full text-xs">
-                    <thead className="bg-[#F9FAFB] text-[#6B7280]">
-                      <tr><th className="text-left px-2 py-1.5">Month</th><th className="text-right px-2 py-1.5">Given</th><th className="text-right px-2 py-1.5">Entries</th></tr>
+                  <table className="w-full text-[12.5px]">
+                    <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
+                      <tr><th className="text-left px-3 py-2">Month</th><th className="text-right px-3 py-2">Given</th><th className="text-right px-3 py-2">Entries</th></tr>
                     </thead>
                     <tbody>
                       {z.givenByMonth.map((m: any) => (
                         <tr key={m.month} className="border-t border-[#F3F4F6]">
-                          <td className="px-2 py-1.5">{m.month}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480] font-semibold">{PKR(m.total)}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{m.count}</td>
+                          <td className="px-3 py-2">{m.month}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-[#1E4480] font-semibold">{PKR(m.total)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{m.count}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot className="border-t-2 border-[#E5E7EB] bg-[#F9FAFB] font-bold">
                       <tr>
-                        <td className="px-2 py-1.5">Total · کل</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(z.givenSinceRamadan)}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{z.givenByMonth.reduce((s: number, m: any) => s + m.count, 0)}</td>
+                        <td className="px-3 py-2">Total · کل</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(z.givenSinceRamadan)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{z.givenByMonth.reduce((s: number, m: any) => s + m.count, 0)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -228,25 +228,25 @@ export default function MonthlyReport({
             </div>
           )}
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Month by month · مہینہ بہ مہینہ — {year}</div>
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+            <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Month by month · مہینہ بہ مہینہ — {year}</div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-[#F9FAFB] text-[#6B7280]">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                   <tr>
-                    <th className="text-left px-2 py-1.5">Month</th>
-                    <th className="text-right px-2 py-1.5">Income</th>
-                    <th className="text-right px-2 py-1.5">Expense</th>
-                    <th className="text-right px-2 py-1.5">Profit / Loss</th>
+                    <th className="text-left px-3 py-2">Month</th>
+                    <th className="text-right px-3 py-2">Income</th>
+                    <th className="text-right px-3 py-2">Expense</th>
+                    <th className="text-right px-3 py-2">Profit / Loss</th>
                   </tr>
                 </thead>
                 <tbody>
                   {yearData.months.map((m: any) => (
                     <tr key={m.month} className="border-t border-[#F3F4F6]">
-                      <td className="px-2 py-1.5">{m.month}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(m.income)}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(m.expense)}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-bold ${m.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
+                      <td className="px-3 py-2">{m.month}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(m.income)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(m.expense)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-bold ${m.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                         {(m.net >= 0 ? "" : "−") + PKR(m.net)}
                       </td>
                     </tr>
@@ -254,10 +254,10 @@ export default function MonthlyReport({
                 </tbody>
                 <tfoot className="border-t-2 border-[#E5E7EB] bg-[#F9FAFB] font-bold">
                   <tr>
-                    <td className="px-2 py-1.5">Total · کل</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(yt.income)}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(yt.expense)}</td>
-                    <td className={`px-2 py-1.5 text-right tabular-nums ${yt.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
+                    <td className="px-3 py-2">Total · کل</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(yt.income)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(yt.expense)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${yt.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                       {(yt.net >= 0 ? "" : "−") + PKR(yt.net)}
                     </td>
                   </tr>
@@ -310,28 +310,28 @@ export default function MonthlyReport({
             </div>
           )}
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-            <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Per truck · فی ٹرک — {data.month}</div>
+          <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+            <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Per truck · فی ٹرک — {data.month}</div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-[#F9FAFB] text-[#6B7280]">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                   <tr>
-                    <th className="text-left px-2 py-1.5">Truck</th>
-                    <th className="text-right px-2 py-1.5">Income</th>
-                    <th className="text-right px-2 py-1.5">Expense</th>
-                    <th className="text-right px-2 py-1.5">Profit / Loss</th>
-                    <th className="text-right px-2 py-1.5">Entries</th>
+                    <th className="text-left px-3 py-2">Truck</th>
+                    <th className="text-right px-3 py-2">Income</th>
+                    <th className="text-right px-3 py-2">Expense</th>
+                    <th className="text-right px-3 py-2">Profit / Loss</th>
+                    <th className="text-right px-3 py-2">Entries</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.trucks.map((tr: any) => (
                     <tr key={tr.ledgerId} className="border-t border-[#F3F4F6]">
-                      <td className="px-2 py-1.5" dir="auto">
+                      <td className="px-3 py-2" dir="auto">
                         {tr.truck}
                         {tr.partnership && <span className="ml-1 text-[9px] bg-[#F2F5FA] text-[#173563] rounded px-1">partner</span>}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(tr.income)}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(tr.expense)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(tr.income)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(tr.expense)}</td>
                       <td
                         className={`px-2 py-1.5 text-right tabular-nums font-bold ${
                           tr.profit >= 0 ? "text-[#1E4480]" : "text-[#B00005]"
@@ -340,7 +340,7 @@ export default function MonthlyReport({
                         {tr.profit >= 0 ? "" : "−"}
                         {PKR(tr.profit)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{tr.entries}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{tr.entries}</td>
                     </tr>
                   ))}
                   {data.trucks.length === 0 && (
@@ -354,13 +354,13 @@ export default function MonthlyReport({
                 {data.trucks.length > 0 && (
                   <tfoot className="border-t-2 border-[#E5E7EB] bg-[#F9FAFB] font-bold">
                     <tr>
-                      <td className="px-2 py-1.5">Total · کل</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(t.income)}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(t.expense)}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums ${t.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
+                      <td className="px-3 py-2">Total · کل</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(t.income)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(t.expense)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${t.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
                         {(t.net >= 0 ? "" : "−") + PKR(t.net)}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">
+                      <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">
                         {data.trucks.reduce((s: number, x: any) => s + x.entries, 0)}
                       </td>
                     </tr>
@@ -371,18 +371,18 @@ export default function MonthlyReport({
           </div>
 
           {data.categories?.length > 0 && (
-            <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-              <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA] flex items-center gap-1.5">
+            <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+              <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5] flex items-center gap-1.5">
                 <TrendingDown className="w-3.5 h-3.5" /> Spend by category · کس مد میں خرچہ
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-[12.5px]">
                   <tbody>
                     {data.categories.map((cat: any) => (
                       <tr key={cat.category} className="border-t border-[#F3F4F6]">
-                        <td className="px-2 py-1.5">{cat.category}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-[#1E4480]">{PKR(cat.income)}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{PKR(cat.expense)}</td>
+                        <td className="px-3 py-2">{cat.category}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#1E4480]">{PKR(cat.income)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{PKR(cat.expense)}</td>
                         <td
                           className={`px-2 py-1.5 text-right tabular-nums font-semibold ${
                             cat.net >= 0 ? "text-[#1E4480]" : "text-[#B00005]"
@@ -422,8 +422,8 @@ function Big({
       : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-lg"} font-extrabold tabular-nums`}>{value}</div>
+      <div className="text-[11.5px] font-medium text-[#6B7280]">{label}</div>
+      <div className={`${big ? "text-2xl" : "text-lg"} font-semibold tabular-nums`}>{value}</div>
     </div>
   );
 }

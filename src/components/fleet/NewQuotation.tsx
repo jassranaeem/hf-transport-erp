@@ -135,8 +135,8 @@ export default function NewQuotation({
   return (
     <div className="space-y-4 max-w-4xl">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <FileText className="w-4 h-4" /> {isEdit ? "Edit Quotation" : "New Quotation"} <span className="text-[#9CA3AF] font-normal text-sm">· {isEdit ? "قیمت درست کریں" : "نیا قیمتی تخمینہ"}</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <FileText className="w-5 h-5 text-[#24539B]" /> {isEdit ? "Edit Quotation" : "New Quotation"} <span className="text-[#9CA3AF] font-normal text-sm">· {isEdit ? "قیمت درست کریں" : "نیا قیمتی تخمینہ"}</span>
           {isEdit && quoteNumber && <span className="text-[10px] font-normal text-slate-400">({quoteNumber})</span>}
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
@@ -144,7 +144,7 @@ export default function NewQuotation({
         </p>
       </div>
 
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Quotation For · کس کمپنی کے لیے</div>
         <label className="flex flex-col text-[10px] text-slate-500">
           Existing client (optional) — or type a new name below · موجودہ کلائنٹ (اختیاری) — یا نیچے نیا نام لکھیں
@@ -162,7 +162,7 @@ export default function NewQuotation({
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <Field label="Quotation date · تاریخ"><input type="date" value={f.quotationDate} onChange={(e) => setF({ ...f, quotationDate: e.target.value })} className="i" /></Field>
         <Field label="Valid for (days) · کتنے دن پابند">
           <input inputMode="numeric" value={f.validityDays} onChange={(e) => setF({ ...f, validityDays: e.target.value.replace(/[^\d]/g, "") })} className="i font-semibold" />
@@ -179,16 +179,16 @@ export default function NewQuotation({
         These rates hold for <b>{f.validityDays || 3} days</b> — until <b>{isNaN(validUntil.getTime()) ? "—" : validUntil.toLocaleDateString("en-GB")}</b>. After that the company is not bound to these rates. · اس کے بعد کمپنی ان ریٹس کی پابند نہیں۔
       </div>
 
-      <section className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Line items · تفصیل</div>
-        <table className="w-full text-xs">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Line items · تفصیل</div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">Description</th>
-              <th className="text-right px-2 py-1.5 w-16">Qty</th>
-              <th className="text-left px-2 py-1.5 w-20">Unit</th>
-              <th className="text-right px-2 py-1.5 w-28">Rate</th>
-              <th className="text-right px-2 py-1.5 w-32">Amount</th>
+              <th className="text-left px-3 py-2">Description</th>
+              <th className="text-right px-3 py-2 w-16">Qty</th>
+              <th className="text-left px-3 py-2 w-20">Unit</th>
+              <th className="text-right px-3 py-2 w-28">Rate</th>
+              <th className="text-right px-3 py-2 w-32">Amount</th>
               <th className="px-1"></th>
             </tr>
           </thead>

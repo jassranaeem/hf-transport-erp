@@ -268,8 +268,8 @@ export default function NewInvoice({
   return (
     <div className="space-y-4 max-w-4xl">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <FileText className="w-4 h-4" /> {isEdit ? "Edit Invoice" : "New Invoice"} <span className="text-[#9CA3AF] font-normal text-sm">· {isEdit ? "انوائس درست کریں" : "نیا انوائس"}</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <FileText className="w-5 h-5 text-[#24539B]" /> {isEdit ? "Edit Invoice" : "New Invoice"} <span className="text-[#9CA3AF] font-normal text-sm">· {isEdit ? "انوائس درست کریں" : "نیا انوائس"}</span>
           {isEdit && existingBilty && <span className="text-[10px] font-normal text-slate-400">({existingBilty})</span>}
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
@@ -290,7 +290,7 @@ export default function NewInvoice({
       )}
 
       {/* client */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Bill To · کلائنٹ</div>
 
         {!isEdit && trips.length > 0 && (
@@ -352,7 +352,7 @@ export default function NewInvoice({
       </section>
 
       {/* invoice + shipment */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <Field label="Invoice date · تاریخ"><input type="date" value={f.invoiceDate} onChange={(e) => setF({ ...f, invoiceDate: e.target.value })} className="i" /></Field>
         <Field label="Due date · مقررہ تاریخ"><input type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} className="i" /></Field>
         <Field label="Payment terms"><input value={f.paymentTerms} onChange={(e) => setF({ ...f, paymentTerms: e.target.value })} className="i" /></Field>
@@ -388,16 +388,16 @@ export default function NewInvoice({
       </section>
 
       {/* line items */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Line items · تفصیل</div>
-        <table className="w-full text-xs">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Line items · تفصیل</div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">Description</th>
-              <th className="text-right px-2 py-1.5 w-16">Qty</th>
-              <th className="text-left px-2 py-1.5 w-20">Unit</th>
-              <th className="text-right px-2 py-1.5 w-28">Rate</th>
-              <th className="text-right px-2 py-1.5 w-32">Amount</th>
+              <th className="text-left px-3 py-2">Description</th>
+              <th className="text-right px-3 py-2 w-16">Qty</th>
+              <th className="text-left px-3 py-2 w-20">Unit</th>
+              <th className="text-right px-3 py-2 w-28">Rate</th>
+              <th className="text-right px-3 py-2 w-32">Amount</th>
               <th className="px-1"></th>
             </tr>
           </thead>
@@ -426,7 +426,7 @@ export default function NewInvoice({
       </section>
 
       {/* totals */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid md:grid-cols-2 gap-4">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid md:grid-cols-2 gap-4">
         <div className="grid grid-cols-2 gap-2 text-xs">
           <Field label="Advance received"><input value={f.advanceReceived} onChange={(e) => setF({ ...f, advanceReceived: e.target.value.replace(/[^\d]/g, "") })} className="i" /></Field>
           <Field label="Notes / terms"><input dir="auto" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} className="i" /></Field>

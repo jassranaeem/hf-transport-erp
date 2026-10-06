@@ -81,7 +81,7 @@ export default function TruckSheetImport({
         {preview && (
           <>
             <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
-              <table className="w-full text-xs">
+              <table className="w-full text-[12.5px]">
                 <thead className="bg-[#F2F5FA] text-[#4B5563]">
                   <tr>
                     <th className="text-left px-3 py-2">Sheet / table in the file</th>

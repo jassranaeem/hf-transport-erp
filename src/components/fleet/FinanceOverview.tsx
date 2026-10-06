@@ -60,8 +60,8 @@ export default function FinanceOverview({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Briefcase className="w-4 h-4" /> Finance Overview <span className="text-[#9CA3AF] font-normal text-sm">· کاروباری کتابوں کا خلاصہ</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Briefcase className="w-5 h-5 text-[#24539B]" /> Finance Overview <span className="text-[#9CA3AF] font-normal text-sm">· کاروباری کتابوں کا خلاصہ</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">
             Figures here come from the real General Ledger (the same source as the Income Statement) — click any card
@@ -84,32 +84,32 @@ export default function FinanceOverview({
       )}
 
       <div className="grid md:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] flex items-center gap-1.5 mb-2">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3">
+          <div className="text-[11.5px] font-medium text-[#6B7280] text-[#6B7280] flex items-center gap-1.5 mb-2">
             <Landmark className="w-3.5 h-3.5" /> Cash &amp; bank position (GL)
           </div>
-          <div className="text-2xl font-extrabold tabular-nums text-[#1F2937]">{cash ? PKR(cash.total) : "—"}</div>
+          <div className="text-2xl font-semibold tabular-nums text-[#1F2937]">{cash ? PKR(cash.total) : "—"}</div>
           <p className="text-[10px] text-[#9CA3AF] mt-1" dir="auto">Every Cash/Bank ledger account's real balance — cash payments included, not just registered bank accounts.</p>
         </div>
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] flex items-center gap-1.5 mb-2">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3">
+          <div className="text-[11.5px] font-medium text-[#6B7280] text-[#6B7280] flex items-center gap-1.5 mb-2">
             <TrendingUp className="w-3.5 h-3.5" /> Receivable (Invoices)
           </div>
-          <div className="text-2xl font-extrabold tabular-nums text-[#1E4480]">{arAging ? PKR(arAging.totalAR) : "—"}</div>
+          <div className="text-2xl font-semibold tabular-nums text-[#1E4480]">{arAging ? PKR(arAging.totalAR) : "—"}</div>
           {arAging && (arAging.overdue60 + arAging.overdue90 + arAging.overdue120 + arAging.overdue120Plus) > 0 && (
             <p className="text-[10px] text-[#B00005] mt-1">{PKR(arAging.overdue60 + arAging.overdue90 + arAging.overdue120 + arAging.overdue120Plus)} overdue 60+ days</p>
           )}
         </div>
-        <div className="rounded-xl border border-[#E5E7EB] bg-white p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-[#6B7280] flex items-center gap-1.5 mb-2">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3">
+          <div className="text-[11.5px] font-medium text-[#6B7280] text-[#6B7280] flex items-center gap-1.5 mb-2">
             <TrendingDown className="w-3.5 h-3.5" /> Payable (Bills)
           </div>
-          <div className="text-2xl font-extrabold tabular-nums text-[#B00005]">{apAging ? PKR(apAging.totalAP) : "—"}</div>
+          <div className="text-2xl font-semibold tabular-nums text-[#B00005]">{apAging ? PKR(apAging.totalAP) : "—"}</div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Go to · جائیں</div>
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Go to · جائیں</div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3">
           {LINKS.map(({ sheet, label, icon: Icon, ...l }: any) => (
             <button
@@ -132,8 +132,8 @@ function Big({ label, value, tone, big }: { label: string; value: string; tone: 
   const c = tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-lg"} font-extrabold tabular-nums`}>{value}</div>
+      <div className="text-[11.5px] font-medium text-[#6B7280]" dir="auto">{label}</div>
+      <div className={`${big ? "text-2xl" : "text-lg"} font-semibold tabular-nums`}>{value}</div>
     </div>
   );
 }

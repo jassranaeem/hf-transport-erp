@@ -79,7 +79,7 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
       <style>{`@media print { .no-print { display: none !important; } .statements-page { padding: 0 !important; } }`}</style>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-0 basis-64">
-          <h2 className="text-base font-bold flex items-center gap-2"><FileBarChart className="w-4 h-4" /> Statements <span className="text-[#9CA3AF] font-normal text-sm">· حسابات</span></h2>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight"><FileBarChart className="w-5 h-5 text-[#24539B]" /> Statements <span className="text-[#9CA3AF] font-normal text-sm">· حسابات</span></h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">The year's accounts from the books — for the owners, the bank and the chartered accountant. · سال کے حسابات، کتاب سے۔</p>
         </div>
         <button onClick={() => window.print()} className="no-print inline-flex items-center gap-1.5 text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5"><Printer className="w-3.5 h-3.5" /> Print · پرنٹ</button>
@@ -124,8 +124,8 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
       )}
 
       {data && tab === "trucks" && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-x-auto">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280] bg-[#F9FAFB]"><tr><th className="text-left px-3 py-2">Truck · ٹرک</th><th className="text-right px-2">Income</th><th className="text-right px-2">Expenses</th><th className="text-right px-3">Profit · منافع</th></tr></thead>
             <tbody>
               {data.trucks.map((t: any) => (
@@ -148,7 +148,7 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
       )}
 
       {data && tab === "months" && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-x-auto">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
           <table className="text-xs min-w-full">
             <thead className="text-[#6B7280] bg-[#F9FAFB]"><tr><th className="text-left px-3 py-2 sticky left-0 bg-[#F9FAFB]">Account</th>{data.months.map((m: string) => <th key={m} className="text-right px-2 whitespace-nowrap">{new Date(`${m}-01T00:00:00`).toLocaleString("en-GB", { month: "short", year: "2-digit" })}</th>)}<th className="text-right px-3">Total</th></tr></thead>
             <tbody>
@@ -204,8 +204,8 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
       )}
 
       {data && tab === "partners" && (
-        <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-x-auto">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
+          <table className="w-full text-[12.5px]">
             <thead className="text-[#6B7280] bg-[#F9FAFB]"><tr><th className="text-left px-3 py-2">Partner · شریک</th><th className="text-right px-2">On {dmy(data.from)}</th><th className="text-right px-2">Share & added · جمع</th><th className="text-right px-2">Taken · لیا</th><th className="text-right px-3">On {dmy(data.to)} (with us)</th></tr></thead>
             <tbody>
               {data.partners.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-[#6B7280]">No partner entries in the books for these dates.</td></tr>}
@@ -217,7 +217,7 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
         </div>
       )}
 
-      <div className="no-print rounded-xl border border-[#E5E7EB] bg-white p-3 text-xs space-y-2">
+      <div className="no-print rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-3 text-xs space-y-2">
         <div className="font-semibold flex items-center gap-1.5">{status?.lockedThrough ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />} Close the books · کتاب بند کرنا</div>
         <p className="text-[#6B7280]" dir="auto">
           When a month's accounts are final (counted, banks matched, accountant happy), close the books through its last day. Those entries then stop changing; if anyone later edits a ledger entry of a closed month, Books Check shows it red. ·
@@ -235,7 +235,7 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
 }
 
 function Sheet({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden"><table className="w-full text-xs"><tbody>{children}</tbody></table></div>;
+  return <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden"><table className="w-full text-[12.5px]"><tbody>{children}</tbody></table></div>;
 }
 function Head({ title }: { title: string }) {
   return <tr className="bg-[#F2F5FA]"><td colSpan={2} className="px-3 py-1.5 font-semibold text-[#1E3A6E]">{title}</td></tr>;

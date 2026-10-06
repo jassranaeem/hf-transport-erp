@@ -154,8 +154,8 @@ export default function SmsGatewaySettings({
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <MessageSquare className="w-4 h-4" /> SMS Gateway <span className="text-[#9CA3AF] font-normal text-sm">· ایس ایم ایس گیٹ وے</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <MessageSquare className="w-5 h-5 text-[#24539B]" /> SMS Gateway <span className="text-[#9CA3AF] font-normal text-sm">· ایس ایم ایس گیٹ وے</span>
         </h2>
         <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
@@ -163,7 +163,7 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* what auto-sends */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <h3 className="text-sm font-semibold">What sends automatically</h3>
         <p className="text-[12px] text-[#6B7280]">
           Once a sender is connected below, these go out on their own — the system picks the driver's number,
@@ -191,7 +191,7 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* form */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
           Enable SMS
@@ -307,7 +307,7 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* test */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <h3 className="text-sm font-semibold">Send a test SMS</h3>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -346,30 +346,30 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* recent log */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Recent SMS (last 10)</div>
-        <table className="w-full text-xs">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Recent SMS (last 10)</div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">When</th>
-              <th className="text-left px-2 py-1.5">To</th>
-              <th className="text-left px-2 py-1.5">Status</th>
-              <th className="text-left px-2 py-1.5">Body</th>
+              <th className="text-left px-3 py-2">When</th>
+              <th className="text-left px-3 py-2">To</th>
+              <th className="text-left px-3 py-2">Status</th>
+              <th className="text-left px-3 py-2">Body</th>
             </tr>
           </thead>
           <tbody>
             {logs.map((l) => (
               <tr key={l.id} className="border-t border-[#F3F4F6]">
-                <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{new Date(l.createdAt).toLocaleString()}</td>
-                <td className="px-2 py-1.5 font-mono" dir="ltr">{l.toPhone}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-3 py-2 whitespace-nowrap text-[#6B7280]">{new Date(l.createdAt).toLocaleString()}</td>
+                <td className="px-3 py-2 font-mono" dir="ltr">{l.toPhone}</td>
+                <td className="px-3 py-2">
                   <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
                     l.status === "sent" ? "bg-[#E6ECF6] text-[#1E4480]" :
                     l.status === "failed" ? "bg-[#FFE0E0] text-[#B00005]" :
                     "bg-[#F3F4F6] text-[#6B7280]"
                   }`}>{l.status}</span>
                 </td>
-                <td className="px-2 py-1.5 max-w-[280px] truncate" dir="auto" title={l.body}>{l.body}</td>
+                <td className="px-3 py-2 max-w-[280px] truncate" dir="auto" title={l.body}>{l.body}</td>
               </tr>
             ))}
             {logs.length === 0 && (

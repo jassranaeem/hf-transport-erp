@@ -193,21 +193,21 @@ function TruckProfile({
                         <table className="w-full text-[12px]">
                           <thead className="bg-slate-50 text-slate-500 sticky top-0">
                             <tr>
-                              <th className="text-left px-2 py-1.5">Date</th>
-                              <th className="text-left px-2 py-1.5">Description</th>
-                              <th className="text-right px-2 py-1.5">Received</th>
-                              <th className="text-right px-2 py-1.5">Paid</th>
-                              <th className="text-right px-2 py-1.5">Balance</th>
+                              <th className="text-left px-3 py-2">Date</th>
+                              <th className="text-left px-3 py-2">Description</th>
+                              <th className="text-right px-3 py-2">Received</th>
+                              <th className="text-right px-3 py-2">Paid</th>
+                              <th className="text-right px-3 py-2">Balance</th>
                             </tr>
                           </thead>
                           <tbody>
                             {(fullEntries[l.id] || l.recentEntries).map((e: any) => (
                               <tr key={e.id} className="border-t border-slate-50">
-                                <td className="px-2 py-1.5 text-slate-500">{e.rawDate || dt(e.entryDate)}</td>
-                                <td className="px-2 py-1.5 text-slate-700">{e.description || "—"}</td>
-                                <td className="px-2 py-1.5 text-right text-emerald-700">{e.received ? fmt(e.received) : ""}</td>
-                                <td className="px-2 py-1.5 text-right text-red-600">{e.paid ? fmt(e.paid) : ""}</td>
-                                <td className="px-2 py-1.5 text-right font-semibold">{fmt(e.runningBalance)}</td>
+                                <td className="px-3 py-2 text-slate-500">{e.rawDate || dt(e.entryDate)}</td>
+                                <td className="px-3 py-2 text-slate-700">{e.description || "—"}</td>
+                                <td className="px-3 py-2 text-right text-emerald-700">{e.received ? fmt(e.received) : ""}</td>
+                                <td className="px-3 py-2 text-right text-red-600">{e.paid ? fmt(e.paid) : ""}</td>
+                                <td className="px-3 py-2 text-right font-semibold">{fmt(e.runningBalance)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -233,7 +233,7 @@ function TruckProfile({
       {section === "trips" && (
         <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
           <table className="w-full text-[12px]">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr><th className="text-left px-3 py-2">Trip #</th><th className="text-left px-3 py-2">Departure</th><th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Revenue</th></tr>
             </thead>
             <tbody>
@@ -262,7 +262,7 @@ function TruckProfile({
           )}
           <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
             <table className="w-full text-[12px]">
-              <thead className="bg-slate-50 text-slate-500">
+              <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                 <tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Type</th><th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Amount</th></tr>
               </thead>
               <tbody>
@@ -284,7 +284,7 @@ function TruckProfile({
       {section === "maintenance" && (
         <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
           <table className="w-full text-[12px]">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Type</th><th className="text-left px-3 py-2">Status</th><th className="text-right px-3 py-2">Cost</th></tr>
             </thead>
             <tbody>
@@ -305,7 +305,7 @@ function TruckProfile({
       {section === "fuel" && (
         <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
           <table className="w-full text-[12px]">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr><th className="text-left px-3 py-2">Date</th><th className="text-right px-3 py-2">Litres</th><th className="text-right px-3 py-2">Total</th></tr>
             </thead>
             <tbody>

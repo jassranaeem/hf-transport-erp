@@ -40,8 +40,8 @@ export default function TripFuelHistory({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <Fuel className="w-4 h-4" /> Trip Fuel History <span className="text-[#9CA3AF] font-normal text-sm">· فی ٹرپ فیول</span>
+          <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+            <Fuel className="w-5 h-5 text-[#24539B]" /> Trip Fuel History <span className="text-[#9CA3AF] font-normal text-sm">· فی ٹرپ فیول</span>
           </h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">Per trip: litres drawn, cost, km per litre, and vs the route benchmark · فی ٹرپ فیول، لاگت، اوسط</p>
         </div>
@@ -74,24 +74,24 @@ export default function TripFuelHistory({
         </div>
       )}
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-[#F9FAFB] text-[#6B7280]">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr>
                 <th className="px-1 py-1.5"></th>
-                <th className="text-left px-2 py-1.5">Trip</th>
-                <th className="text-left px-2 py-1.5">Route</th>
-                <th className="text-left px-2 py-1.5">Truck</th>
-                <th className="text-right px-2 py-1.5">Km</th>
-                <th className="text-right px-2 py-1.5">Litres</th>
-                <th className="text-right px-2 py-1.5">Fills</th>
-                <th className="text-right px-2 py-1.5">Fuel cost</th>
-                <th className="text-right px-2 py-1.5">Benchmark L</th>
-                <th className="text-right px-2 py-1.5">Variance</th>
-                <th className="text-right px-2 py-1.5">km/L</th>
-                <th className="text-right px-2 py-1.5">Cost/km</th>
-                <th className="text-right px-2 py-1.5">Fuel % rev</th>
+                <th className="text-left px-3 py-2">Trip</th>
+                <th className="text-left px-3 py-2">Route</th>
+                <th className="text-left px-3 py-2">Truck</th>
+                <th className="text-right px-3 py-2">Km</th>
+                <th className="text-right px-3 py-2">Litres</th>
+                <th className="text-right px-3 py-2">Fills</th>
+                <th className="text-right px-3 py-2">Fuel cost</th>
+                <th className="text-right px-3 py-2">Benchmark L</th>
+                <th className="text-right px-3 py-2">Variance</th>
+                <th className="text-right px-3 py-2">km/L</th>
+                <th className="text-right px-3 py-2">Cost/km</th>
+                <th className="text-right px-3 py-2">Fuel % rev</th>
               </tr>
             </thead>
             <tbody>
@@ -104,20 +104,20 @@ export default function TripFuelHistory({
                       className={`border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F9FAFB] ${(t.variancePercent ?? 0) > 10 ? "bg-[#FFF1F1]" : ""}`}
                     >
                       <td className="px-1 py-1.5 text-[#9CA3AF]">{isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">{t.tripNumber}</td>
-                      <td className="px-2 py-1.5" dir="auto">{t.route || "—"}</td>
-                      <td className="px-2 py-1.5">{t.vehicle || "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.distanceKm?.toLocaleString()}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.litres || "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.fills || ""}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#B00005]">{t.fuelCost ? PKR(t.fuelCost) : "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-[#6B7280]">{t.benchmarkLitres ?? "—"}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${(t.varianceLitres ?? 0) > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
+                      <td className="px-3 py-2 whitespace-nowrap">{t.tripNumber}</td>
+                      <td className="px-3 py-2" dir="auto">{t.route || "—"}</td>
+                      <td className="px-3 py-2">{t.vehicle || "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.distanceKm?.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.litres || "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.fills || ""}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#B00005]">{t.fuelCost ? PKR(t.fuelCost) : "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-[#6B7280]">{t.benchmarkLitres ?? "—"}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${(t.varianceLitres ?? 0) > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>
                         {t.varianceLitres == null ? "—" : `${t.varianceLitres > 0 ? "+" : ""}${t.varianceLitres} L${t.variancePercent != null ? ` (${t.variancePercent}%)` : ""}`}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.kmPerLitre ?? "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.costPerKm ? PKR(t.costPerKm) : "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.fuelShareOfRevenue != null ? `${t.fuelShareOfRevenue}%` : "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.kmPerLitre ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.costPerKm ? PKR(t.costPerKm) : "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{t.fuelShareOfRevenue != null ? `${t.fuelShareOfRevenue}%` : "—"}</td>
                     </tr>
                     {isOpen && (
                       <tr className="bg-[#F9FAFB]">
@@ -183,8 +183,8 @@ function Tile({ label, value, tone }: { label: string; value: any; tone?: "good"
   const c = tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : tone === "good" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : "border-[#E5E7EB] bg-white text-[#1F2937]";
   return (
     <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide" dir="auto">{label}</div>
-      <div className="text-lg font-extrabold tabular-nums">{value}</div>
+      <div className="text-[11.5px] font-medium text-[#6B7280]" dir="auto">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

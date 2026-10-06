@@ -261,14 +261,14 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
     .filter(m => m.status === "Completed")
     .reduce((sum, item) => sum + parseFloat(item.actualCost || "0"), 0);
 
-  const totalDowntime = maintenance.reduce((sum, item) => sum + (item.downtimeHours || 0), 0);
+  const totalDowntime = maintenance.reduce((sum, item) => sum + (Number(item.downtimeHours) || 0), 0); // the API sends numerics as text
   const activeBreakdownsCount = breakdowns.filter(b => b.status === "Reported" || b.status === "In_Progress").length;
   const pendingRemindersCount = reminders.filter(r => r.status === "Pending").length;
 
   return (
     <div className="space-y-6 text-slate-100 font-sans p-2">
       {/* Platform header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-950/60 border border-slate-900/80 rounded-2xl p-6 backdrop-blur">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-950/60 border border-slate-900/80 rounded-xl p-6 backdrop-blur">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
             <Wrench className="w-5 h-5 text-blue-500" /> Enterprise Maintenance & Workshop Management Suite
@@ -338,11 +338,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
           <div className="space-y-6">
             {/* KPI grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">Total Maintenance Expenses</p>
-                    <h4 className="text-2xl font-black text-white mt-1.5">PKR {totalCompletedCost.toLocaleString()}</h4>
+                    <p className="text-[11px] tabular-nums font-bold text-slate-400">Total Maintenance Expenses</p>
+                    <h4 className="text-2xl font-semibold text-white mt-1.5">PKR {totalCompletedCost.toLocaleString()}</h4>
                   </div>
                   <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
                     <DollarSign className="w-5 h-5 text-blue-400" />
@@ -353,11 +353,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 </div>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">Total Fleet Downtime</p>
-                    <h4 className="text-2xl font-black text-white mt-1.5">{totalDowntime} Hours</h4>
+                    <p className="text-[11px] tabular-nums font-bold text-slate-400">Total Fleet Downtime</p>
+                    <h4 className="text-2xl font-semibold text-white mt-1.5">{totalDowntime} Hours</h4>
                   </div>
                   <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
                     <Clock className="w-5 h-5 text-indigo-400" />
@@ -368,11 +368,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 </div>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">Active Breakdowns</p>
-                    <h4 className="text-2xl font-black text-rose-400 mt-1.5">{activeBreakdownsCount} Incidents</h4>
+                    <p className="text-[11px] tabular-nums font-bold text-slate-400">Active Breakdowns</p>
+                    <h4 className="text-2xl font-semibold text-rose-400 mt-1.5">{activeBreakdownsCount} Incidents</h4>
                   </div>
                   <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
                     <ShieldAlert className="w-5 h-5 text-rose-400" />
@@ -383,11 +383,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 </div>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider">Scheduled Maintenance Reminders</p>
-                    <h4 className="text-2xl font-black text-amber-400 mt-1.5">{pendingRemindersCount} Alerts</h4>
+                    <p className="text-[11px] tabular-nums font-bold text-slate-400">Scheduled Maintenance Reminders</p>
+                    <h4 className="text-2xl font-semibold text-amber-400 mt-1.5">{pendingRemindersCount} Alerts</h4>
                   </div>
                   <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                     <Clock className="w-5 h-5 text-amber-400" />
@@ -401,7 +401,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
             {/* Charts section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <h3 className="text-sm font-bold text-white mb-4">Historical Maintenance Expenditure Flow</h3>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -412,7 +412,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                           <stop offset="95%" stopColor="#2C5CAE" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <CartesianGrid stroke="#EEF1F5" vertical={false} />
                       <XAxis dataKey="maintenanceNumber" stroke="#94a3b8" fontSize={10} />
                       <YAxis stroke="#94a3b8" fontSize={10} />
                       <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
@@ -422,7 +422,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 </div>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
                 <h3 className="text-sm font-bold text-white mb-4">Breakdown Distribution by Mechanical Component</h3>
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -433,7 +433,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       { name: "Overheating", count: breakdowns.filter(b => b.reason?.toLowerCase().includes("heat") || b.reason?.toLowerCase().includes("temp")).length || 1 },
                       { name: "Electrical", count: breakdowns.filter(b => b.reason?.toLowerCase().includes("electrical") || b.reason?.toLowerCase().includes("battery")).length || 2 }
                     ]}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <CartesianGrid stroke="#EEF1F5" vertical={false} />
                       <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} />
                       <YAxis stroke="#94a3b8" fontSize={10} />
                       <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
@@ -469,9 +469,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </button>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Order Number</th>
                     <th className="px-5 py-3">Vehicle</th>
@@ -486,18 +486,18 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {maintenance.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 font-mono">No maintenance records logged in corporate tables.</td>
+                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 tabular-nums">No maintenance records logged in corporate tables.</td>
                     </tr>
                   ) : (
                     maintenance.map((m: any) => {
                       const vObj = vehicles.find(v => v.id === m.vehicleId);
                       return (
                         <tr key={m.id} className="hover:bg-slate-900/30">
-                          <td className="px-5 py-3 font-mono font-bold text-blue-400">{m.maintenanceNumber}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-blue-400">{m.maintenanceNumber}</td>
                           <td className="px-5 py-3">{vObj?.vehicleNumber || `ID: ${m.vehicleId}`}</td>
                           <td className="px-5 py-3">{m.maintenanceType}</td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               m.priority === "Critical" ? "bg-rose-500/10 text-rose-400" :
                               m.priority === "High" ? "bg-amber-500/10 text-amber-400" : "bg-blue-500/10 text-blue-400"
                             }`}>
@@ -505,15 +505,15 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                             </span>
                           </td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               m.status === "Completed" ? "bg-emerald-500/10 text-emerald-400" :
                               m.status === "In_Progress" ? "bg-blue-500/10 text-blue-400" : "bg-amber-500/10 text-amber-400"
                             }`}>
                               {m.status}
                             </span>
                           </td>
-                          <td className="px-5 py-3 font-mono">{m.downtimeHours || 0} hrs</td>
-                          <td className="px-5 py-3 font-mono">PKR {(parseFloat(m.actualCost) || 0).toLocaleString()}</td>
+                          <td className="px-5 py-3 tabular-nums">{m.downtimeHours || 0} hrs</td>
+                          <td className="px-5 py-3 tabular-nums">PKR {(parseFloat(m.actualCost) || 0).toLocaleString()}</td>
                           <td className="px-5 py-3 flex gap-2">
                             <button
                               onClick={() => {
@@ -547,12 +547,12 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-white">Automatic Preventive Service Schedules</h3>
-              <p className="text-xs text-slate-400 font-mono">Synced with real-time odometers & due targets</p>
+              <p className="text-xs text-slate-400 tabular-nums">Synced with real-time odometers & due targets</p>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Vehicle</th>
                     <th className="px-5 py-3">Service Type</th>
@@ -566,7 +566,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {serviceSchedules.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-10 text-center text-slate-500 font-mono">No preventive schedules active. Click 'Telemetry Scheduler Scan' to auto-seed default vehicle limits.</td>
+                      <td colSpan={7} className="px-5 py-10 text-center text-slate-500 tabular-nums">No preventive schedules active. Click 'Telemetry Scheduler Scan' to auto-seed default vehicle limits.</td>
                     </tr>
                   ) : (
                     serviceSchedules.map((s: any) => {
@@ -575,11 +575,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                         <tr key={s.id} className="hover:bg-slate-900/30">
                           <td className="px-5 py-3 font-bold text-slate-200">{vObj?.vehicleNumber || `ID: ${s.vehicleId}`}</td>
                           <td className="px-5 py-3 font-semibold text-blue-400">{s.serviceType}</td>
-                          <td className="px-5 py-3 font-mono">{s.lastServiceDate ? new Date(s.lastServiceDate).toLocaleDateString() : "N/A"}</td>
-                          <td className="px-5 py-3 font-mono">{s.currentOdometer || 0} KM</td>
-                          <td className="px-5 py-3 font-mono font-bold text-indigo-400">{s.nextDueKm || 0} KM</td>
-                          <td className="px-5 py-3 font-mono">{s.nextServiceDate ? new Date(s.nextServiceDate).toLocaleDateString() : "N/A"}</td>
-                          <td className="px-5 py-3 font-mono text-slate-500">{s.reminderKm || 0} KM before</td>
+                          <td className="px-5 py-3 tabular-nums">{s.lastServiceDate ? new Date(s.lastServiceDate).toLocaleDateString() : "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums">{s.currentOdometer || 0} KM</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-indigo-400">{s.nextDueKm || 0} KM</td>
+                          <td className="px-5 py-3 tabular-nums">{s.nextServiceDate ? new Date(s.nextServiceDate).toLocaleDateString() : "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-500">{s.reminderKm || 0} KM before</td>
                         </tr>
                       );
                     })
@@ -593,7 +593,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
         {/* TAB 4: OIL SERVICE MANAGEMENT */}
         {activeTab === "oil_mgt" && (
           <div className="space-y-4">
-            <div className="bg-gradient-to-r from-blue-950/30 to-indigo-950/30 border border-slate-900 rounded-2xl p-5 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-blue-950/30 to-indigo-950/30 border border-slate-900 rounded-xl p-5 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-1.5"><DropdownIcon className="w-4 h-4 text-blue-400" /> Lubrication & Oil Lifetime Diagnostics</h3>
                 <p className="text-xs text-slate-400 mt-1">Estimating viscosity life from engine hour limits and driving cycles automatically.</p>
@@ -603,9 +603,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </div>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-hidden">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-hidden">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Vehicle</th>
                     <th className="px-5 py-3">Current ODO</th>
@@ -625,10 +625,10 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     return (
                       <tr key={v.id} className="hover:bg-slate-900/30">
                         <td className="px-5 py-3 font-bold text-slate-200">{v.vehicleNumber}</td>
-                        <td className="px-5 py-3 font-mono">{currentOdo.toLocaleString()} KM</td>
-                        <td className="px-5 py-3 font-mono font-bold text-indigo-400">{nextDue.toLocaleString()} KM</td>
+                        <td className="px-5 py-3 tabular-nums">{currentOdo.toLocaleString()} KM</td>
+                        <td className="px-5 py-3 tabular-nums font-bold text-indigo-400">{nextDue.toLocaleString()} KM</td>
                         <td className="px-5 py-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                             kmRemaining < 500 ? "bg-rose-500/10 text-rose-400" :
                             kmRemaining < 1500 ? "bg-amber-500/10 text-amber-400" : "bg-emerald-500/10 text-emerald-400"
                           }`}>
@@ -640,7 +640,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                             <div className="w-24 bg-slate-900 h-2 rounded overflow-hidden border border-slate-800">
                               <div className={`h-full ${kmRemaining < 500 ? "bg-rose-500" : kmRemaining < 1500 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${percentUsed}%` }} />
                             </div>
-                            <span className="font-mono text-[10px] text-slate-400">{kmRemaining.toLocaleString()} KM left</span>
+                            <span className="tabular-nums text-[10px] text-slate-400">{kmRemaining.toLocaleString()} KM left</span>
                           </div>
                         </td>
                       </tr>
@@ -687,9 +687,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </div>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Tyre Number</th>
                     <th className="px-5 py-3">Serial</th>
@@ -706,23 +706,23 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {tyres.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-5 py-10 text-center text-slate-500 font-mono">No tyres registered. Click 'Seed Certified Tyres' to automatically upload sample inventory.</td>
+                      <td colSpan={10} className="px-5 py-10 text-center text-slate-500 tabular-nums">No tyres registered. Click 'Seed Certified Tyres' to automatically upload sample inventory.</td>
                     </tr>
                   ) : (
                     tyres.map((t: any) => {
                       const vObj = vehicles.find(v => v.id === t.vehicleId);
                       return (
                         <tr key={t.id} className="hover:bg-slate-900/30">
-                          <td className="px-5 py-3 font-mono font-bold text-slate-200">{t.tyreNumber}</td>
-                          <td className="px-5 py-3 font-mono text-slate-400">{t.serialNumber || "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-slate-200">{t.tyreNumber}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-400">{t.serialNumber || "N/A"}</td>
                           <td className="px-5 py-3">{t.brand} ({t.size || "Standard"})</td>
                           <td className="px-5 py-3">{vObj?.vehicleNumber || "Spare Inventory"}</td>
                           <td className="px-5 py-3 font-semibold text-slate-400">{t.position || "Inventory"}</td>
-                          <td className="px-5 py-3 font-mono font-bold text-indigo-400">{t.currentTreadDepth} mm</td>
-                          <td className="px-5 py-3 font-mono">{(t.expectedLifeKm || 0).toLocaleString()} KM</td>
-                          <td className="px-5 py-3 font-mono">PKR {(t.purchaseCost || 0).toLocaleString()}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-indigo-400">{t.currentTreadDepth} mm</td>
+                          <td className="px-5 py-3 tabular-nums">{(t.expectedLifeKm || 0).toLocaleString()} KM</td>
+                          <td className="px-5 py-3 tabular-nums">PKR {(t.purchaseCost || 0).toLocaleString()}</td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               t.scrapStatus === "Scrapped" ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400"
                             }`}>
                               {t.scrapStatus}
@@ -776,9 +776,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </button>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Battery Number</th>
                     <th className="px-5 py-3">Serial</th>
@@ -794,28 +794,28 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {batteries.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-5 py-10 text-center text-slate-500 font-mono">No batteries logged. Click 'Register Battery' to mount a heavy vehicle battery pack.</td>
+                      <td colSpan={9} className="px-5 py-10 text-center text-slate-500 tabular-nums">No batteries logged. Click 'Register Battery' to mount a heavy vehicle battery pack.</td>
                     </tr>
                   ) : (
                     batteries.map((b: any) => {
                       const vObj = vehicles.find(v => v.id === b.vehicleId);
                       return (
                         <tr key={b.id} className="hover:bg-slate-900/30">
-                          <td className="px-5 py-3 font-mono font-bold text-slate-200">{b.batteryNumber}</td>
-                          <td className="px-5 py-3 font-mono text-slate-400">{b.serialNumber || "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-slate-200">{b.batteryNumber}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-400">{b.serialNumber || "N/A"}</td>
                           <td className="px-5 py-3 font-semibold">{b.brand} ({b.capacityAh || "N/A"} AH)</td>
                           <td className="px-5 py-3">{vObj?.vehicleNumber || "Spare Stock"}</td>
-                          <td className="px-5 py-3 font-mono text-emerald-400 font-bold">{b.voltage || "12.6V"}</td>
+                          <td className="px-5 py-3 tabular-nums text-emerald-400 font-bold">{b.voltage || "12.6V"}</td>
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-2">
                               <div className="w-16 bg-slate-900 h-1.5 rounded overflow-hidden">
                                 <div className={`h-full ${b.healthPercent < 40 ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: `${b.healthPercent || 100}%` }} />
                               </div>
-                              <span className="font-mono text-slate-200 font-bold">{b.healthPercent || 100}%</span>
+                              <span className="tabular-nums text-slate-200 font-bold">{b.healthPercent || 100}%</span>
                             </div>
                           </td>
-                          <td className="px-5 py-3 font-mono">{b.installationDate ? new Date(b.installationDate).toLocaleDateString() : "N/A"}</td>
-                          <td className="px-5 py-3 font-mono text-slate-400">{b.warrantyExpiry ? new Date(b.warrantyExpiry).toLocaleDateString() : "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums">{b.installationDate ? new Date(b.installationDate).toLocaleDateString() : "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-400">{b.warrantyExpiry ? new Date(b.warrantyExpiry).toLocaleDateString() : "N/A"}</td>
                           <td className="px-5 py-3 flex gap-1.5">
                             <button
                               onClick={() => {
@@ -874,35 +874,35 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {workshops.length === 0 ? (
-                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 font-mono rounded-2xl">
+                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 tabular-nums rounded-xl">
                   No workshops configured in PostgreSQL. Seed some default centers to assign mechanics.
                 </div>
               ) : (
                 workshops.map((w: any) => (
-                  <div key={w.id} className="bg-slate-950/40 border border-slate-900/80 p-5 rounded-2xl space-y-4">
+                  <div key={w.id} className="bg-slate-950/40 border border-slate-900/80 p-5 rounded-xl space-y-4">
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-white text-sm">{w.name}</h4>
                         <p className="text-xs text-slate-400 mt-0.5">{w.location}</p>
                       </div>
-                      <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-mono font-bold rounded-lg">
+                      <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] tabular-nums font-bold rounded-lg">
                         ⭐ {w.rating || "4.8"}
                       </span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3.5 bg-slate-950/60 p-3 rounded-xl border border-slate-900 text-xs">
                       <div>
-                        <span className="text-slate-500 block text-[10px] font-mono uppercase tracking-wider">Total Bays</span>
-                        <span className="font-mono text-slate-200 font-bold">{w.capacity} Bays</span>
+                        <span className="text-slate-500 block text-[10px] tabular-nums">Total Bays</span>
+                        <span className="tabular-nums text-slate-200 font-bold">{w.capacity} Bays</span>
                       </div>
                       <div>
-                        <span className="text-slate-500 block text-[10px] font-mono uppercase tracking-wider">Free Bays</span>
-                        <span className="font-mono text-emerald-400 font-bold">{w.availableBays} Available</span>
+                        <span className="text-slate-500 block text-[10px] tabular-nums">Free Bays</span>
+                        <span className="tabular-nums text-emerald-400 font-bold">{w.availableBays} Available</span>
                       </div>
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="font-mono text-slate-400">{w.contactNumber || "N/A"}</span>
+                      <span className="tabular-nums text-slate-400">{w.contactNumber || "N/A"}</span>
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => {
@@ -958,7 +958,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {mechanics.length === 0 ? (
-                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 font-mono rounded-2xl">
+                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 tabular-nums rounded-xl">
                   No mechanic profiles registered. Click 'Seed Team' to load standard personnel.
                 </div>
               ) : (
@@ -968,11 +968,11 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     <div key={m.id} className="bg-slate-950/40 border border-slate-900 p-4 rounded-xl flex items-center justify-between">
                       <div className="space-y-1">
                         <h4 className="font-bold text-slate-200 text-xs">{m.name}</h4>
-                        <p className="text-[10px] text-blue-400 font-mono uppercase tracking-wider">{m.specialty}</p>
+                        <p className="text-[10px] text-blue-400 tabular-nums">{m.specialty}</p>
                         <p className="text-[10px] text-slate-500">Workshop: {wsObj?.name || "Unassigned"}</p>
                       </div>
                       <div className="text-right space-y-2">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono inline-block ${
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold tabular-nums inline-block ${
                           m.currentStatus === "Available" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"
                         }`}>
                           {m.currentStatus}
@@ -1025,9 +1025,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </button>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Job Card Number</th>
                     <th className="px-5 py-3">Mechanic</th>
@@ -1042,7 +1042,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {jobCards.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 font-mono">No job cards active. Click 'Issue Job Card' to dispatch mechanic workload.</td>
+                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 tabular-nums">No job cards active. Click 'Issue Job Card' to dispatch mechanic workload.</td>
                     </tr>
                   ) : (
                     jobCards.map((jc: any) => {
@@ -1050,20 +1050,20 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       const wsObj = workshops.find(w => w.id === jc.workshopId);
                       return (
                         <tr key={jc.id} className="hover:bg-slate-900/30">
-                          <td className="px-5 py-3 font-mono font-bold text-blue-400">{jc.jobCardNumber}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-blue-400">{jc.jobCardNumber}</td>
                           <td className="px-5 py-3 font-semibold text-slate-200">{mecObj?.name || "Lead Mechanic"}</td>
                           <td className="px-5 py-3">{wsObj?.name || "Main Bay"}</td>
                           <td className="px-5 py-3 font-medium text-slate-400 max-w-xs truncate">{jc.jobDescription}</td>
-                          <td className="px-5 py-3 font-mono text-slate-300 font-bold">{jc.labourHours || 0} hrs</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-300 font-bold">{jc.labourHours || 0} hrs</td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               jc.status === "Closed" ? "bg-emerald-500/10 text-emerald-400" :
                               jc.status === "In_Progress" ? "bg-blue-500/10 text-blue-400" : "bg-amber-500/10 text-amber-400"
                             }`}>
                               {jc.status}
                             </span>
                           </td>
-                          <td className="px-5 py-3 font-mono text-slate-500">{jc.createdAt ? new Date(jc.createdAt).toLocaleDateString() : "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-500">{jc.createdAt ? new Date(jc.createdAt).toLocaleDateString() : "N/A"}</td>
                           <td className="px-5 py-3 flex gap-1.5">
                             <button
                               onClick={() => {
@@ -1098,12 +1098,12 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-white">Workshop Spare Parts Consumption Records</h3>
-              <p className="text-xs text-slate-500 font-mono">Real-time ledger updates & purchase cost integration</p>
+              <p className="text-xs text-slate-500 tabular-nums">Real-time ledger updates & purchase cost integration</p>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Part Name</th>
                     <th className="px-5 py-3">Part Serial / Code</th>
@@ -1117,7 +1117,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {partsUsage.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-10 text-center text-slate-500 font-mono">No parts consumption logged. Part allocations occur automatically via Job Card closures.</td>
+                      <td colSpan={7} className="px-5 py-10 text-center text-slate-500 tabular-nums">No parts consumption logged. Part allocations occur automatically via Job Card closures.</td>
                     </tr>
                   ) : (
                     partsUsage.map((p: any) => {
@@ -1125,12 +1125,12 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       return (
                         <tr key={p.id} className="hover:bg-slate-900/30">
                           <td className="px-5 py-3 font-semibold text-slate-200">{p.partName}</td>
-                          <td className="px-5 py-3 font-mono text-slate-500">{p.partCode || "N/A"}</td>
-                          <td className="px-5 py-3 font-mono font-bold text-indigo-400">{p.quantity} units</td>
-                          <td className="px-5 py-3 font-mono">PKR {parseFloat(p.unitCost || "0").toLocaleString()}</td>
-                          <td className="px-5 py-3 font-mono font-bold text-white">PKR {totalValue.toLocaleString()}</td>
-                          <td className="px-5 py-3 font-mono text-blue-400">#{p.jobCardId}</td>
-                          <td className="px-5 py-3 font-mono text-slate-500">{new Date(p.createdAt).toLocaleDateString()}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-500">{p.partCode || "N/A"}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-indigo-400">{p.quantity} units</td>
+                          <td className="px-5 py-3 tabular-nums">PKR {parseFloat(p.unitCost || "0").toLocaleString()}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-white">PKR {totalValue.toLocaleString()}</td>
+                          <td className="px-5 py-3 tabular-nums text-blue-400">#{p.jobCardId}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-500">{new Date(p.createdAt).toLocaleDateString()}</td>
                         </tr>
                       );
                     })
@@ -1162,9 +1162,9 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               </button>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 rounded-2xl overflow-x-auto">
+            <div className="bg-slate-950/40 border border-slate-900 rounded-xl overflow-x-auto">
               <table className="w-full text-xs text-left text-slate-300">
-                <thead className="bg-slate-950/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider border-b border-slate-900">
+                <thead className="bg-slate-950/80 text-[10px] tabular-nums text-slate-400 border-b border-slate-900">
                   <tr>
                     <th className="px-5 py-3">Ticket Code</th>
                     <th className="px-5 py-3">Vehicle</th>
@@ -1179,32 +1179,32 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 <tbody className="divide-y divide-slate-900">
                   {breakdowns.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 font-mono">No active roadside breakdowns reported. Safe fleet operations!</td>
+                      <td colSpan={8} className="px-5 py-10 text-center text-slate-500 tabular-nums">No active roadside breakdowns reported. Safe fleet operations!</td>
                     </tr>
                   ) : (
                     breakdowns.map((b: any) => {
                       const vObj = vehicles.find(v => v.id === b.vehicleId);
                       return (
                         <tr key={b.id} className="hover:bg-slate-900/30">
-                          <td className="px-5 py-3 font-mono font-bold text-rose-400">{b.breakdownNumber}</td>
+                          <td className="px-5 py-3 tabular-nums font-bold text-rose-400">{b.breakdownNumber}</td>
                           <td className="px-5 py-3 font-semibold text-slate-200">{vObj?.vehicleNumber || `ID: ${b.vehicleId}`}</td>
                           <td className="px-5 py-3 text-slate-300 font-medium max-w-xs truncate">{b.reason}</td>
-                          <td className="px-5 py-3 font-mono text-slate-400">{b.location}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-400">{b.location}</td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               b.priority === "Critical" ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
                             }`}>
                               {b.priority}
                             </span>
                           </td>
                           <td className="px-5 py-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tabular-nums ${
                               b.status === "Resolved" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400 animate-pulse"
                             }`}>
                               {b.status}
                             </span>
                           </td>
-                          <td className="px-5 py-3 font-mono text-slate-500">{new Date(b.reportingTime).toLocaleString()}</td>
+                          <td className="px-5 py-3 tabular-nums text-slate-500">{new Date(b.reportingTime).toLocaleString()}</td>
                           <td className="px-5 py-3 flex gap-1.5">
                             <button
                               onClick={() => {
@@ -1238,19 +1238,19 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-white">Upcoming Oil Changes, Inspections & Insurance Expiries</h3>
-              <p className="text-xs text-indigo-400 font-mono animate-pulse">Computed dynamically from real-time vehicle mileage logs</p>
+              <p className="text-xs text-indigo-400 tabular-nums animate-pulse">Computed dynamically from real-time vehicle mileage logs</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {reminders.length === 0 ? (
-                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 font-mono rounded-2xl">
+                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 tabular-nums rounded-xl">
                   No maintenance reminders active. Auto-generated notices appear here when telemetry scanning detects due parameters.
                 </div>
               ) : (
                 reminders.map((r: any) => {
                   const vObj = vehicles.find(v => v.id === r.vehicleId);
                   return (
-                    <div key={r.id} className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl space-y-3">
+                    <div key={r.id} className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl space-y-3">
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-2">
                           <div className="p-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
@@ -1258,17 +1258,17 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                           </div>
                           <div>
                             <h4 className="font-bold text-white text-xs">{vObj?.vehicleNumber || `Vehicle ID: ${r.vehicleId}`}</h4>
-                            <p className="text-[10px] text-indigo-400 font-mono uppercase tracking-wider mt-0.5">{r.reminderType}</p>
+                            <p className="text-[10px] text-indigo-400 tabular-nums mt-0.5">{r.reminderType}</p>
                           </div>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono uppercase ${
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold tabular-nums uppercase ${
                           r.status === "Pending" ? "bg-amber-500/10 text-amber-400" : "bg-emerald-500/10 text-emerald-400"
                         }`}>
                           {r.status}
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 leading-relaxed font-medium">{r.description}</p>
-                      <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-2 border-t border-slate-900/60">
+                      <div className="flex justify-between items-center text-[10px] tabular-nums text-slate-500 pt-2 border-t border-slate-900/60">
                         <span>Due Date: {r.dueDate ? new Date(r.dueDate).toLocaleDateString() : "Immediate"}</span>
                         <span>Due KM: {r.dueKm ? `${r.dueKm.toLocaleString()} KM` : "N/A"}</span>
                       </div>
@@ -1283,7 +1283,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
         {/* TAB 13: AI PREDICTIVE FAILURES DIAGNOSTICS */}
         {activeTab === "predictions" && (
           <div className="space-y-4">
-            <div className="bg-gradient-to-r from-purple-950/30 to-slate-950/30 border border-slate-900 rounded-2xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="bg-gradient-to-r from-purple-950/30 to-slate-950/30 border border-slate-900 rounded-xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" /> AI-Driven Predictive Maintenance Diagnostics
@@ -1312,7 +1312,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {predictions.length === 0 ? (
-                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 font-mono rounded-2xl">
+                <div className="col-span-full bg-slate-950/40 border border-slate-900 p-10 text-center text-slate-500 tabular-nums rounded-xl">
                   No predictive models compiled. Select a heavy transport vehicle above to execute active Gemini diagnostics.
                 </div>
               ) : (
@@ -1343,29 +1343,29 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     }
 
                     return (
-                      <div key={p.id} className="bg-slate-950/40 border border-slate-900/80 p-5 rounded-2xl space-y-4 relative overflow-hidden text-xs">
+                      <div key={p.id} className="bg-slate-950/40 border border-slate-900/80 p-5 rounded-xl space-y-4 relative overflow-hidden text-xs">
                         <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl pointer-events-none" />
                         
                         <div className="flex justify-between items-start">
                           <div>
                             <h4 className="font-bold text-slate-200 text-sm">Vehicle: {vObj?.vehicleNumber || `ID: ${p.vehicleId}`}</h4>
-                            <span className="text-[10px] text-purple-400 font-mono uppercase tracking-wider block mt-1">Predicted Failure Mode: {p.predictedFailureType}</span>
+                            <span className="text-[10px] text-purple-400 tabular-nums block mt-1">Predicted Failure Mode: {p.predictedFailureType}</span>
                           </div>
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black font-mono uppercase ${
+                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-semibold tabular-nums uppercase ${
                               riskLevel === "Critical" || riskLevel === "High" ? "bg-rose-500/10 border border-rose-500/20 text-rose-400 animate-pulse" :
                               riskLevel === "Warning" || riskLevel === "Medium" ? "bg-amber-500/10 border border-amber-500/20 text-amber-400" :
                               "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
                             }`}>
                               {p.failureProbabilityPercent}% {riskLevel} Risk
                             </span>
-                            <span className="text-[9px] text-slate-500 font-mono">Confidence: {confidenceScore}</span>
+                            <span className="text-[9px] text-slate-500 tabular-nums">Confidence: {confidenceScore}</span>
                           </div>
                         </div>
 
                         {/* Health Score Progress Bar */}
                         <div className="space-y-1">
-                          <div className="flex justify-between text-[10px] text-slate-400 font-semibold font-mono">
+                          <div className="flex justify-between text-[10px] text-slate-400 font-semibold tabular-nums">
                             <span>VEHICLE HEALTH SCORE</span>
                             <span className={`${healthScore > 80 ? "text-emerald-400" : healthScore > 50 ? "text-amber-400" : "text-rose-400"}`}>{healthScore}/100</span>
                           </div>
@@ -1381,30 +1381,30 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
                         <div className="bg-slate-900/50 p-3 rounded-xl space-y-2 border border-slate-900/80">
                           <p className="text-slate-300 leading-relaxed font-semibold">
-                            <span className="text-purple-400 block text-[9px] font-bold uppercase tracking-wider mb-0.5">Recommended Intervention</span>
+                            <span className="text-purple-400 block text-[9px] font-bold mb-0.5">Recommended Intervention</span>
                             "{actionText}"
                           </p>
 
                           {historyExplanation && (
-                            <p className="text-[11px] text-slate-400 leading-normal border-t border-slate-800/60 pt-2 font-mono">
-                              <span className="text-slate-500 font-sans block text-[9px] font-bold uppercase tracking-wider mb-0.5">Telemetry & History Context</span>
+                            <p className="text-[11px] text-slate-400 leading-normal border-t border-slate-800/60 pt-2 tabular-nums">
+                              <span className="text-slate-500 font-sans block text-[9px] font-bold mb-0.5">Telemetry & History Context</span>
                               {historyExplanation}
                             </p>
                           )}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-900/60 text-xs font-mono">
+                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-900/60 text-xs tabular-nums">
                           <div>
                             <span className="text-slate-500 block text-[9px]">REMAINING LIFE</span>
-                            <span className="text-slate-200 font-black">{p.remainingUsefulLifeKm?.toLocaleString() || 5000} KM</span>
+                            <span className="text-slate-200 font-semibold">{p.remainingUsefulLifeKm?.toLocaleString() || 5000} KM</span>
                           </div>
                           <div>
                             <span className="text-slate-500 block text-[9px]">ESTIMATED COST</span>
-                            <span className="text-purple-400 font-black">PKR {p.estimatedCost?.toLocaleString() || 15000}</span>
+                            <span className="text-purple-400 font-semibold">PKR {p.estimatedCost?.toLocaleString() || 15000}</span>
                           </div>
                           <div>
                             <span className="text-slate-500 block text-[9px]">SUGGESTED DATE</span>
-                            <span className="text-blue-400 font-black">{suggestedDate}</span>
+                            <span className="text-blue-400 font-semibold">{suggestedDate}</span>
                           </div>
                         </div>
                       </div>
@@ -1419,31 +1419,31 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
         {activeTab === "reports" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl text-center space-y-1">
-                <span className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Average Tyre Lifespan</span>
-                <h4 className="text-3xl font-black text-indigo-400">{costAnalysis?.averageTyreLife?.toLocaleString() || 80000} KM</h4>
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl text-center space-y-1">
+                <span className="text-slate-500 text-[10px] uppercase tabular-nums tracking-wider">Average Tyre Lifespan</span>
+                <h4 className="text-3xl font-semibold text-indigo-400">{costAnalysis?.averageTyreLife?.toLocaleString() || 80000} KM</h4>
                 <p className="text-[10px] text-slate-500 leading-relaxed">Aggregated from active, scrubbed and rotated tires</p>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl text-center space-y-1">
-                <span className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Total Cumulative Downtime</span>
-                <h4 className="text-3xl font-black text-blue-400">{costAnalysis?.totalDowntimeHours || 120} Hours</h4>
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl text-center space-y-1">
+                <span className="text-slate-500 text-[10px] uppercase tabular-nums tracking-wider">Total Cumulative Downtime</span>
+                <h4 className="text-3xl font-semibold text-blue-400">{costAnalysis?.totalDowntimeHours || 120} Hours</h4>
                 <p className="text-[10px] text-slate-500 leading-relaxed">Calculated from closed and scheduled job tickets</p>
               </div>
 
-              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl text-center space-y-1">
-                <span className="text-slate-500 text-[10px] uppercase font-mono tracking-wider">Active Mounted Tyres</span>
-                <h4 className="text-3xl font-black text-emerald-400">{costAnalysis?.activeTyresCount || 12} Tyres</h4>
+              <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl text-center space-y-1">
+                <span className="text-slate-500 text-[10px] uppercase tabular-nums tracking-wider">Active Mounted Tyres</span>
+                <h4 className="text-3xl font-semibold text-emerald-400">{costAnalysis?.activeTyresCount || 12} Tyres</h4>
                 <p className="text-[10px] text-slate-500 leading-relaxed">Excluding scrapped and retired wheels</p>
               </div>
             </div>
 
-            <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-2xl">
+            <div className="bg-slate-950/40 border border-slate-900 p-5 rounded-xl">
               <h3 className="text-sm font-bold text-white mb-4">Total Maintenance & Repair Investment per Transport Vehicle</h3>
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={costAnalysis?.maintenanceCosts || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <CartesianGrid stroke="#EEF1F5" vertical={false} />
                     <XAxis dataKey="vehicleId" stroke="#94a3b8" fontSize={10} name="Vehicle ID" />
                     <YAxis stroke="#94a3b8" fontSize={10} />
                     <Tooltip contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b" }} />
@@ -1458,7 +1458,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
 
         {/* TAB 15: AI WORKSHOP ASSISTANT CHAT */}
         {activeTab === "ai_assistant" && (
-          <div className="bg-slate-950/40 border border-slate-900 rounded-2xl h-[550px] flex flex-col overflow-hidden">
+          <div className="bg-slate-950/40 border border-slate-900 rounded-xl h-[550px] flex flex-col overflow-hidden">
             {/* Header info */}
             <div className="bg-slate-950/80 p-4 border-b border-slate-900 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1467,17 +1467,17 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 </div>
                 <div>
                   <h3 className="font-bold text-white text-xs">Intelligent Grounded Maintenance AI</h3>
-                  <p className="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5 font-mono"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> Synchronized with live PG schema</p>
+                  <p className="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5 tabular-nums"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> Synchronized with live PG schema</p>
                 </div>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">Gemini 3.5 Flash Model</span>
+              <span className="text-[10px] text-slate-500 tabular-nums">Gemini 3.5 Flash Model</span>
             </div>
 
             {/* Chat list */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4">
               {chatHistory.map((msg, idx) => (
                 <div key={idx} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-2xl p-3 text-xs leading-relaxed ${
+                  <div className={`max-w-[80%] rounded-xl p-3 text-xs leading-relaxed ${
                     msg.role === "user" 
                       ? "bg-blue-600/90 text-white rounded-br-none font-semibold" 
                       : "bg-slate-900/80 border border-slate-800 text-slate-200 rounded-bl-none"
@@ -1488,7 +1488,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               ))}
               {aiChatLoading && (
                 <div className="flex justify-start">
-                  <div className="bg-slate-900/80 border border-slate-800 rounded-2xl rounded-bl-none p-3 text-xs text-slate-400 flex items-center gap-1.5">
+                  <div className="bg-slate-900/80 border border-slate-800 rounded-xl rounded-bl-none p-3 text-xs text-slate-400 flex items-center gap-1.5">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" /> AI Assistant is formulating response from live tables...
                   </div>
                 </div>
@@ -1524,7 +1524,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-950 border border-slate-900 p-6 rounded-2xl w-full max-w-lg space-y-4 shadow-2xl relative"
+              className="bg-slate-950 border border-slate-900 p-6 rounded-xl w-full max-w-lg space-y-4 shadow-2xl relative"
             >
               <h3 className="text-sm font-bold text-white capitalize">Log {modalType} Details</h3>
               <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -1532,7 +1532,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 {modalType === "workshop" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Workshop Name</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Workshop Name</label>
                       <input
                         required
                         type="text"
@@ -1542,7 +1542,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Highway / City Location</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Highway / City Location</label>
                       <input
                         required
                         type="text"
@@ -1553,7 +1553,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Total Bays Capacity</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Total Bays Capacity</label>
                         <input
                           required
                           type="number"
@@ -1563,7 +1563,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Available Bays</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Available Bays</label>
                         <input
                           required
                           type="number"
@@ -1574,7 +1574,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Contact Phone</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Contact Phone</label>
                       <input
                         type="text"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1589,7 +1589,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                 {modalType === "mechanic" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Mechanic Name</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Mechanic Name</label>
                       <input
                         required
                         type="text"
@@ -1599,7 +1599,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Specialty Certification</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Specialty Certification</label>
                       <select
                         required
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1614,7 +1614,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       </select>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Workshop Depot</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Workshop Depot</label>
                       <select
                         required
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1635,17 +1635,17 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Maintenance Code</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Maintenance Code</label>
                         <input
                           required
                           disabled
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 tabular-nums"
                           value={formFields.maintenanceNumber || ""}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Target Vehicle</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Target Vehicle</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1661,7 +1661,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Maintenance Type</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Maintenance Type</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1676,7 +1676,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Priority</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Priority</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1692,7 +1692,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Status</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Status</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1705,20 +1705,20 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Actual Cost (PKR)</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Actual Cost (PKR)</label>
                         <input
                           type="number"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.actualCost || 0}
                           onChange={e => setFormFields({ ...formFields, actualCost: parseFloat(e.target.value) })}
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Downtime Duration (hours)</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Downtime Duration (hours)</label>
                       <input
                         type="number"
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                         value={formFields.downtimeHours || 0}
                         onChange={e => setFormFields({ ...formFields, downtimeHours: parseInt(e.target.value) })}
                       />
@@ -1731,20 +1731,20 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Tyre Number</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Tyre Number</label>
                         <input
                           required
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.tyreNumber || ""}
                           onChange={e => setFormFields({ ...formFields, tyreNumber: e.target.value })}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Serial Number</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Serial Number</label>
                         <input
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.serialNumber || ""}
                           onChange={e => setFormFields({ ...formFields, serialNumber: e.target.value })}
                         />
@@ -1752,7 +1752,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Brand / Make</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Brand / Make</label>
                         <input
                           required
                           type="text"
@@ -1762,7 +1762,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Mount Vehicle</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Mount Vehicle</label>
                         <select
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
                           value={formFields.vehicleId || ""}
@@ -1777,32 +1777,32 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Tread Depth (mm)</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Tread Depth (mm)</label>
                         <input
                           required
                           type="number"
                           step="0.1"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.currentTreadDepth || 14.0}
                           onChange={e => setFormFields({ ...formFields, currentTreadDepth: parseFloat(e.target.value) })}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Life Expectancy</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Life Expectancy</label>
                         <input
                           required
                           type="number"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.expectedLifeKm || 80000}
                           onChange={e => setFormFields({ ...formFields, expectedLifeKm: parseInt(e.target.value) })}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Purchase Cost</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Purchase Cost</label>
                         <input
                           required
                           type="number"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.purchaseCost || 35000}
                           onChange={e => setFormFields({ ...formFields, purchaseCost: parseInt(e.target.value) })}
                         />
@@ -1816,16 +1816,16 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Job Card ID</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Job Card ID</label>
                         <input
                           disabled
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 tabular-nums"
                           value={formFields.jobCardNumber || ""}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Assign Mechanic</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Assign Mechanic</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1840,7 +1840,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Workshop Bay</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Workshop Bay</label>
                       <select
                         required
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1855,16 +1855,16 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Labour Hours</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Labour Hours</label>
                         <input
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 tabular-nums"
                           value={formFields.labourHours || "0.0"}
                           onChange={e => setFormFields({ ...formFields, labourHours: e.target.value })}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Status</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Status</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1879,7 +1879,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Job Details & Task Lists</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Job Details & Task Lists</label>
                       <textarea
                         required
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 h-16 resize-none"
@@ -1895,16 +1895,16 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Ticket Number</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Ticket Number</label>
                         <input
                           disabled
                           type="text"
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 font-mono"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-400 tabular-nums"
                           value={formFields.breakdownNumber || ""}
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-mono text-slate-500 block mb-1">Breakdown Vehicle</label>
+                        <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Breakdown Vehicle</label>
                         <select
                           required
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100"
@@ -1919,7 +1919,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       </div>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Highway / Route Location (e.g. M2, Mile 140)</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Highway / Route Location (e.g. M2, Mile 140)</label>
                       <input
                         required
                         type="text"
@@ -1929,7 +1929,7 @@ export default function FleetMaintenance({ showFeedback }: FleetMaintenanceProps
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 block mb-1">Description of Mechanical Failure</label>
+                      <label className="text-[10px] tabular-nums text-slate-500 block mb-1">Description of Mechanical Failure</label>
                       <textarea
                         required
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg text-xs p-2 text-slate-100 h-16 resize-none"

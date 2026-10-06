@@ -131,8 +131,8 @@ export default function SystemReset({
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <Database className="w-4 h-4" /> System Reset &amp; Backups <span className="text-[#9CA3AF] font-normal text-sm">· سسٹم ری سیٹ اور بیک اپ</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <Database className="w-5 h-5 text-[#24539B]" /> System Reset &amp; Backups <span className="text-[#9CA3AF] font-normal text-sm">· سسٹم ری سیٹ اور بیک اپ</span>
         </h2>
         <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -140,7 +140,7 @@ export default function SystemReset({
       </div>
 
       {/* backup */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <h3 className="text-sm font-semibold flex items-center gap-1.5"><Save className="w-4 h-4 text-[#24539B]" /> Take a backup</h3>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
           Saves every table's data right now, inside the database itself (no separate file to lose). Do this any time —
@@ -156,27 +156,27 @@ export default function SystemReset({
       </div>
 
       {/* backup list */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F2F5FA]">Recent backups</div>
-        <table className="w-full text-xs">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Recent backups</div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">When</th>
-              <th className="text-left px-2 py-1.5">File</th>
-              <th className="text-left px-2 py-1.5">Kind</th>
-              <th className="text-right px-2 py-1.5">Size</th>
-              <th className="text-left px-2 py-1.5">Status</th>
-              <th className="px-2 py-1.5"></th>
+              <th className="text-left px-3 py-2">When</th>
+              <th className="text-left px-3 py-2">File</th>
+              <th className="text-left px-3 py-2">Kind</th>
+              <th className="text-right px-3 py-2">Size</th>
+              <th className="text-left px-3 py-2">Status</th>
+              <th className="px-3 py-2"></th>
             </tr>
           </thead>
           <tbody>
             {backups.map((b) => (
               <tr key={b.id} className="border-t border-[#F3F4F6]">
-                <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{new Date(b.createdAt).toLocaleString()}</td>
-                <td className="px-2 py-1.5 font-mono" dir="ltr">{b.fileName}</td>
-                <td className="px-2 py-1.5">{b.kind === "pre-reset" ? "Before a reset" : "Manual"}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{fmtBytes(b.fileSize)}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-3 py-2 whitespace-nowrap text-[#6B7280]">{new Date(b.createdAt).toLocaleString()}</td>
+                <td className="px-3 py-2 font-mono" dir="ltr">{b.fileName}</td>
+                <td className="px-3 py-2">{b.kind === "pre-reset" ? "Before a reset" : "Manual"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtBytes(b.fileSize)}</td>
+                <td className="px-3 py-2">
                   {b.restorable ? (
                     <span className="text-[10px] font-bold rounded px-1.5 py-0.5 bg-[#E6ECF6] text-[#1E4480]">Restorable</span>
                   ) : (
@@ -185,7 +185,7 @@ export default function SystemReset({
                     </span>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-right">
+                <td className="px-3 py-2 text-right">
                   {b.restorable && (
                     <button
                       onClick={() => { setRestoreTarget(b); setRestoreText(""); }}
