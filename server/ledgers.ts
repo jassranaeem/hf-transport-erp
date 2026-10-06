@@ -727,10 +727,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const drv = entries.reduce(
       (a, e) => {
         if (e.category === "TripCash" && !e.paidFromEntryId) a.given += e.paid + (spentFrom.get(e.id) || 0);
+        if (e.category === "TripCash" && e.received > 0 && !e.paid) a.returned += e.received; // cash the driver gave back
         if (e.paidFromEntryId) a.spent += e.paid;
         return a;
       },
-      { given: 0, spent: 0 },
+      { given: 0, spent: 0, returned: 0 },
     );
 
     res.json({
@@ -748,7 +749,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         profit: totReceived - totPaid,
         closing: opening + totReceived - totPaid,
         runningClosing: row.ledger.closingBalance, // the last row's running balance (old paper pages each start from 0)
-        driverCash: drv.given ? { given: drv.given, spent: drv.spent, withDriver: drv.given - drv.spent } : null,
+        driverCash: drv.given ? { given: drv.given, spent: drv.spent, returned: drv.returned, withDriver: drv.given - drv.spent - drv.returned } : null,
       },
       pnl: {
         totalReceived: totReceived,

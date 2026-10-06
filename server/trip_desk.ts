@@ -201,12 +201,14 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
       : [];
     const byTrip = new Map<number, Record<string, number>>();
     const receivedBy = new Map<number, number>(); // kiraya received, tagged to the stop
+    const returnedBy = new Map<number, number>(); // trip cash the driver gave back
     for (const m of money) {
       if (m.tripId == null) continue;
       const cur = byTrip.get(m.tripId) || {};
       cur[m.category] = Number(m.paid);
       byTrip.set(m.tripId, cur);
-      receivedBy.set(m.tripId, (receivedBy.get(m.tripId) || 0) + Number(m.received || 0));
+      if (m.category === MONEY_KINDS.cash.category) returnedBy.set(m.tripId, (returnedBy.get(m.tripId) || 0) + Number(m.received || 0));
+      else receivedBy.set(m.tripId, (receivedBy.get(m.tripId) || 0) + Number(m.received || 0));
     }
 
     // each truck's journeys and their spans (a journey's days end when the truck's next trip left)
@@ -284,7 +286,7 @@ router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
     res.json(
       rows.map((r) => {
         const m = byTrip.get(r.trip.id) || {};
-        const total = Object.values(m).reduce((s, n) => s + n, 0);
+        const total = Object.values(m).reduce((s, n) => s + n, 0) - (returnedBy.get(r.trip.id) || 0);
         return {
           gps: gpsFor(r.vehicleNumber, r.destination),
           id: r.trip.id,
@@ -646,7 +648,8 @@ router.post("/:id/next-leg", requireRole(WRITE), async (req: AuthRequest, res: R
 router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const tripId = parseInt(req.params.id);
-    const kind = clean(req.body?.kind) as keyof typeof MONEY_KINDS;
+    const isReturn = clean(req.body?.kind) === "return";
+    const kind = (isReturn ? "cash" : clean(req.body?.kind)) as keyof typeof MONEY_KINDS;
     const amount = whole(req.body?.amount);
     if (!MONEY_KINDS[kind]) return res.status(400).json({ error: "Pick what the money was for · کس لیے دیے" });
     if (amount <= 0) return res.status(400).json({ error: "Enter an amount · رقم لکھیں" });
@@ -671,6 +674,30 @@ router.post("/:id/money", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const date = dayAt(req.body?.date);
     if (isNaN(date.getTime())) return res.status(400).json({ error: "The date is not valid · تاریخ درست نہیں" });
     const how = PAID_HOW.includes(String(req.body?.method)) ? String(req.body.method) : undefined;
+    if (isReturn) {
+      // the driver hands back cash he did not spend: money IN on the khata, under trip cash (so it comes
+      // off the trip's cost and off what is with him — never counted as freight received)
+      const [row] = await db
+        .insert(schema.truckLedgerEntries)
+        .values({
+          ledgerId: led.id,
+          entryDate: date,
+          rawDate: date.toISOString().slice(0, 10),
+          method: "Cash",
+          description: clean(req.body?.note) || "Cash returned by the driver",
+          received: amount,
+          paid: 0,
+          category: MONEY_KINDS.cash.category,
+          direction: "In",
+          sectionLabel: "Manual",
+          derivedTripId: tripId,
+          createdBy: req.user?.id,
+        })
+        .returning();
+      await recompute(led.id);
+      await audit(req, "CREATE", "truck_ledger_entries", row.id, null, row);
+      return res.json(row);
+    }
     // spent out of the cash already given to the driver: take it out of that cash entry (same truck khata)
     const fromCash = !!req.body?.fromCash && kind !== "cash" ? await tripCashFor(tripId, amount, undefined, parseInt(req.body?.fromEntryId) || undefined) : null;
     const entry = await addMoneyEntry({
@@ -720,6 +747,7 @@ router.get("/:id/entries", requireRole(READ), async (req: AuthRequest, res: Resp
         category: schema.truckLedgerEntries.category,
         method: schema.truckLedgerEntries.method,
         paid: schema.truckLedgerEntries.paid,
+        received: schema.truckLedgerEntries.received,
         description: schema.truckLedgerEntries.description,
         paidFromEntryId: schema.truckLedgerEntries.paidFromEntryId,
       })
@@ -796,7 +824,8 @@ router.put("/entry/:entryId", requireRole(WRITE), async (req: AuthRequest, res: 
     if (b.amount !== undefined) {
       const amt = whole(b.amount);
       if (amt <= 0) return res.status(400).json({ error: "Enter an amount · رقم لکھیں" });
-      patch.paid = amt;
+      if (old.received > 0 && old.paid === 0) patch.received = amt; // cash the driver gave back
+      else patch.paid = amt;
       if (old.paidFromEntryId && amt !== old.paid) {
         // paid out of trip cash: the cash entry gives up / gets back the difference
         [cashRow] = await db.select().from(schema.truckLedgerEntries).where(and(eq(schema.truckLedgerEntries.id, old.paidFromEntryId), eq(schema.truckLedgerEntries.isDeleted, false))).limit(1);

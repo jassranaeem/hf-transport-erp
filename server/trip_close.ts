@@ -173,9 +173,12 @@ export async function journeyMoney(rootId: number) {
       description: schema.truckLedgerEntries.description,
       received: schema.truckLedgerEntries.received,
       paid: schema.truckLedgerEntries.paid,
+      category: schema.truckLedgerEntries.category,
     })
     .from(schema.truckLedgerEntries)
     .where(and(eq(schema.truckLedgerEntries.isDeleted, false), inArray(schema.truckLedgerEntries.derivedTripId, stopIds)));
+  // trip cash the driver gave back: comes off the trip's cost, is not freight received
+  const returned = tagged.filter((x) => x.category === "TripCash").reduce((s, x) => s + (x.received || 0), 0);
 
   // kiraya received into the truck's khata since the trip began but not yet tied to a stop —
   // e.g. a "Kirya jama" Cash Book entry linked to the truck: "is this Sardar Wali's?"
@@ -196,6 +199,7 @@ export async function journeyMoney(rootId: number) {
             isNull(schema.truckLedgerEntries.derivedTripId),
             sql`${schema.truckLedgerEntries.received} > 0`,
             sql`${schema.truckLedgerEntries.category} <> 'SafiBachat'`,
+            sql`coalesce(${schema.truckLedgerEntries.category}, '') <> 'TripCash'`,
             inSpan(span, 2), // a receipt may be written a day or two before the truck leaves
           ),
         )
@@ -224,7 +228,7 @@ export async function journeyMoney(rootId: number) {
     .where(and(eq(schema.invoices.isDeleted, false), inArray(schema.invoices.tripId, stopIds)));
 
   const stops = legs.map((l) => {
-    const receipts = tagged.filter((x) => x.tripId === l.trip.id && (x.received || 0) > 0);
+    const receipts = tagged.filter((x) => x.tripId === l.trip.id && (x.received || 0) > 0 && x.category !== "TripCash");
     const received = receipts.reduce((s, x) => s + (x.received || 0), 0);
     const freight = l.trip.revenue || 0;
     const writtenOff = l.trip.freightWrittenOff || 0;
@@ -248,7 +252,7 @@ export async function journeyMoney(rootId: number) {
     };
   });
 
-  const tripPaid = tagged.reduce((s, x) => s + (x.paid || 0), 0);
+  const tripPaid = tagged.reduce((s, x) => s + (x.paid || 0), 0) - returned;
   const otherPaid = Number(other?.paid || 0);
   const freight = stops.reduce((s, x) => s + x.freight, 0);
   const received = stops.reduce((s, x) => s + x.received, 0);

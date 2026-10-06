@@ -3,10 +3,11 @@
  *
  *   Cash to driver · نقد دی           new money handed to the driver (350,000; the dollars, 312,400 …)
  *   Driver spent · ڈرائیور کا خرچ       what he paid OUT OF that cash (diesel 185,609, toll …) — not new money
+ *   Driver returned · واپس              cash he did not spend and gave back
  *   Office paid · دفتر نے دیا           paid by the office itself (pump account, bank) — new money
  *
- *   Given on the trip   = cash to driver + office paid
- *   With the driver     = cash to driver − driver spent
+ *   Given on the trip   = cash to driver + office paid − returned
+ *   With the driver     = cash to driver − driver spent − returned
  *
  * (Underneath, a "driver spent" row is taken out of the cash row it came from — server/trip_desk.ts
  * paidFromEntryId — so the truck's khata and the books count every rupee once, by what it was for.)
@@ -33,14 +34,15 @@ const FOR = [
 const forLabel = (cat: string) => FOR.find((f) => f.c === cat)?.l || cat;
 const kindOf = (cat: string) => FOR.find((f) => f.c === cat)?.k || "other";
 
-type Type = "cash" | "spent" | "office";
+type Type = "cash" | "spent" | "return" | "office";
 const TYPES: Array<{ t: Type; l: string; ur: string; hint: string }> = [
   { t: "cash", l: "Cash to driver", ur: "نقد دی", hint: "money handed to the driver" },
-  { t: "spent", l: "Driver spent", ur: "ڈرائیور کا خرچ", hint: "out of the cash he was given" },
-  { t: "office", l: "Office paid", ur: "دفتر نے دیا", hint: "pump account, bank, office cash" },
+  { t: "spent", l: "Driver spent", ur: "ڈرائیور کا خرچ", hint: "diesel, toll, food… paid out of the cash he was given" },
+  { t: "return", l: "Driver returned", ur: "واپس دیے", hint: "cash he did not spend and gave back" },
+  { t: "office", l: "Office paid", ur: "دفتر نے دیا", hint: "pump account, bank, office cash — on top of the driver's cash" },
 ];
 
-interface Entry { id: number; entryDate: string; category: string; method: string; paid: number; description: string | null; paidFromEntryId: number | null; spentFromIt: number }
+interface Entry { id: number; entryDate: string; category: string; method: string; paid: number; received: number; description: string | null; paidFromEntryId: number | null; spentFromIt: number }
 
 export default function TripMoney({
   root,
@@ -60,16 +62,20 @@ export default function TripMoney({
   useEffect(load, [load]);
 
   const list = entries || [];
-  const typeOf = (e: Entry): Type => (e.category === "TripCash" && !e.paidFromEntryId ? "cash" : e.paidFromEntryId ? "spent" : "office");
+  const typeOf = (e: Entry): Type =>
+    e.category === "TripCash" && (e.received || 0) > 0 && !e.paid ? "return" : e.category === "TripCash" && !e.paidFromEntryId ? "cash" : e.paidFromEntryId ? "spent" : "office";
   const byOrder = (a: Entry, b: Entry) => +new Date(a.entryDate) - +new Date(b.entryDate) || a.id - b.id;
   const cashRows = list.filter((e) => typeOf(e) === "cash").sort((a, b) => a.id - b.id); // in the order they were given
   const spentRows = list.filter((e) => typeOf(e) === "spent").sort(byOrder);
   const officeRows = list.filter((e) => typeOf(e) === "office").sort(byOrder);
-  const shown = (e: Entry) => (typeOf(e) === "cash" ? e.paid + (e.spentFromIt || 0) : e.paid); // a cash row shows what was handed over
+  const returnRows = list.filter((e) => typeOf(e) === "return").sort(byOrder);
+  // a cash row shows what was handed over; a returned row what came back
+  const shown = (e: Entry) => (typeOf(e) === "cash" ? e.paid + (e.spentFromIt || 0) : typeOf(e) === "return" ? e.received : e.paid);
   const cashGiven = cashRows.reduce((s, e) => s + shown(e), 0);
   const spent = spentRows.reduce((s, e) => s + e.paid, 0);
   const office = officeRows.reduce((s, e) => s + e.paid, 0);
-  const withDriver = cashGiven - spent;
+  const returned = returnRows.reduce((s, e) => s + (e.received || 0), 0);
+  const withDriver = cashGiven - spent - returned;
 
   // ---- add
   const [type, setType] = useState<Type | null>(null);
@@ -79,14 +85,17 @@ export default function TripMoney({
   const add = async () => {
     const amount = Number(f.amount);
     if (!amount) return showFeedback("error", "Enter the amount · رقم لکھیں");
-    if (effType === "spent" && amount > withDriver)
-      return showFeedback("error", `The driver has only ${fmt(withDriver)} of the cash — enter more "Cash to driver" first, or choose "Office paid" · ڈرائیور کے پاس اتنی نقد نہیں`);
+    if ((effType === "spent" || effType === "return") && amount > withDriver)
+      return showFeedback(
+        "error",
+        `The driver has only ${fmt(withDriver)} of the cash — ${effType === "spent" ? "enter more Cash to driver first, or choose Office paid" : "he cannot give back more than that"} · ڈرائیور کے پاس اتنی نقد نہیں`,
+      );
     setSaving(true);
     try {
       await enterpriseFetch(`/api/trip-desk/${f.stop || stops[stops.length - 1].id}/money`, {
         method: "POST",
         body: JSON.stringify({
-          kind: effType === "cash" ? "cash" : f.kind,
+          kind: effType === "cash" ? "cash" : effType === "return" ? "return" : f.kind,
           amount,
           note: f.note,
           date: f.date,
@@ -109,16 +118,19 @@ export default function TripMoney({
   // ---- edit / delete
   const [edit, setEdit] = useState<{ id: number; type: Type; date: string; kind: string; amount: string; note: string } | null>(null);
   const startEdit = (e: Entry) =>
-    setEdit({ id: e.id, type: typeOf(e), date: e.entryDate ? String(e.entryDate).slice(0, 10) : todayStr(), kind: kindOf(e.category), amount: String(e.paid), note: e.description || "" });
+    setEdit({ id: e.id, type: typeOf(e), date: e.entryDate ? String(e.entryDate).slice(0, 10) : todayStr(), kind: kindOf(e.category), amount: String(shown(e)), note: e.description || "" });
   const saveEdit = async (e: Entry) => {
     if (!edit) return;
     try {
       const from = typeOf(e);
+      // a cash row is edited as handed over; what was spent out of it stays spent
+      const stored = from === "cash" ? Number(edit.amount) - (e.spentFromIt || 0) : Number(edit.amount);
+      if (stored <= 0) throw new Error(`PKR ${(e.spentFromIt || 0).toLocaleString()} was already spent out of this cash — it cannot be less than that · اس نقد میں سے اتنا خرچ ہو چکا ہے`);
       // switching between "driver spent" and "office paid" first (it moves the money in / out of the cash)
       if (from === "spent" && edit.type === "office") await enterpriseFetch(`/api/trip-desk/entry/${e.id}/from-cash`, { method: "DELETE" });
       await enterpriseFetch(`/api/trip-desk/entry/${e.id}`, {
         method: "PUT",
-        body: JSON.stringify({ entryDate: edit.date, amount: Number(edit.amount), description: edit.note, ...(from === "cash" ? {} : { kind: edit.kind }) }),
+        body: JSON.stringify({ entryDate: edit.date, amount: stored, description: edit.note, ...(from === "cash" || from === "return" ? {} : { kind: edit.kind }) }),
       });
       if (from === "office" && edit.type === "spent") await enterpriseFetch(`/api/trip-desk/entry/${e.id}/from-cash`, { method: "POST", body: "{}" });
       showFeedback("success", "Saved · محفوظ");
@@ -155,8 +167,8 @@ export default function TripMoney({
       <tr key={e.id} className="border-t border-slate-100 bg-emerald-50/40">
         <td className="px-2 py-1.5"><input type="date" className={small} value={edit.date} onChange={(x) => setEdit({ ...edit, date: x.target.value })} /></td>
         <td className="px-2">
-          {edit.type === "cash" ? (
-            <span className="text-slate-500">Cash · نقد</span>
+          {edit.type === "cash" || edit.type === "return" ? (
+            <span className="text-slate-500">{edit.type === "cash" ? "Cash · نقد" : "Returned · واپس"}</span>
           ) : (
             <div className="flex flex-col gap-1">
               <select className={small} value={edit.kind} onChange={(x) => setEdit({ ...edit, kind: x.target.value })}>{FOR.map((o) => <option key={o.k} value={o.k}>{o.l}</option>)}</select>
@@ -177,7 +189,7 @@ export default function TripMoney({
     ) : (
       <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50">
         <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{dmy(e.entryDate)}</td>
-        <td className="px-2 whitespace-nowrap">{typeOf(e) === "cash" ? "Cash · نقد" : forLabel(e.category)}</td>
+        <td className="px-2 whitespace-nowrap">{typeOf(e) === "cash" ? "Cash · نقد" : typeOf(e) === "return" ? "Returned · واپس" : forLabel(e.category)}</td>
         <td className="px-2 text-right tabular-nums font-semibold whitespace-nowrap">{fmt(shown(e))}</td>
         <td className="px-2 text-slate-600" dir="auto">{e.description || ""}</td>
         <td className="px-2 whitespace-nowrap text-right">
@@ -204,11 +216,20 @@ export default function TripMoney({
       <div className="text-sm font-bold text-slate-800">Trip money · ٹرپ کے پیسے</div>
 
       {/* the four numbers */}
-      <div className={`grid grid-cols-2 ${office ? "md:grid-cols-4" : "md:grid-cols-3"} gap-2`}>
-        <Tile label="Cash to driver · نقد دی" value={cashGiven} />
-        <Tile label="Driver spent · خرچ" value={spent} sub="out of the cash" />
-        <Tile label="With the driver · ڈرائیور کے پاس" value={withDriver} strong />
-        {office > 0 && <Tile label="Office paid · دفتر نے دیا" value={office} sub={`given on the trip ${fmt(cashGiven + office)}`} />}
+      {/* the driver's cash in one line: given − spent − returned = with him */}
+      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+        <span>Cash given <b>{fmt(cashGiven)}</b></span>
+        <span className="text-slate-400">−</span>
+        <span>spent <b>{fmt(spent)}</b></span>
+        {returned > 0 && (
+          <>
+            <span className="text-slate-400">−</span>
+            <span>returned <b>{fmt(returned)}</b></span>
+          </>
+        )}
+        <span className="text-slate-400">=</span>
+        <span className="rounded-md bg-emerald-100 text-emerald-900 px-2 py-0.5">with the driver · ڈرائیور کے پاس <b>{fmt(withDriver)}</b></span>
+        {office > 0 && <span className="text-slate-500">· office paid on top {fmt(office)}</span>}
       </div>
 
       {/* add */}
@@ -279,6 +300,7 @@ export default function TripMoney({
             <tbody>
               {group("Cash to driver", "نقد دی", cashRows, cashGiven)}
               {group("Driver spent (out of the cash)", "ڈرائیور کا خرچ", spentRows, spent)}
+              {group("Driver returned", "واپس دیے", returnRows, returned)}
               {group("Office paid", "دفتر نے دیا", officeRows, office)}
             </tbody>
           </table>
@@ -288,12 +310,3 @@ export default function TripMoney({
   );
 }
 
-function Tile({ label, value, sub, strong }: { label: string; value: number; sub?: string; strong?: boolean }) {
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${strong ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-      <div className="text-[11px] text-slate-500">{label}</div>
-      <div className={`tabular-nums font-bold ${strong ? "text-emerald-800 text-lg" : "text-slate-800"}`}>{fmt(value)}</div>
-      {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
-    </div>
-  );
-}
