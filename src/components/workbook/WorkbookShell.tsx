@@ -131,18 +131,20 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null => {
+  const readFocus = (): { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
     const e = Number(u.get("focusEntry")) || undefined;
     const d = u.get("focusDate");
+    const t = Number(u.get("focusTrip"));
+    if (t) return { tripId: t };
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d };
     if (l) return { ledgerId: l, entryId: e };
     if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null>(readFocus);
+  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -182,6 +184,8 @@ export default function WorkbookShell({
     url.searchParams.delete("focusParty");
     url.searchParams.delete("focusEntry");
     url.searchParams.delete("focusDate");
+    url.searchParams.delete("focusTrip");
+    if (focus?.tripId) url.searchParams.set("focusTrip", String(focus.tripId));
     if (focus?.ledgerId) url.searchParams.set("focusLedger", String(focus.ledgerId));
     if (focus?.partyId) url.searchParams.set("focusParty", String(focus.partyId));
     if (focus?.entryId) url.searchParams.set("focusEntry", String(focus.entryId));
@@ -194,7 +198,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number } | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -213,9 +217,9 @@ export default function WorkbookShell({
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
       case "TruckLedgers":
-        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} />;
+        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "Parties":
-        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} focusEntryId={focus?.entryId} />;
+        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} focusEntryId={focus?.entryId}  onNavigate={(w, s, f) => go(w, s, f)} />;
       case "DuesAlerts":
         return <DuesAlerts showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "ReceiptSearch":
@@ -226,7 +230,7 @@ export default function WorkbookShell({
           />
         );
       case "FleetDesk":
-        return <FleetDesk showFeedback={showFeedback} />;
+        return <FleetDesk showFeedback={showFeedback} focusTripId={focus?.tripId} />;
       case "FleetSearch":
         return <FleetSearch showFeedback={showFeedback} onOpenLedger={(ledgerId) => go("khata", "truck_ledgers", { ledgerId })} />;
       case "FleetAssetValue":

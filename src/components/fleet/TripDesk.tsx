@@ -57,8 +57,10 @@ interface Journey {
 
 export default function TripDesk({
   showFeedback,
+  focusTripId,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
+  focusTripId?: number; // open this trip (a link from a ledger entry)
 }) {
   const [opts, setOpts] = useState<Opts>({ vehicles: [], drivers: [], contractors: [], routes: [] });
   const [trips, setTrips] = useState<any[]>([]);
@@ -173,6 +175,18 @@ export default function TripDesk({
     list.sort((a, b) => new Date(b.first.departureTime).getTime() - new Date(a.first.departureTime).getTime());
     return list;
   }, [trips]);
+
+  // a link from a ledger entry: open its trip (on the road or in history) and bring it into view
+  const focusedRef = React.useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusTripId || focusedRef.current === focusTripId || !journeyList.length) return;
+    const j = journeyList.find((x) => x.root === focusTripId || x.legs.some((l: any) => l.id === focusTripId));
+    if (!j) return;
+    focusedRef.current = focusTripId;
+    setView(j.completed ? "history" : "active");
+    setOpenId(j.root);
+    setTimeout(() => document.getElementById(`trip-row-${j.root}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+  }, [focusTripId, journeyList]);
 
   const inView = useMemo(() => journeyList.filter((j) => (view === "history") === j.completed), [journeyList, view]);
   const activeCount = journeyList.filter((j) => !j.completed).length;
@@ -449,7 +463,7 @@ export default function TripDesk({
                 const net = j.freight - j.given;
                 return (
                   <React.Fragment key={j.root}>
-                    <tr className={`border-t border-slate-100 hover:bg-slate-50 ${selected.has(j.root) ? "bg-red-50/40" : ""}`}>
+                    <tr id={`trip-row-${j.root}`} className={`border-t border-slate-100 hover:bg-slate-50 ${selected.has(j.root) ? "bg-red-50/40" : ""}`}>
                       <td className="px-2 py-2"><input type="checkbox" checked={selected.has(j.root)} onChange={() => toggle(j.root)} /></td>
                       <td className="cursor-pointer" onClick={() => setOpenId(open ? null : j.root)}>
                         {open ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}

@@ -308,8 +308,10 @@ function MasterTab({
 
 export default function FleetDesk({
   showFeedback,
+  focusTripId,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
+  focusTripId?: number;
 }) {
   const [tab, setTab] = useState("trips");
   const [reload, setReload] = useState(0);
@@ -331,7 +333,7 @@ export default function FleetDesk({
         ))}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <React.Fragment key={tab + reload}>{tab === "trips" ? <TripDesk showFeedback={showFeedback} /> : <MasterTab cfg={MASTERS[tab]} showFeedback={showFeedback} />}</React.Fragment>
+        <React.Fragment key={tab + reload}>{tab === "trips" ? <TripDesk showFeedback={showFeedback} focusTripId={focusTripId} /> : <MasterTab cfg={MASTERS[tab]} showFeedback={showFeedback} />}</React.Fragment>
       </div>
     </div>
   );

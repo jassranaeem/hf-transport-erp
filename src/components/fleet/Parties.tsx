@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile, uploadAttachment } from "../../../client/api.ts";
 import BalanceFlow, { ALL, Period, periodParams } from "./BalanceFlow.tsx";
+import EntryOrigin from "./EntryOrigin.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import DuesAlerts from "./DuesAlerts.tsx";
@@ -39,10 +40,12 @@ export default function Parties({
   showFeedback,
   focusPartyId,
   focusEntryId,
+  onNavigate,
 }: {
   showFeedback: (type: "success" | "error", message: string) => void;
   focusPartyId?: number;
   focusEntryId?: number;
+  onNavigate?: (wb: string, sheet: string, focus?: any) => void;
 }) {
   const [rows, setRows] = useState<Party[]>([]);
   const [total, setTotal] = useState(0);
@@ -557,7 +560,15 @@ export default function Parties({
                     <tbody>
                       {inOrder<any>(detail.entries, newestFirst).map((e) => (
                         <React.Fragment key={e.id}>
-                          <tr id={`party-entry-${e.id}`} className={`border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : (e as any).issue ? "bg-red-50" : e.needsReview ? "bg-amber-50/50" : ""}`}>
+                          <tr
+                            id={`party-entry-${e.id}`}
+                            onClick={(ev) => {
+                              if ((ev.target as HTMLElement).closest("button, a, input, select, textarea, label")) return;
+                              setEditId(null);
+                              setExpanded(expanded === e.id ? null : e.id);
+                            }}
+                            title="Click for the whole entry and where it came from · پوری تفصیل"
+                            className={`cursor-pointer hover:bg-slate-50 border-t border-slate-50 transition-colors ${e.id === highlightEntryId ? "bg-emerald-100" : (e as any).issue ? "bg-red-50" : e.needsReview ? "bg-amber-50/50" : ""}`}>
                             <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{e.entryDate ? e.entryDate.slice(0, 10) : <span className="text-amber-600">{e.rawDate || "—"}</span>}</td>
                             <td className="px-2 py-1.5 max-w-[260px]">
                               <div className="truncate" dir="auto" title={e.description || ""}>{e.description || "—"}{e.refNo ? ` · ${e.refNo}` : ""}</div>
@@ -649,9 +660,7 @@ export default function Parties({
                                 </div>
                               ) : null}
 
-                              <div className="text-[11px] text-slate-500 mb-2 flex flex-wrap gap-x-4">
-                                <span>Section: {e.sectionLabel}</span>{e.method && <span>Method: {e.method}</span>}<span>Category: {e.category}</span>
-                              </div>
+                              <EntryOrigin kind="ple" id={e.id} onNavigate={onNavigate} />
                               <AttachmentPanel entityType="party_ledger_entry" entityId={e.id} title="Receipts for this entry" />
                             </td></tr>
                           )}
