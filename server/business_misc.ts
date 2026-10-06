@@ -2,9 +2,13 @@
  * Smaller business tools in one place:
  *
  *  Currency rates · کرنسی ریٹ   /api/currency
- *    The rate of each foreign currency (USD, Toman, AFN, AED …) to PKR on a day, entered by you —
- *    the system never assumes a rate. Forms use it to turn "$1,100" into PKR and note the rate.
+ *    The rate of each foreign currency (USD, Toman, AFN, AED …) to PKR on a day. Today's rate is
+ *    fetched from the internet (open.er-api.com — the market reference rate, updated daily) and
+ *    saved as "Auto"; a rate you type for a day wins over it and is never overwritten. Forms use it
+ *    to turn "$1,100" into PKR and note the rate.
  *      GET  /api/currency               latest rate of each code + the last 100 rates
+ *      GET  /api/currency/live?code=    today's rate for one currency (yours if typed, else the internet's)
+ *      POST /api/currency/refresh       fetch today's rates for every currency now
  *      POST /api/currency               { code, date, rate, note }
  *      DELETE /api/currency/:id
  *
@@ -41,6 +45,86 @@ const isDay = (v: any) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
 export const currencyRouter = Router();
 currencyRouter.use(requireAuth, requireApproved);
 export const CURRENCIES: Record<string, string> = { USD: "US Dollar", TMN: "Iranian Toman", IRR: "Iranian Rial", AFN: "Afghani", AED: "UAE Dirham", SAR: "Saudi Riyal", CNY: "Chinese Yuan", EUR: "Euro", GBP: "Pound" };
+
+// ---- today's rates from the internet ----------------------------------------------------------
+const FX_URL = "https://open.er-api.com/v6/latest/USD";
+const AUTO = "Auto · internet (open.er-api.com)";
+let fxCache: { at: number; pkrPer: Record<string, number>; updated: string } | null = null;
+
+/** Pakistan's date today (UTC+5), so a rate fetched at night is filed on the right day. */
+const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+
+/** PKR for one unit of each currency, from the USD table (cached for an hour). */
+export async function fetchLiveRates(force = false): Promise<{ pkrPer: Record<string, number>; updated: string }> {
+  if (!force && fxCache && Date.now() - fxCache.at < 3600_000) return fxCache;
+  const r = await fetch(FX_URL, { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`The rate service answered ${r.status}`);
+  const j: any = await r.json();
+  if (j?.result !== "success" || !j?.rates?.PKR) throw new Error("The rate service gave no PKR rate");
+  const usdPkr = Number(j.rates.PKR);
+  const pkrPer: Record<string, number> = {};
+  for (const code of Object.keys(CURRENCIES)) {
+    if (code === "TMN") continue;
+    const perUsd = Number(j.rates[code]);
+    if (perUsd > 0) pkrPer[code] = usdPkr / perUsd;
+  }
+  if (pkrPer.IRR) pkrPer.TMN = pkrPer.IRR * 10; // 1 Toman = 10 Rial
+  fxCache = { at: Date.now(), pkrPer, updated: String(j.time_last_update_utc || "") };
+  return fxCache;
+}
+
+/** Save today's internet rates (a rate someone typed for today is kept as it is). */
+export async function saveLiveRates(force = false) {
+  const { pkrPer, updated } = await fetchLiveRates(force);
+  const day = pkToday();
+  let saved = 0;
+  for (const [code, rate] of Object.entries(pkrPer)) {
+    const rounded = Number(rate.toPrecision(10)); // 10 significant digits: right for Toman too
+    const out = await rows(sql`insert into currency_rates (code, rate_date, rate, note) values (${code}, ${day}::date, ${rounded}, ${AUTO})
+      on conflict (code, rate_date) do update set rate = excluded.rate, note = excluded.note
+      where currency_rates.note like 'Auto%' returning id`);
+    saved += out.length;
+  }
+  return { saved, day, updated };
+}
+
+export function startCurrencyKeeper() {
+  const tick = () => saveLiveRates(true).catch((e) => console.warn("[currency] could not fetch today's rates:", e?.message));
+  setTimeout(tick, 30_000);
+  setInterval(tick, 6 * 3600_000).unref?.();
+}
+
+currencyRouter.get("/live", requireRole(READ), async (req, res: Response) => {
+  try {
+    const code = String(req.query.code || "USD").toUpperCase();
+    if (!CURRENCIES[code]) return res.status(400).json({ error: "Unknown currency" });
+    const day = pkToday();
+    // a rate you typed for today wins
+    const [mine] = await rows(sql`select rate::float rate, note from currency_rates where code = ${code} and rate_date = ${day}::date and coalesce(note, '') not like 'Auto%'`);
+    if (mine) return res.json({ code, rate: mine.rate, date: day, source: "yours", note: mine.note });
+    try {
+      await saveLiveRates();
+      const { pkrPer, updated } = await fetchLiveRates();
+      if (pkrPer[code]) return res.json({ code, rate: Number(pkrPer[code].toPrecision(10)), date: day, source: "internet", updated });
+    } catch (e: any) {
+      // offline: fall back to the last rate we have
+      const [last] = await rows(sql`select rate::float rate, to_char(rate_date, 'YYYY-MM-DD') d, note from currency_rates where code = ${code} order by rate_date desc limit 1`);
+      if (last) return res.json({ code, rate: last.rate, date: last.d, source: "last saved", note: last.note, warning: `Could not reach the rate service (${e.message}) — this is the last saved rate` });
+      return res.status(502).json({ error: `Could not get today's rate from the internet (${e.message}) — type it in` });
+    }
+    res.status(404).json({ error: "No rate for this currency" });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+currencyRouter.post("/refresh", requireRole(READ), async (_req, res: Response) => {
+  try {
+    res.json(await saveLiveRates(true));
+  } catch (e: any) {
+    res.status(502).json({ error: `Could not reach the rate service: ${e.message}` });
+  }
+});
 
 currencyRouter.get("/", requireRole(READ), async (_req, res: Response) => {
   try {

@@ -385,16 +385,18 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   // foreign money: $1,100 × 284 → PKR 312,400, with the rate written into the description
-  const [fx, setFx] = useState<{ open: boolean; code: string; amount: string; rate: string; rates: any[] }>({ open: false, code: "USD", amount: "", rate: "", rates: [] });
+  const [fx, setFx] = useState<{ open: boolean; code: string; amount: string; rate: string; source: string }>({ open: false, code: "USD", amount: "", rate: "", source: "" });
+  // choose a currency → today's rate comes by itself (yours if you typed one for today, else the internet's)
+  const pickFx = (code: string) => {
+    setFx((f) => ({ ...f, code, rate: "", source: "getting today's rate…" }));
+    enterpriseFetch(`/api/currency/live?code=${code}`)
+      .then((r) => setFx((f) => (f.code === code ? { ...f, rate: String(r.rate), source: r.source === "yours" ? "your rate for today" : r.source === "internet" ? "today's internet rate — change it if you got another" : r.warning || "last saved rate" } : f)))
+      .catch((e) => setFx((f) => ({ ...f, source: e.message })));
+  };
   const openFx = () => {
-    setFx((f) => ({ ...f, open: !f.open }));
-    if (!fx.rates.length)
-      enterpriseFetch("/api/currency")
-        .then((r) => {
-          const first = (r.latest || []).find((x: any) => x.code === "USD") || (r.latest || [])[0];
-          setFx((f) => ({ ...f, rates: r.latest || [], code: first?.code || f.code, rate: first ? String(first.rate) : f.rate }));
-        })
-        .catch(() => {});
+    const opening = !fx.open;
+    setFx((f) => ({ ...f, open: opening }));
+    if (opening && !fx.rate) pickFx(fx.code);
   };
   const fxPkr = Math.round((Number(fx.amount) || 0) * (Number(fx.rate) || 0));
   const applyFx = () => {
@@ -432,15 +434,15 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         {fx.open && (
           <div className="col-span-2 md:col-span-4 rounded-lg border border-[#C9D7EC] bg-white p-3 flex flex-wrap items-end gap-2">
             <label className={lbl}>Currency
-              <select value={fx.code} onChange={(e) => { const r = fx.rates.find((x) => x.code === e.target.value); setFx({ ...fx, code: e.target.value, rate: r ? String(r.rate) : "" }); }} className={inp}>
+              <select value={fx.code} onChange={(e) => pickFx(e.target.value)} className={inp}>
                 {["USD", "TMN", "IRR", "AFN", "AED", "SAR", "CNY", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
               </select>
             </label>
             <label className={lbl}>Amount<input inputMode="decimal" value={fx.amount} onChange={(e) => setFx({ ...fx, amount: e.target.value })} className={`${inp} w-28`} placeholder="1100" /></label>
-            <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value })} className={`${inp} w-28`} placeholder="284" /></label>
+            <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value, source: "your rate" })} className={`${inp} w-28`} placeholder="…" /></label>
             <div className="text-[13px] pb-2">= <b className="tabular-nums">PKR {fxPkr.toLocaleString()}</b></div>
             <Btn size="sm" kind="primary" onClick={applyFx} disabled={!fxPkr}>Use this</Btn>
-            <span className="text-[11px] text-[#9CA3AF] basis-full">The rate is the one you got — saved rates are in Finance → Currency Rates. The description will note the conversion.</span>
+            <span className="text-[11px] text-[#9CA3AF] basis-full">{fx.source}{fx.source ? " · " : ""}The description will note the conversion. All rates: Finance → Currency Rates.</span>
           </div>
         )}
         <label className={`${lbl} col-span-2`}>Person · کس کو / کس سے

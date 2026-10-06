@@ -49,7 +49,7 @@ import approvalsRouter from "./server/approvals.ts";
 import commentsRouter from "./server/comments.ts";
 import searchRouter from "./server/search.ts";
 import stockRouter from "./server/stock.ts";
-import { currencyRouter, customFieldsRouter, depreciationRouter } from "./server/business_misc.ts";
+import { currencyRouter, customFieldsRouter, depreciationRouter, startCurrencyKeeper } from "./server/business_misc.ts";
 import { configureSecurity, centralErrorHandler, globalRateLimiter } from "./src/middleware/security.ts";
 import { SocketServer } from "./src/sockets/socket.ts";
 import { CronScheduler } from "./src/scheduler/cron.ts";
@@ -197,6 +197,7 @@ async function startServer() {
   startBooksKeeper();
   startRecurringKeeper(); // due recurring entries become drafts to approve
   startReminderKeeper(); // automatic payment reminders — only when switched on
+  startCurrencyKeeper(); // today's currency rates from the internet
   console.log(
     `[ERP] listening on 0.0.0.0:${PORT} | env=${process.env.NODE_ENV || "development"} | jwt=${jwtSecretFingerprint()}`
   );
