@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronDown, ChevronRight, Upload } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import { CashCountPanel, CashSummary } from "./CashCount.tsx";
@@ -335,6 +336,10 @@ export default function CashBook({
                     <tr className="bg-[#F2F5FA]">
                       <td colSpan={7} className="px-3 py-3">
                         <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} />
+                        <div className="mt-3">
+                          {/* a receipt here also shows on the khata / party / trip row this entry wrote, and theirs here */}
+                          <AttachmentPanel entityType="cash_transaction" entityId={r.id} title="Receipts for this entry · رسیدیں" />
+                        </div>
                       </td>
                     </tr>
                   )}
