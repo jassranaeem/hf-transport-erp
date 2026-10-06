@@ -314,7 +314,7 @@ export default function WorkbookShell({
   const renderSheet = (sheet: SheetDef) => {
     if (sheet.kind === "entity") {
       return (
-        <div className="h-full p-3" key={`ent-${sheet.entityKey}-${refreshKey}`}>
+        <div className="h-full p-4 md:p-6" key={`ent-${sheet.entityKey}-${refreshKey}`}>
           <EntitySheet
             entityKey={sheet.entityKey!}
             title={sheet.label}
@@ -354,7 +354,8 @@ export default function WorkbookShell({
   useEffect(() => {
     if (activeWb) setOpenWbs((s) => (s.has(activeWb.id) ? s : new Set([...s, activeWb.id])));
   }, [activeWb?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const en = (label: string) => label.split(" · ")[0];
+  // the English part: drop only the Urdu " · …" parts (an English label may itself contain " · ")
+  const en = (label: string) => label.split(" · ").filter((p) => !/[؀-ۿ]/.test(p)).join(" · ") || label;
   const pickSheet = (wbId: string, sheetId: string) => {
     setNav({ wb: wbId, sheet: sheetId });
     setFocus(null);

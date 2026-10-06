@@ -82,70 +82,75 @@ export default function BalanceFlow({
     }
   };
 
-  const box = "rounded-lg border px-3 py-2 min-w-0";
-  const sym = "self-center text-lg font-bold text-slate-400 hidden md:block";
+  // one strip: Opening + In − Out = Now (the operators show once there is room for them)
+  const cell = "px-4 py-3 min-w-0";
+  const sym = "hidden xl:flex items-center justify-center w-6 text-base font-semibold text-[#9CA3AF]";
+  const label = "text-[11.5px] text-[#6B7280] truncate";
+  const num = "text-[17px] font-semibold tabular-nums leading-tight mt-0.5 truncate";
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        {([
-          ["all", "All · سب"],
-          ["month", "This month · یہ مہینہ"],
-          ["year", "This year · یہ سال"],
-          ["dates", "Dates · تاریخیں"],
-        ] as const).map(([k, l]) => (
-          <button
-            key={k}
-            onClick={() => onPeriod(presets(k))}
-            className={`rounded-lg px-2.5 py-1 border ${period.key === k ? "bg-slate-800 border-slate-800 text-white font-semibold" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}`}
-          >
-            {l}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="inline-flex flex-wrap max-w-full rounded-lg border border-[#CBD5E1] bg-white p-0.5">
+          {([
+            ["all", "All · سب"],
+            ["month", "This month · یہ مہینہ"],
+            ["year", "This year · یہ سال"],
+            ["dates", "Dates · تاریخیں"],
+          ] as const).map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => onPeriod(presets(k))}
+              className={`rounded-md px-2.5 py-1 whitespace-nowrap ${period.key === k ? "bg-[#24539B] text-white font-semibold" : "text-[#4B5563] hover:bg-[#F4F6FA]"}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
         {period.key === "dates" && (
           <>
-            <input type="date" className="border border-slate-300 rounded px-1.5 py-0.5" value={period.from} onChange={(e) => onPeriod({ ...period, from: e.target.value })} />
-            <span className="text-slate-400">→</span>
-            <input type="date" className="border border-slate-300 rounded px-1.5 py-0.5" value={period.to} onChange={(e) => onPeriod({ ...period, to: e.target.value })} />
+            <input type="date" className="border border-[#CBD5E1] rounded-md px-2 py-1" value={period.from} onChange={(e) => onPeriod({ ...period, from: e.target.value })} />
+            <span className="text-[#9CA3AF]">→</span>
+            <input type="date" className="border border-[#CBD5E1] rounded-md px-2 py-1" value={period.to} onChange={(e) => onPeriod({ ...period, to: e.target.value })} />
           </>
         )}
         {period.key !== "all" && period.from && (
-          <span className="text-slate-400">{period.from.split("-").reverse().join(".")} – {(period.to || "").split("-").reverse().join(".")}</span>
+          <span className="text-[#9CA3AF]">{period.from.split("-").reverse().join(".")} – {(period.to || "").split("-").reverse().join(".")}</span>
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] gap-2 items-stretch">
-        <div className={`${box} border-slate-200 bg-slate-50`}>
-          <div className="text-[11px] text-slate-500 flex items-center gap-1">
-            {period.key === "all" ? "Opening balance · ابتدائی بیلنس" : "Balance before · پہلے کا بقایا"}
-            <button onClick={startEdit} title="Set / change the opening balance" className="ml-auto text-slate-400 hover:text-slate-800"><Pencil className="w-3 h-3" /></button>
+      <div className="rounded-xl border border-[#E3E8EF] bg-white grid grid-cols-2 xl:flex xl:items-stretch overflow-hidden">
+        <div className={`${cell} xl:flex-1 bg-[#F8FAFC]`}>
+          <div className={`${label} flex items-center gap-1`}>
+            <span className="truncate">{period.key === "all" ? "Opening balance · ابتدائی" : "Balance before · پہلے کا"}</span>
+            <button onClick={startEdit} title="Set / change the opening balance" className="ml-auto shrink-0 text-[#9CA3AF] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
           </div>
-          <div className="font-bold tabular-nums text-slate-800">{fmt(balance.opening)}</div>
-          {period.key !== "all" && balance.openingBalance ? <div className="text-[10px] text-slate-400">incl. opening {fmt(balance.openingBalance)}</div> : null}
+          <div className={`${num} text-[#111827]`}>{fmt(balance.opening)}</div>
+          {period.key !== "all" && balance.openingBalance ? <div className="text-[11px] text-[#9CA3AF] truncate">incl. opening {fmt(balance.openingBalance)}</div> : null}
         </div>
         <div className={sym}>+</div>
-        <div className={`${box} border-emerald-200 bg-emerald-50`}>
-          <div className="text-[11px] text-emerald-800">{truck ? "Received · آیا" : "We gave · دیا (نام)"}</div>
-          <div className="font-bold tabular-nums text-emerald-800">{fmt(inAmt)}</div>
+        <div className={`${cell} xl:flex-1 border-l border-[#EEF1F5] xl:border-l-0`}>
+          <div className={label}>{truck ? "Received · آیا" : "We gave · دیا (نام)"}</div>
+          <div className={`${num} text-[#166534]`}>{fmt(inAmt)}</div>
         </div>
         <div className={sym}>−</div>
-        <div className={`${box} border-red-200 bg-red-50`}>
-          <div className="text-[11px] text-red-800">{truck ? "Paid / spent · خرچ" : "We received · ملا (جمع)"}</div>
-          <div className="font-bold tabular-nums text-red-700">{fmt(outAmt)}</div>
+        <div className={`${cell} xl:flex-1 border-t xl:border-t-0 border-[#EEF1F5]`}>
+          <div className={label}>{truck ? "Paid / spent · خرچ" : "We received · ملا (جمع)"}</div>
+          <div className={`${num} text-[#B91C1C]`}>{fmt(outAmt)}</div>
         </div>
         <div className={sym}>=</div>
-        <div className={`${box} ${closing < 0 ? "border-red-300 bg-white" : "border-slate-800 bg-white"}`}>
-          <div className="text-[11px] text-slate-500">{closingLabel}</div>
-          <div className={`text-lg font-extrabold tabular-nums ${closing < 0 ? "text-red-700" : "text-slate-900"}`}>{truck ? fmt(closing) : fmt(Math.abs(closing))}</div>
+        <div className={`${cell} xl:flex-1 border-t border-l xl:border-t-0 border-[#EEF1F5] ${closing < 0 ? "bg-[#FEF2F2]" : "bg-[#EAF0F8]"}`}>
+          <div className={`${label} font-medium`}>{closingLabel}</div>
+          <div className={`text-[19px] font-bold tabular-nums leading-tight mt-0.5 truncate ${closing < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`}>{truck ? fmt(closing) : fmt(Math.abs(closing))}</div>
         </div>
       </div>
 
-      <div className="text-[11px] text-slate-500" dir="auto">
+      <div className="text-[12px] text-[#6B7280]" dir="auto">
         {truck ? (
           <>
             {period.key === "all" ? "Profit · منافع" : "Profit in these dates · اس مدت کا منافع"} = received − spent = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
             {" "}· the opening balance is money from before — it is not profit · ابتدائی بیلنس منافع نہیں
             {balance.driverCash && (
-              <div className="mt-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5 text-[12px] text-slate-700">
+              <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12.5px] text-[#374151]">
                 Driver's cash · ڈرائیور کی نقد: given <b>{fmt(balance.driverCash.given)}</b> − spent out of it <b>{fmt(balance.driverCash.spent)}</b>
                 {balance.driverCash.returned ? <> − returned <b>{fmt(balance.driverCash.returned)}</b></> : null} = <b className="text-amber-800">still with the driver {fmt(balance.driverCash.withDriver)}</b>
                 <span className="text-slate-500"> · ڈرائیور کے پاس باقی — when he returns it or brings the slips, enter it</span>
@@ -164,7 +169,7 @@ export default function BalanceFlow({
       </div>
 
       {editing && (
-        <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-300 bg-white p-2.5 text-xs">
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[#C9D7EC] bg-[#F7F9FD] p-3 text-xs">
           <label className="flex flex-col gap-0.5">
             <span className="text-slate-500">Opening balance · ابتدائی بیلنس</span>
             <input autoFocus inputMode="numeric" className="border border-slate-300 rounded px-2 py-1 w-36 tabular-nums" value={amt} onChange={(e) => setAmt(e.target.value.replace(/[^\d]/g, ""))} onKeyDown={(e) => e.key === "Enter" && save()} placeholder="PKR" />
@@ -174,7 +179,7 @@ export default function BalanceFlow({
               ? ([[1, "In hand / to its credit · جمع"], [-1, "Short / owed · نام"]] as const)
               : ([[1, "Party owes HFK · لینا ہے"], [-1, "HFK owes party · دینا ہے"]] as const)
             ).map(([v, l]) => (
-              <button key={v} onClick={() => setSign(v)} className={`rounded px-2.5 py-1 border ${sign === v ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600"}`}>
+              <button key={v} onClick={() => setSign(v)} className={`rounded-md px-2.5 py-1.5 border ${sign === v ? "bg-[#24539B] border-[#24539B] text-white" : "bg-white border-[#CBD5E1] text-[#4B5563]"}`}>
                 {l}
               </button>
             ))}
@@ -185,7 +190,7 @@ export default function BalanceFlow({
               <input type="date" className="border border-slate-300 rounded px-2 py-1" value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
           )}
-          <button onClick={save} disabled={saving} className="inline-flex items-center gap-1 rounded px-3 py-1.5 bg-emerald-600 text-white font-semibold disabled:opacity-60">
+          <button onClick={save} disabled={saving} className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 bg-[#24539B] text-white font-semibold disabled:opacity-60">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Save
           </button>
           <button onClick={() => setEditing(false)} className="text-slate-500 p-1"><X className="w-4 h-4" /></button>

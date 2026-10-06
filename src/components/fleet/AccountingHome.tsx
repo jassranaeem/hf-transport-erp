@@ -5,8 +5,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Calculator, ShieldCheck, BookOpenCheck, Landmark, FileBarChart, Receipt, Wallet, ListTree, ArrowRight, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, CalendarDays, CalendarRange, CalendarClock, Bot,
+  CheckCircle2, AlertTriangle, CalendarDays, CalendarRange, CalendarClock, Bot, ChevronRight,
 } from "lucide-react";
+import { PageHeader, Btn } from "../ui/kit.tsx";
 import { enterpriseFetch } from "../../../client/api.ts";
 
 type Nav = (wb: string, sheet: string, focus?: any) => void;
@@ -63,22 +64,28 @@ export default function AccountingHome({ onNavigate }: { showFeedback?: any; onN
   const go = (wb: string, sheet: string) => onNavigate?.(wb, sheet);
 
   return (
-    <div className="p-3 space-y-5">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="flex-1 min-w-0 basis-72 space-y-1">
-          <h2 className="text-lg font-bold flex items-center gap-2"><Calculator className="w-5 h-5" /> Accounting <span className="text-[#9CA3AF] font-normal">· اکاؤنٹنگ</span></h2>
+    <div className="space-y-5">
+      <PageHeader
+        title="Accounting"
+        urdu="اکاؤنٹنگ"
+        icon={<Calculator />}
+        subtitle="The company's accounts, kept by the system itself — today's state of each part · ہر حصے کی آج کی حالت"
+        actions={<Btn kind="secondary" onClick={load} icon={loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}>Refresh · تازہ کریں</Btn>}
+      />
+      <details className="rounded-xl border border-[#E3E8EF] bg-white px-4 py-3 group">
+        <summary className="cursor-pointer text-[13px] font-medium text-[#24539B] list-none flex items-center gap-1.5">
+          <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" /> How the system keeps the accounts · سسٹم حساب کیسے رکھتا ہے
+        </summary>
+        <div className="mt-2 space-y-1">
           <p className="text-[13px] text-[#374151]">
-            The company's accounts, kept by the system itself: it builds one double-entry book from every module, finds mistakes and keeps them red until corrected, matches the banks,
+            It builds one double-entry book from every module, finds mistakes and keeps them red until corrected, matches the banks,
             and prepares the year's statements and tax figures for the chartered accountant.
           </p>
           <p className="text-[14px] text-[#374151] leading-8" dir="rtl" lang="ur">
             کمپنی کا حساب، جو سسٹم خود رکھتا ہے: ہر ماڈیول سے ایک ڈبل انٹری کتاب بناتا ہے، غلطیاں ڈھونڈ کر جب تک ٹھیک نہ ہوں لال رکھتا ہے، بینک ملاتا ہے، اور سال کے حسابات اور ٹیکس کے اعداد چارٹرڈ اکاؤنٹنٹ کے لیے تیار رکھتا ہے۔
           </p>
         </div>
-        <button onClick={load} className="inline-flex items-center gap-1.5 text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5 hover:bg-[#F9FAFB]">
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh · تازہ کریں
-        </button>
-      </div>
+      </details>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <Card icon={Bot} title="AI Accountant" urdu="اے آئی منشی" live={live.ai} onOpen={() => go("accounting", "ai_accountant")} when="All day — tell it what happened" whenUr="سارا دن — جو ہوا اسے بتائیں"
@@ -107,8 +114,8 @@ export default function AccountingHome({ onNavigate }: { showFeedback?: any; onN
           ur="کھاتوں کی فہرست، ہر جرنل انٹری اور جرنل لائن، اور کمپنی کے بینک اکاؤنٹ۔ سسٹم کی بنائی ہوئی انٹریاں کھاتوں سے خود دوبارہ بنتی ہیں — درستی اصل کھاتے کی انٹری میں کریں، جرنل میں نہیں۔" />
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
-        <div className="font-bold text-sm">The routine · معمول</div>
+      <div className="rounded-xl border border-[#E3E8EF] bg-white p-4 space-y-3">
+        <div className="font-semibold text-[14px] text-[#111827]">The routine · معمول</div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Routine icon={CalendarDays} title="Every day" ur="روزانہ"
             en={["Enter every cash in / out in the Daily Cash Book, linked to its truck or party — or just tell the AI Accountant and approve its drafts.", "Count the cash in the evening.", "Open Books Check and clear the red."]}
@@ -137,7 +144,7 @@ function LiveLine({ v }: { v: Live | null | undefined }) {
   if (v === null) return null;
   const Icon = v.tone === "good" ? CheckCircle2 : v.tone === "plain" ? null : AlertTriangle;
   return (
-    <div className={`text-[11px] font-semibold rounded-lg border px-2 py-1 flex items-start gap-1 ${TONE[v.tone]}`}>
+    <div className={`text-[12px] font-medium rounded-lg border px-2.5 py-1.5 flex items-start gap-1.5 ${TONE[v.tone]}`}>
       {Icon && <Icon className="w-3.5 h-3.5 shrink-0 mt-px" />} <span>{v.text}</span>
     </div>
   );
@@ -146,23 +153,30 @@ function LiveLine({ v }: { v: Live | null | undefined }) {
 function Card({ icon: Icon, title, urdu, en, ur, when, whenUr, live, extra, onOpen, openLabel }: {
   icon: any; title: string; urdu: string; en: string; ur: string; when: string; whenUr: string; live: Live | null | undefined; extra?: Live | null; onOpen: () => void; openLabel?: string;
 }) {
+  const [more, setMore] = useState(false);
   return (
-    <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="w-8 h-8 rounded-lg bg-[#F2F5FA] text-[#24539B] flex items-center justify-center shrink-0"><Icon className="w-4 h-4" /></span>
-        <div className="font-bold text-sm">{title} <span className="text-[#6B7280] font-normal">· {urdu}</span></div>
+    <div className="rounded-xl border border-[#E3E8EF] bg-white p-4 flex flex-col gap-2.5 shadow-[0_1px_2px_rgba(16,24,40,.04)] hover:border-[#C9D7EC] transition-colors">
+      <div className="flex items-start gap-2.5">
+        <span className="w-9 h-9 rounded-lg bg-[#EAF0F8] text-[#24539B] flex items-center justify-center shrink-0"><Icon className="w-[18px] h-[18px]" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-[14px] text-[#111827] leading-tight">{title} <span className="text-[#9CA3AF] font-normal text-[13px]">· {urdu}</span></div>
+          <div className="text-[11.5px] text-[#6B7280] mt-0.5">{when} · <span dir="rtl" lang="ur">{whenUr}</span></div>
+        </div>
       </div>
       <LiveLine v={live} />
       {extra && <LiveLine v={extra} />}
-      <p className="text-[12px] text-[#374151]">{en}</p>
-      <p className="text-[13px] text-[#374151] leading-7" dir="rtl" lang="ur">{ur}</p>
-      <div className="text-[11px] text-[#6B7280] flex flex-wrap justify-between gap-x-3">
-        <span>When: {when}</span>
-        <span dir="rtl" lang="ur">کب: {whenUr}</span>
-      </div>
-      <div className="mt-auto pt-1">
-        <button onClick={onOpen} className="inline-flex items-center gap-1 text-xs font-semibold text-[#24539B] hover:underline">
+      {more && (
+        <div className="space-y-1.5 border-t border-[#EEF1F5] pt-2">
+          <p className="text-[12.5px] text-[#374151] leading-relaxed">{en}</p>
+          <p className="text-[13px] text-[#374151] leading-7" dir="rtl" lang="ur">{ur}</p>
+        </div>
+      )}
+      <div className="mt-auto pt-1 flex items-center gap-3">
+        <button onClick={onOpen} className="inline-flex items-center gap-1 rounded-lg bg-[#24539B] text-white text-[12.5px] font-medium px-3 py-1.5 hover:bg-[#1E4480]">
           {openLabel || `Open ${title}`} <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => setMore((m) => !m)} className="text-[12px] text-[#6B7280] hover:text-[#24539B]">
+          {more ? "Less" : "What it does · تفصیل"}
         </button>
       </div>
     </div>
@@ -171,7 +185,7 @@ function Card({ icon: Icon, title, urdu, en, ur, when, whenUr, live, extra, onOp
 
 function Routine({ icon: Icon, title, ur, en, urList }: { icon: any; title: string; ur: string; en: string[]; urList: string[] }) {
   return (
-    <div className="rounded-lg bg-[#F9FAFB] p-3 space-y-2">
+    <div className="rounded-lg bg-[#F8FAFC] border border-[#EEF1F5] p-3 space-y-2">
       <div className="font-semibold text-xs flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {title} · {ur}</div>
       <ol className="list-decimal pl-4 text-[12px] text-[#374151] space-y-0.5">{en.map((t) => <li key={t}>{t}</li>)}</ol>
       <ol className="list-decimal pr-4 text-[13px] text-[#374151] leading-7" dir="rtl" lang="ur">{urList.map((t) => <li key={t}>{t}</li>)}</ol>

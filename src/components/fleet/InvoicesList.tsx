@@ -17,14 +17,15 @@ import {
   FileText, Plus, Printer, RefreshCw, Loader2, Search, Wallet, ArrowLeft, CheckCircle, Pencil, Trash2, History, Undo2,
 } from "lucide-react";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import { PageHeader, Btn, Card, KpiStrip, Empty } from "../ui/kit.tsx";
 
 const PKR = (n: number) => "Rs " + Math.round(n || 0).toLocaleString("en-PK");
 const d = (s: string) => (s ? new Date(s).toLocaleDateString("en-GB") : "—");
 
 const STATUS_STYLE: Record<string, string> = {
-  Paid: "bg-[#E6ECF6] text-[#173563]",
-  "Partially Paid": "bg-[#F3F4F6] text-[#374151]",
-  Unpaid: "bg-[#FFE0E0] text-[#8C0004]",
+  Paid: "bg-[#DCFCE7] text-[#166534]",
+  "Partially Paid": "bg-[#FEF3C7] text-[#92400E]",
+  Unpaid: "bg-[#EEF2F7] text-[#374151]",
 };
 
 export default function InvoicesList({
@@ -148,9 +149,7 @@ export default function InvoicesList({
     const backTo = () => { setCreating(false); setEditingId(null); };
     return (
       <div className="space-y-3">
-        <button onClick={backTo} className="text-xs flex items-center gap-1.5 text-slate-600 hover:text-slate-900">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to invoices
-        </button>
+        <Btn kind="ghost" size="sm" onClick={backTo} icon={<ArrowLeft />}>Back to invoices</Btn>
         <NewInvoice
           showFeedback={showFeedback}
           editInvoiceId={editingId ?? undefined}
@@ -160,61 +159,65 @@ export default function InvoicesList({
     );
   }
 
+  const lbl = "flex flex-col gap-1 text-[11.5px] font-medium text-[#4B5563]";
+  const inp = "border border-[#CBD5E1] rounded-lg px-3 py-2 text-[13px] text-[#111827] bg-white";
+  const STATUSES = ["", "Unpaid", "Partially Paid", "Paid", "Overdue"];
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <h2 className="text-base font-bold flex items-center gap-2">
-            <FileText className="w-4 h-4" /> Invoices <span className="text-[#9CA3AF] font-normal text-sm">· انوائسز</span>
-          </h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">Every invoice in one place — view / print, record payments, outstanding &amp; overdue. · ہر انوائس ایک جگہ۔</p>
+      <PageHeader
+        title="Invoices"
+        urdu="انوائسز"
+        subtitle={<span dir="auto">Every invoice in one place — view / print, record payments, outstanding &amp; overdue · ہر انوائس ایک جگہ</span>}
+        actions={
+          <>
+            <Btn kind="ghost" onClick={load} disabled={loading} title="Refresh · تازہ کریں" icon={loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} />
+            <ModuleDataIO entityKey="invoices" label="Invoices" onImported={load} />
+            <Btn kind="primary" onClick={() => setCreating(true)} icon={<Plus />}>New invoice · نیا انوائس</Btn>
+          </>
+        }
+      />
+
+      <KpiStrip
+        items={[
+          { label: "Invoices", value: totals.count.toLocaleString() },
+          { label: "Total billed · کل بل", value: PKR(totals.billed) },
+          { label: "Outstanding · باقی", value: PKR(totals.out), tone: totals.out ? "warn" : undefined },
+          { label: "Overdue · مدت گزر گئی", value: PKR(totals.overdue), tone: totals.overdue ? "bad" : undefined, onClick: totals.overdue ? () => setStatusFilter("Overdue") : undefined },
+        ]}
+      />
+
+      <Card className="overflow-hidden" bodyClassName="">
+        <div className="flex flex-wrap items-center gap-2 px-3 pt-1 border-b border-[#EEF1F5]">
+          <div className="flex items-end gap-1 overflow-x-auto no-scrollbar">
+            {STATUSES.map((s) => (
+              <button
+                key={s || "all"}
+                onClick={() => setStatusFilter(s)}
+                className={`px-3 py-2.5 -mb-px border-b-2 text-[13px] whitespace-nowrap ${statusFilter === s ? "border-[#24539B] text-[#24539B] font-semibold" : "border-transparent text-[#6B7280] hover:text-[#1F2937]"}`}
+              >
+                {s || "All"}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2 border border-[#CBD5E1] rounded-lg px-2.5 bg-white my-1.5 w-full sm:w-64">
+            <Search className="w-4 h-4 text-[#9CA3AF] shrink-0" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Number / client / trip… · تلاش" className="text-[13px] py-1.5 w-full outline-none border-0" style={{ boxShadow: "none" }} />
+          </div>
         </div>
-        <div className="flex-1" />
-        <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Refresh
-        </button>
-        <ModuleDataIO entityKey="invoices" label="Invoices" onImported={load} />
-        <button onClick={() => setCreating(true)} className="h-9 px-4 rounded-lg bg-[#24539B] text-white text-sm font-semibold flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> New Invoice · نیا انوائس
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Tile label="Invoices" value={String(totals.count)} />
-        <Tile label="Total billed" value={PKR(totals.billed)} />
-        <Tile label="Outstanding" value={PKR(totals.out)} tone={totals.out ? "warn" : "ok"} />
-        <Tile label="Overdue" value={PKR(totals.overdue)} tone={totals.overdue ? "bad" : "ok"} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 border border-[#E5E7EB] rounded-lg px-2 bg-white flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 text-slate-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search number / client / trip…" className="text-sm py-1.5 w-full outline-none" />
-        </div>
-        {["", "Unpaid", "Partially Paid", "Paid", "Overdue"].map((s) => (
-          <button
-            key={s || "all"}
-            onClick={() => setStatusFilter(s)}
-            className={`text-xs rounded-full px-2.5 py-1 ${statusFilter === s ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}
-          >
-            {s || "All"}
-          </button>
-        ))}
-      </div>
-
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-[#F9FAFB] text-[#6B7280]">
-              <tr>
-                <th className="text-left px-2 py-1.5">Invoice #</th>
-                <th className="text-left px-2 py-1.5">Date</th>
-                <th className="text-left px-2 py-1.5">Client</th>
-                <th className="text-left px-2 py-1.5">Trip</th>
-                <th className="text-right px-2 py-1.5">Total</th>
-                <th className="text-right px-2 py-1.5">Balance</th>
-                <th className="text-left px-2 py-1.5">Status</th>
-                <th className="px-2 py-1.5"></th>
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
+              <tr className="border-b border-[#E3E8EF]">
+                <th className="text-left px-3 py-2">Invoice #</th>
+                <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">Client</th>
+                <th className="text-left px-3 py-2">Trip</th>
+                <th className="text-right px-3 py-2">Total</th>
+                <th className="text-right px-3 py-2">Balance due</th>
+                <th className="text-left px-3 py-2">Status</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -222,65 +225,69 @@ export default function InvoicesList({
                 const isOverdue = new Date(r.dueDate).getTime() < Date.now() && r.outstandingBalance > 0;
                 return (
                   <React.Fragment key={r.id}>
-                    <tr className="border-t border-[#F3F4F6]">
-                      <td className="px-2 py-1.5 font-semibold whitespace-nowrap">{r.invoiceNumber}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{d(r.invoiceDate)}</td>
-                      <td className="px-2 py-1.5" dir="auto">{r.contractorName || "—"}</td>
-                      <td className="px-2 py-1.5 text-slate-500">{r.tripNumber || "—"}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{PKR(r.totalAmount)}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B00005]" : "text-[#1E4480]"}`}>{PKR(r.outstandingBalance)}</td>
-                      <td className="px-2 py-1.5">
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${isOverdue ? "bg-[#FFE0E0] text-[#8C0004]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
-                          {isOverdue ? "OVERDUE" : (r.status || "").toUpperCase()}
+                    <tr
+                      className="group border-t border-[#F1F4F9] hover:bg-[#F8FAFC] cursor-pointer"
+                      title="Click to view / print · دیکھنے کے لیے کلک کریں"
+                      onClick={(ev) => {
+                        if ((ev.target as HTMLElement).closest("button, a, input, select")) return;
+                        setViewId(r.id);
+                      }}
+                    >
+                      <td className="px-3 py-2.5 font-semibold text-[#24539B] whitespace-nowrap">{r.invoiceNumber}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-[#6B7280] tabular-nums">{d(r.invoiceDate)}</td>
+                      <td className="px-3 py-2.5 text-[#1F2937]" dir="auto">{r.contractorName || "—"}</td>
+                      <td className="px-3 py-2.5 text-[#6B7280]">{r.tripNumber || "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-[#111827]">{PKR(r.totalAmount)}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${r.outstandingBalance > 0 ? "text-[#B91C1C]" : "text-[#9CA3AF]"}`}>{PKR(r.outstandingBalance)}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${isOverdue ? "bg-[#FEE2E2] text-[#991B1B]" : STATUS_STYLE[r.status] || "bg-slate-100 text-slate-600"}`}>
+                          {isOverdue ? "Overdue" : r.status || "—"}
                         </span>
                       </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap text-right">
-                        <button onClick={() => setViewId(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="View / Print / Download">
-                          <Printer className="w-3.5 h-3.5" /> View
-                        </button>
-                        <button onClick={() => setEditingId(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="Edit this invoice">
-                          <Pencil className="w-3.5 h-3.5" /> Edit
-                        </button>
-                        {r.outstandingBalance > 0 && (
-                          <button onClick={() => markPaid(r)} disabled={posting} className="text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 mr-2" title="The whole balance received — mark as paid">
-                            <CheckCircle className="w-3.5 h-3.5" /> Mark paid
-                          </button>
-                        )}
-                        {r.outstandingBalance > 0 && (
-                          <button onClick={() => { setPayFor(payFor === r.id ? null : r.id); setPayForm((f: any) => ({ ...f, amount: String(r.outstandingBalance) })); }} className="text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 mr-2" title="Record a (part) payment">
-                            <Wallet className="w-3.5 h-3.5" /> Payment
-                          </button>
-                        )}
-                        <button onClick={() => openHistory(r.id)} className="text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 mr-2" title="Payments received — undo a wrong one">
-                          <History className="w-3.5 h-3.5" /> Payments
-                        </button>
-                        <button
-                          onClick={() => deleteInvoice(r)}
-                          className="text-slate-400 hover:text-red-700 inline-flex items-center"
-                          title={(r.paidAmount || 0) > 0 ? "Undo its payments first, then delete" : "Delete this invoice"}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <td className="px-3 py-2 whitespace-nowrap text-right">
+                        <span className="inline-flex items-center gap-1">
+                          {r.outstandingBalance > 0 && (
+                            <Btn size="sm" kind="outline" icon={<Wallet />} title="Record a (part) payment" onClick={() => { setPayFor(payFor === r.id ? null : r.id); setPayForm((f: any) => ({ ...f, amount: String(r.outstandingBalance) })); }}>
+                              Payment
+                            </Btn>
+                          )}
+                          <span className="opacity-50 group-hover:opacity-100 transition-opacity inline-flex items-center">
+                            <button onClick={() => setViewId(r.id)} className="p-1.5 rounded text-[#6B7280] hover:text-[#24539B] hover:bg-white" title="View / Print / Download"><Printer className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setEditingId(r.id)} className="p-1.5 rounded text-[#6B7280] hover:text-[#24539B] hover:bg-white" title="Edit this invoice"><Pencil className="w-3.5 h-3.5" /></button>
+                            {r.outstandingBalance > 0 && (
+                              <button onClick={() => markPaid(r)} disabled={posting} className="p-1.5 rounded text-[#6B7280] hover:text-[#166534] hover:bg-white" title="The whole balance received — mark as paid"><CheckCircle className="w-3.5 h-3.5" /></button>
+                            )}
+                            <button onClick={() => openHistory(r.id)} className="p-1.5 rounded text-[#6B7280] hover:text-[#24539B] hover:bg-white" title="Payments received — undo a wrong one"><History className="w-3.5 h-3.5" /></button>
+                            <button
+                              onClick={() => deleteInvoice(r)}
+                              className="p-1.5 rounded text-[#6B7280] hover:text-red-700 hover:bg-white"
+                              title={(r.paidAmount || 0) > 0 ? "Undo its payments first, then delete" : "Delete this invoice"}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        </span>
                       </td>
                     </tr>
                     {histFor === r.id && (
-                      <tr className="bg-[#F9FAFB]">
-                        <td colSpan={8} className="px-3 py-2">
+                      <tr className="bg-[#F8FAFC]">
+                        <td colSpan={8} className="px-4 py-3">
+                          <div className="text-[12px] font-semibold text-[#374151] mb-1.5">Payments received · وصولیاں</div>
                           {!hist ? (
-                            <span className="text-slate-500 flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading payments…</span>
+                            <span className="text-[#6B7280] flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading payments…</span>
                           ) : hist.length === 0 ? (
-                            <span className="text-slate-500">No payments on this invoice yet · ابھی کوئی ادائیگی نہیں</span>
+                            <span className="text-[#6B7280]">No payments on this invoice yet · ابھی کوئی ادائیگی نہیں</span>
                           ) : (
-                            <table className="w-full text-xs">
+                            <table className="w-full text-[12.5px] bg-white border border-[#E3E8EF] rounded-lg">
                               <tbody>
                                 {hist.map((p: any) => (
-                                  <tr key={p.id} className="border-t border-[#EEF0F3]">
-                                    <td className="px-2 py-1 whitespace-nowrap">{d(p.paymentDate)}</td>
-                                    <td className="px-2 py-1">{p.paymentMethod}</td>
-                                    <td className="px-2 py-1 text-right tabular-nums font-semibold">{PKR(p.amount)}</td>
-                                    <td className="px-2 py-1 text-slate-500" dir="auto">{[p.referenceNumber, p.notes].filter(Boolean).join(" · ")}</td>
-                                    <td className="px-2 py-1 text-right">
-                                      <button onClick={() => undoPayment(r.id, p)} className="inline-flex items-center gap-1 text-slate-500 hover:text-red-700" title="Undo this payment">
+                                  <tr key={p.id} className="border-t border-[#EEF1F5] first:border-t-0">
+                                    <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{d(p.paymentDate)}</td>
+                                    <td className="px-3 py-1.5">{p.paymentMethod}</td>
+                                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{PKR(p.amount)}</td>
+                                    <td className="px-3 py-1.5 text-[#6B7280]" dir="auto">{[p.referenceNumber, p.notes].filter(Boolean).join(" · ")}</td>
+                                    <td className="px-3 py-1.5 text-right">
+                                      <button onClick={() => undoPayment(r.id, p)} className="inline-flex items-center gap-1 text-[#6B7280] hover:text-red-700" title="Undo this payment">
                                         <Undo2 className="w-3.5 h-3.5" /> Undo · واپس
                                       </button>
                                     </td>
@@ -293,27 +300,25 @@ export default function InvoicesList({
                       </tr>
                     )}
                     {payFor === r.id && (
-                      <tr className="bg-[#F2F5FA]">
-                        <td colSpan={8} className="px-3 py-3">
-                          <div className="flex flex-wrap items-end gap-2 text-xs">
-                            <label className="flex flex-col text-[10px] text-slate-500">Method
-                              <select value={payForm.paymentMethod} onChange={(e) => setPayForm({ ...payForm, paymentMethod: e.target.value })} className="border rounded px-2 py-1 text-slate-800">
+                      <tr className="bg-[#F4F7FC]">
+                        <td colSpan={8} className="px-4 py-3">
+                          <div className="flex flex-wrap items-end gap-3">
+                            <label className={lbl}>Method
+                              <select value={payForm.paymentMethod} onChange={(e) => setPayForm({ ...payForm, paymentMethod: e.target.value })} className={inp}>
                                 {["Bank Transfer", "Cash", "Cheque", "Online", "Card"].map((m) => <option key={m}>{m}</option>)}
                               </select>
                             </label>
-                            <label className="flex flex-col text-[10px] text-slate-500">Amount
-                              <input value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value.replace(/[^\d]/g, "") })} className="border rounded px-2 py-1 text-slate-800 font-semibold" />
+                            <label className={lbl}>Amount
+                              <input value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value.replace(/[^\d]/g, "") })} className={`${inp} font-semibold tabular-nums w-36`} />
                             </label>
-                            <label className="flex flex-col text-[10px] text-slate-500">Reference
-                              <input value={payForm.referenceNumber} onChange={(e) => setPayForm({ ...payForm, referenceNumber: e.target.value })} className="border rounded px-2 py-1 text-slate-800" />
+                            <label className={lbl}>Reference
+                              <input value={payForm.referenceNumber} onChange={(e) => setPayForm({ ...payForm, referenceNumber: e.target.value })} className={inp} />
                             </label>
-                            <label className="flex flex-col text-[10px] text-slate-500 flex-1 min-w-[160px]">Notes
-                              <input value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} className="border rounded px-2 py-1 text-slate-800" />
+                            <label className={`${lbl} flex-1 min-w-[160px]`}>Notes
+                              <input value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} className={inp} />
                             </label>
-                            <button onClick={() => recordPayment(r.id)} disabled={posting} className="bg-emerald-600 text-white rounded px-3 py-1.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
-                              {posting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Record
-                            </button>
-                            <button onClick={() => setPayFor(null)} className="border border-slate-300 rounded px-3 py-1.5 text-xs">Cancel</button>
+                            <Btn kind="primary" onClick={() => recordPayment(r.id)} disabled={posting} icon={posting ? <Loader2 className="animate-spin" /> : <CheckCircle />}>Record payment</Btn>
+                            <Btn onClick={() => setPayFor(null)}>Cancel</Btn>
                           </div>
                         </td>
                       </tr>
@@ -322,28 +327,24 @@ export default function InvoicesList({
                 );
               })}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={8} className="px-2 py-8 text-center text-[#9CA3AF]">
-                  No invoices{q || statusFilter ? " match this filter" : " yet"}. Click <b>New Invoice</b> to raise one.
-                </td></tr>
+                <tr>
+                  <td colSpan={8}>
+                    <Empty
+                      icon={<FileText />}
+                      title={`No invoices${q || statusFilter ? " match this filter" : " yet"}`}
+                      hint="ابھی کوئی انوائس نہیں"
+                      action={!q && !statusFilter ? <Btn kind="primary" onClick={() => setCreating(true)} icon={<Plus />}>New invoice</Btn> : undefined}
+                    />
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
       {viewId != null && <InvoiceDocument invoiceId={viewId} onClose={() => setViewId(null)} />}
     </div>
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "bad" }) {
-  const c = tone === "bad" ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"
-    : tone === "warn" ? "border-[#E5E7EB] bg-[#F9FAFB] text-[#4B5563]"
-    : "border-[#E5E7EB] bg-white text-[#1F2937]";
-  return (
-    <div className={`rounded-xl border p-3 ${c}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wide">{label}</div>
-      <div className="text-lg font-extrabold tabular-nums">{value}</div>
-    </div>
-  );
-}

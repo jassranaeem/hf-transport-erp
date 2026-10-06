@@ -9,6 +9,7 @@
  *
  * Anything that does not exist yet (truck, driver, route, customer, khata) is created on the way.
  */
+import { PageHeader, Btn } from "../ui/kit.tsx";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
@@ -193,15 +194,12 @@ export default function TripDesk({
       <datalist id="td-to">{[...new Set(opts.routes.map((r) => r.destination))].map((o) => <option key={o} value={o} />)}</datalist>
 
       {/* header */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-[200px]">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Truck className="w-5 h-5" /> Trips <span className="text-slate-400 font-normal text-sm">· ٹرپس</span></h2>
-          <p className="text-xs text-slate-500">Click a trip to see its money, stops and receipts · ٹرپ پر کلک کریں</p>
-        </div>
-        <button onClick={() => { setForm(emptyForm()); setShowNew(true); }} className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white px-4 py-2 hover:bg-emerald-700 shadow-sm">
-          <Plus className="w-4 h-4" /> New trip · نئی ٹرپ
-        </button>
-      </div>
+      <PageHeader
+        title="Trips"
+        urdu="ٹرپس"
+        subtitle="Click a trip to see its money, stops and receipts · ٹرپ پر کلک کریں"
+        actions={<Btn kind="primary" onClick={() => { setForm(emptyForm()); setShowNew(true); }} icon={<Plus />}>New trip · نئی ٹرپ</Btn>}
+      />
 
       {moneyPending.length > 0 && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs flex flex-wrap items-center gap-x-3 gap-y-1">

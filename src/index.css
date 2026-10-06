@@ -407,3 +407,7 @@ code, pre, kbd, samp {
 ::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
 }
+
+/* sideways strips (tabs) scroll without a visible bar */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

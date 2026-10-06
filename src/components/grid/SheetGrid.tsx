@@ -622,11 +622,11 @@ export default function SheetGrid(props: Props) {
 
   // ---- render -----------------------------------------------------------
   return (
-    <div className="sheet-grid relative flex flex-col h-full min-h-0 bg-white border border-[var(--sheet-line,#E5E7EB)] rounded-lg overflow-hidden">
+    <div className="sheet-grid relative flex flex-col h-full min-h-0 bg-white border border-[#E3E8EF] rounded-xl overflow-hidden shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       {/* toolbar */}
-      <div className="flex items-center gap-2 px-2.5 py-2 border-b border-[var(--sheet-line,#E5E7EB)] bg-[var(--sheet-header,#F2F5FA)] flex-wrap">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#E3E8EF] bg-white flex-wrap">
         {onSearch && (
-          <div className="flex items-center gap-1.5 bg-white border border-[#E5E7EB] rounded-md px-2 h-8">
+          <div className="flex items-center gap-1.5 bg-white border border-[#CBD5E1] rounded-lg px-2.5 h-8">
             <Search className="w-3.5 h-3.5 text-[#4B5563]" />
             <input
               value={localSearch}
@@ -661,9 +661,10 @@ export default function SheetGrid(props: Props) {
         {canWrite && (
           <button
             onClick={addRow}
-            className="flex items-center gap-1 h-8 px-2.5 rounded-md text-xs bg-white border border-[#E5E7EB] hover:bg-[#F2F5FA]"
+            className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium bg-[#24539B] text-white border border-[#24539B] hover:bg-[#1E4480]"
+            title="Add a new row at the bottom · نئی لائن"
           >
-            <Plus className="w-3.5 h-3.5" /> Row
+            <Plus className="w-3.5 h-3.5" /> New row
           </button>
         )}
         <div className="relative">
