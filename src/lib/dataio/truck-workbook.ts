@@ -167,7 +167,26 @@ function toSignedAmount(v: unknown): number | null {
 }
 
 /** tolerant date parser; returns null for blank / unparseable / out-of-range */
-export function parseDate(v: unknown): Date | null {
+export type DateOrder = "DMY" | "MDY";
+
+// Excel text dates like 09.14.2026 are month-first in some workbooks and day-first in
+// others. Look at every whole-cell date in the sheet: a first part above 12 proves
+// day-first, a second part above 12 proves month-first. With no proof, default day-first.
+export function detectDateOrder(rows: unknown[][]): DateOrder {
+  let dayFirst = 0;
+  let monthFirst = 0;
+  for (const r of rows) {
+    for (const c of r) {
+      const m = cellText(c).trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+      if (!m) continue;
+      if (+m[1] > 12) dayFirst++;
+      else if (+m[2] > 12) monthFirst++;
+    }
+  }
+  return monthFirst > 0 && dayFirst === 0 ? "MDY" : "DMY";
+}
+
+export function parseDate(v: unknown, order: DateOrder = "DMY"): Date | null {
   if (v == null || v === "") return null;
   if (v instanceof Date) return inRange(v);
   const raw = cellText(v).trim();
@@ -175,14 +194,16 @@ export function parseDate(v: unknown): Date | null {
   let m: RegExpMatchArray | null;
   // yyyy-mm-dd or yyyy/mm/dd
   if ((m = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/))) {
-    return inRange(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])));
+    return validDate(+m[1], +m[2], +m[3]);
   }
-  // dd.mm.yyyy | dd/mm/yyyy | dd-mm-yyyy  (also 2-digit year)
+  // dd.mm.yyyy or mm.dd.yyyy (see detectDateOrder) | also - and / separators, 2-digit year
   if ((m = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/))) {
-    let [, d, mo, y] = m;
-    let year = +y;
+    let year = +m[3];
     if (year < 100) year += 2000;
-    return inRange(new Date(Date.UTC(year, +mo - 1, +d)));
+    let d = order === "MDY" ? +m[2] : +m[1];
+    let mo = order === "MDY" ? +m[1] : +m[2];
+    if (mo > 12 && d <= 12) [d, mo] = [mo, d]; // this one value proves the other order
+    return validDate(year, mo, d);
   }
   // Excel serial number as text
   if (/^\d{4,6}$/.test(raw)) {
@@ -192,6 +213,12 @@ export function parseDate(v: unknown): Date | null {
     }
   }
   return null;
+}
+// reject impossible dates (month 14, 31 Feb) instead of letting Date roll them into another year
+function validDate(y: number, mo: number, d: number): Date | null {
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return inRange(dt);
 }
 function inRange(d: Date): Date | null {
   if (isNaN(d.getTime())) return null;
@@ -375,7 +402,18 @@ export async function parseTruckWorkbook(buffer: Buffer, sourceLabel?: string): 
     const REG_RE = /\b([A-Z]{2,4}[ -]?\d{2,4})\b/i;
     // prefer whichever of {row-1 title, sheet name} actually contains a plate
     const titleRaw = REG_RE.test(row1) ? row1 : REG_RE.test(sheetName) ? sheetName : row1 || sheetName;
-    const regMatch = titleRaw.match(REG_RE) || sheetName.match(REG_RE);
+    let regMatch = titleRaw.match(REG_RE) || sheetName.match(REG_RE);
+    if (!regMatch) {
+      // an unrenamed tab ("Sheet2") tells us nothing - use the plate that fills the TRUCK column,
+      // then the file name ("TLE 730.xlsx")
+      const counts = new Map<string, number>();
+      for (const r of rows) for (const cell of r) {
+        const t = (cell || "").trim();
+        if (/^[A-Z]{2,4}[ -]?\d{2,4}$/i.test(t)) counts.set(t, (counts.get(t) || 0) + 1);
+      }
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      regMatch = (top && top[1] >= 2 ? top[0].match(REG_RE) : null) || sourceLabel?.match(REG_RE) || null;
+    }
     const registration = (regMatch ? regMatch[1] : sheetName).toUpperCase().replace(/\s+/g, " ").replace(/-/g, " ").trim();
     let ownerName: string | null = null;
     if (regMatch) {
@@ -432,6 +470,7 @@ export async function parseTruckWorkbook(buffer: Buffer, sourceLabel?: string): 
     let sheetClosing: number | null = null;
     let rowsTotal = 0;
 
+    const dateOrder = detectDateOrder(rows);
     for (let i = firstHeader + 1; i < rows.length; i++) {
       const r = rows[i];
       if (looksLikeHeader(r)) {
@@ -459,7 +498,7 @@ export async function parseTruckWorkbook(buffer: Buffer, sourceLabel?: string): 
       const balCell = cols.bal != null ? toSignedAmount(r[cols.bal]) : null;
       if (balCell != null) sheetClosing = balCell;
 
-      const entryDate = parseDate(dateRaw || (dateRaw === "" ? undefined : dateRaw));
+      const entryDate = parseDate(dateRaw || (dateRaw === "" ? undefined : dateRaw), dateOrder);
       const direction: "In" | "Out" | null =
         recv.value > 0 ? "In" : paid.value > 0 ? "Out" : null;
 

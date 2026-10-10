@@ -84,9 +84,9 @@ export default function InvoiceDocument({ invoiceId, onClose }: { invoiceId: num
   const received = Number(inv?.advanceReceived || 0) + Math.max(0, Number(inv?.paidAmount || 0) - Number(inv?.advanceReceived || 0));
   const overdue = inv ? new Date(inv.dueDate).getTime() < Date.now() && Number(inv.outstandingBalance) > 0 : false;
   const stamp =
-    inv?.status === "Paid" ? { text: "PAID", color: "#15803D" } :
-    inv?.status === "Partially Paid" ? { text: "PART-PAID", color: "#B45309" } :
-    overdue ? { text: "OVERDUE", color: "#B91C1C" } :
+    inv?.status === "Paid" ? { text: "PAID", color: "#1E4480" } :
+    inv?.status === "Partially Paid" ? { text: "PART-PAID", color: "#4B5563" } :
+    overdue ? { text: "OVERDUE", color: "#B00005" } :
     { text: "UNPAID", color: "#64748B" };
 
   return (

@@ -24,6 +24,7 @@ import { db, schema } from "../src/db/index.ts";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { deadReckon, num } from "../src/lib/tracking/geo.ts";
+import { updateTripStatusFromGps, normPlate, matchPlate } from "./trip_progress.ts";
 
 const router = Router();
 
@@ -162,22 +163,29 @@ async function resolveDevice(
   return { device: created };
 }
 
-/** Newest-first active trip for a vehicle. */
-async function activeTripIdForVehicle(vehicleId: number | null): Promise<number | null> {
-  if (!vehicleId) return null;
-  const [t] = await db
-    .select({ id: schema.trips.id })
+/** Newest-first active trip for a tracker. */
+// The same physical truck can exist as more than one `vehicles` row (old imports spelled the
+// plate "TLD 918" in one batch and "TLD-918" in another), and a provider tracker may not be
+// linked to any vehicle row at all — only its name says which truck it is. Matching on the
+// exact vehicle id meant such a trip never received a single GPS update. Match on the
+// normalized plate of the linked vehicle, or failing that, on the tracker's own name.
+async function activeTripIdForDevice(device: DeviceRow): Promise<number | null> {
+  let key = "";
+  if (device.vehicleId) {
+    const [v] = await db.select({ vn: schema.vehicles.vehicleNumber }).from(schema.vehicles).where(eq(schema.vehicles.id, device.vehicleId)).limit(1);
+    key = v ? normPlate(v.vn) : "";
+  }
+  if (!key) key = normPlate(device.label || "");
+  if (!key) return null;
+  const active = await db
+    .select({ id: schema.trips.id, vn: schema.vehicles.vehicleNumber })
     .from(schema.trips)
-    .where(
-      and(
-        eq(schema.trips.vehicleId, vehicleId),
-        eq(schema.trips.isDeleted, false),
-        ne(schema.trips.status, "Completed")
-      )
-    )
-    .orderBy(desc(schema.trips.departureTime))
-    .limit(1);
-  return t?.id ?? null;
+    .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+    .where(and(eq(schema.trips.isDeleted, false), ne(schema.trips.status, "Completed")))
+    .orderBy(desc(schema.trips.departureTime));
+  const plate = matchPlate(key, new Set(active.map((t) => normPlate(t.vn))));
+  if (!plate) return null;
+  return active.find((t) => normPlate(t.vn) === plate)?.id ?? null;
 }
 
 function movementStatus(speed: number, ignition: boolean | null): string {
@@ -203,7 +211,7 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
   }
 
   clean.sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
-  const tripId = await activeTripIdForVehicle(device.vehicleId);
+  const tripId = await activeTripIdForDevice(device);
 
   const rows = clean.map((p) => ({
     deviceId: device.id,
@@ -254,7 +262,8 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
       })
       .where(eq(schema.trackerDevices.id, device.id));
 
-    if (device.vehicleId && tripId) {
+    // tripId is already matched by plate (linked vehicle or the tracker's own name)
+    if (tripId) {
       await db
         .update(schema.trips)
         .set({
@@ -264,6 +273,9 @@ async function ingest(device: DeviceRow, rawPoints: RawPoint[]) {
           updatedAt: new Date(),
         })
         .where(eq(schema.trips.id, tripId));
+      // a real fix means the truck is verifiably moving/parked somewhere — let that drive
+      // Scheduled -> In Transit -> Arrived instead of waiting on someone to click the status dropdown
+      await updateTripStatusFromGps(tripId, newest.lat, newest.lng, newest.speed).catch((err) => console.error("[tracking] trip status from GPS failed:", err?.message));
     }
 
     SocketServer.emit("tracking:update", {
@@ -365,10 +377,21 @@ export async function saveGpsProviderConfig(patch: Partial<GpsProviderConfig>, u
   return next;
 }
 
+/** fetch with a hard timeout so a hung GPS-provider request can never stall a sync cycle indefinitely. */
+async function fetchWithTimeout(url: string, opts: RequestInit = {}, timeoutMs = 15_000): Promise<globalThis.Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function gpswoxLogin(cfg: GpsProviderConfig): Promise<string> {
   if (gpswoxHash && Date.now() - gpswoxHash.at < 40 * 60_000) return gpswoxHash.hash;
   const body = new URLSearchParams({ email: cfg.username, password: cfg.password });
-  const res = await fetch(`${cfg.url}/api/login`, {
+  const res = await fetchWithTimeout(`${cfg.url}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -381,12 +404,12 @@ async function gpswoxLogin(cfg: GpsProviderConfig): Promise<string> {
   return json.user_api_hash;
 }
 
-const normPlate = (s: string) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-
 async function gpswoxUpsertDevice(gw: any, vehById: Map<string, number>): Promise<DeviceRow> {
   const imei = `EAGLE-${gw.id}`;
   const [existing] = await db.select().from(schema.trackerDevices).where(eq(schema.trackerDevices.imei, imei)).limit(1);
-  const vehicleId = vehById.get(normPlate(gw.name)) ?? null;
+  // the provider's name is often more than the bare plate ("TLD 918 Bhagwan") — still link it
+  const plate = matchPlate(normPlate(gw.name), vehById.keys());
+  const vehicleId = plate ? vehById.get(plate) ?? null : null;
   if (existing) {
     if (vehicleId && existing.vehicleId !== vehicleId) {
       await db.update(schema.trackerDevices).set({ vehicleId, label: gw.name, updatedAt: new Date() }).where(eq(schema.trackerDevices.id, existing.id));
@@ -410,7 +433,7 @@ export async function syncGpsProvider(): Promise<typeof lastGpsSync> {
   }
   try {
     const hash = await gpswoxLogin(cfg);
-    const res = await fetch(`${cfg.url}/api/get_devices?lang=en&user_api_hash=${encodeURIComponent(hash)}`);
+    const res = await fetchWithTimeout(`${cfg.url}/api/get_devices?lang=en&user_api_hash=${encodeURIComponent(hash)}`);
     if (res.status === 401) {
       gpswoxHash = null;
       throw new Error("session expired");
@@ -421,8 +444,11 @@ export async function syncGpsProvider(): Promise<typeof lastGpsSync> {
     const veh = await db
       .select({ id: schema.vehicles.id, vn: schema.vehicles.vehicleNumber })
       .from(schema.vehicles)
-      .where(eq(schema.vehicles.isDeleted, false));
-    const vehById = new Map(veh.map((v) => [normPlate(v.vn), v.id]));
+      .where(eq(schema.vehicles.isDeleted, false))
+      .orderBy(asc(schema.vehicles.id));
+    // near-duplicate rows for one plate: keep the oldest, so the link never flips between them
+    const vehById = new Map<string, number>();
+    for (const v of veh) if (!vehById.has(normPlate(v.vn))) vehById.set(normPlate(v.vn), v.id);
 
     let matched = 0;
     let accepted = 0;
@@ -640,6 +666,7 @@ export async function getLiveVehicles() {
     ? await db
         .select({
           vehicleId: schema.trips.vehicleId,
+          vehicleNumber: schema.vehicles.vehicleNumber,
           tripNumber: schema.trips.tripNumber,
           status: schema.trips.status,
           distance: schema.trips.distance,
@@ -654,18 +681,17 @@ export async function getLiveVehicles() {
         })
         .from(schema.trips)
         .innerJoin(schema.routes, eq(schema.trips.routeId, schema.routes.id))
-        .where(
-          and(
-            eq(schema.trips.isDeleted, false),
-            ne(schema.trips.status, "Completed"),
-            inArray(schema.trips.vehicleId, vehicleIds)
-          )
-        )
+        .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+        .where(and(eq(schema.trips.isDeleted, false), ne(schema.trips.status, "Completed")))
         .orderBy(desc(schema.trips.departureTime))
     : [];
 
-  const tripByVehicle = new Map<number, (typeof tripRows)[number]>();
-  for (const t of tripRows) if (t.vehicleId != null && !tripByVehicle.has(t.vehicleId)) tripByVehicle.set(t.vehicleId, t);
+  // keyed by plate, not vehicle id — see activeTripIdForVehicle
+  const tripByPlate = new Map<string, (typeof tripRows)[number]>();
+  for (const t of tripRows) {
+    const k = normPlate(t.vehicleNumber || "");
+    if (k && !tripByPlate.has(k)) tripByPlate.set(k, t);
+  }
 
   const vehicles = devices.map((d) => {
     const lastSeen = d.lastSeenAt ? new Date(d.lastSeenAt) : null;
@@ -674,7 +700,8 @@ export async function getLiveVehicles() {
     const stale = !lastSeen || now - lastSeen.getTime() > staleMs;
     const status = !hasFix ? "Unknown" : stale ? "SignalLost" : d.status;
 
-    const trip = d.vehicleId != null ? tripByVehicle.get(d.vehicleId) : undefined;
+    const tripPlate = matchPlate(normPlate(d.vehicleNumber || d.label || ""), tripByPlate.keys());
+    const trip = tripPlate ? tripByPlate.get(tripPlate) : undefined;
     const path = trip ? routePathFor(trip) : null;
 
     let projected:
@@ -1078,10 +1105,13 @@ function isLatLng(v: unknown): v is { lat: number; lng: number } {
 // ---------------------------------------------------------------------------
 
 let sweepTimer: NodeJS.Timeout | null = null;
+let sweepInProgress = false;
 
 export function startTrackingSweep() {
   if (sweepTimer) return;
   const run = async () => {
+    if (sweepInProgress) return; // previous cycle still running (e.g. a slow provider) - never stack overlapping syncs
+    sweepInProgress = true;
     try {
       // pull real fixes from the GPS provider (Eagle Tracker / GPSWOX), if configured
       await syncGpsProvider().catch(() => {});
@@ -1116,6 +1146,8 @@ export function startTrackingSweep() {
       }
     } catch (err: any) {
       console.warn("[tracking sweep] failed:", err.message || err);
+    } finally {
+      sweepInProgress = false;
     }
   };
   sweepTimer = setInterval(run, 60_000);

@@ -5,6 +5,12 @@
 import { haversineMeters, bearingDeg, projectPoint, deadReckon } from "../src/lib/tracking/geo.ts";
 import { buildTemplateWorkbook } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
+import { amountIn, dateIn, readByRules } from "../server/ai/context.ts";
+import { parseJsonLoose } from "../server/ai/llm.ts";
+import { nextDue } from "../server/recurring.ts";
+import { depreciationSchedule } from "../server/business_misc.ts";
+import { waNumber } from "../src/lib/share.ts";
+import { installmentSchedule } from "../server/partnerships.ts";
 
 let failures = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -74,6 +80,54 @@ console.log("data-io template");
   data!.getRow(1).eachCell((c) => headers.push(String(c.value)));
   ok("Data header includes 'Vehicle Number'", headers.includes("Vehicle Number"));
   ok("every non-readonly field has a header column", headers.length === v!.fields.filter((f) => !f.readonly).length);
+}
+
+console.log("AI Accountant — reading without AI");
+{
+  ok("25 hazar = 25,000", amountIn("diesel 25 hazar") === 25000);
+  ok("1.5 lakh = 150,000", amountIn("1.5 lakh mile") === 150000);
+  ok("2,50,000 (Pakistani commas) = 250,000", amountIn("2,50,000") === 250000);
+  ok("a year is not an amount", amountIn("2026 ka kiraya 5000") === 5000);
+  ok("aaj = today", dateIn("aaj diye", "2026-10-04") === "2026-10-04");
+  ok("kal = yesterday", dateIn("kal mile", "2026-10-04") === "2026-10-03");
+  ok("03/10/2026 is day first", dateIn("03/10/2026", "2026-10-04") === "2026-10-03");
+  ok("3.5 lakh is money, not a date", dateIn("3.5 lakh received", "2026-10-04") === null);
+  const dir: any = { trucks: [{ id: 1, plate: "TLE730", registration: "TLE-730" }], parties: [{ id: 5, name: "Haji Akbar Goods", norm: "akbar goods" }], booksStart: "2025-07-01", lockedThrough: null, today: "2026-10-04" };
+  const [a1] = readByRules(dir, "TLE-730 ko 500 toll diya");
+  ok("plate digits are not the amount", a1?.amount === 500, a1);
+  ok("toll on a truck = Out, kind toll", a1?.direction === "Out" && a1?.kind === "toll" && a1?.plate === "TLE-730", a1);
+  const [a2] = readByRules(dir, "akbar goods se 2 lakh online mile kal");
+  ok("money from a party = In, online, matched by name", a2?.direction === "In" && a2?.method === "Online" && a2?.party === "Haji Akbar Goods" && a2?.amount === 200000, a2);
+  ok("one line per entry", readByRules(dir, "TLE-730 diesel 1000 diye\nghar ke liye 2000 kharcha").length === 2);
+  ok("AI reply with fences and words is parsed", parseJsonLoose('Sure:\n```json\n{"rows":[{"d":"a}b"}]}\n```').rows[0].d === "a}b");
+}
+
+console.log("business tools");
+{
+  ok("monthly on the 31st stays at the month's end", nextDue("2026-01-31", "monthly", 31) === "2026-02-28" && nextDue("2026-02-28", "monthly", 31) === "2026-03-31");
+  ok("weekly is 7 days on", nextDue("2026-10-06", "weekly") === "2026-10-13");
+  ok("quarterly and yearly", nextDue("2026-10-06", "quarterly", 6) === "2027-01-06" && nextDue("2026-10-06", "yearly", 6) === "2027-10-06");
+  const sch = depreciationSchedule({ cost: 10000000, method: "reducing", ratePercent: 15, usefulLifeYears: null, salvage: 0, start: "2024-01-15" }, new Date("2026-10-06T12:00:00"));
+  ok("first year charged for the months owned (Jan–Jun = 6)", sch[0]?.fy === "2023-24" && sch[0]?.charge === 750000, sch[0]);
+  ok("reducing balance on the written-down value", sch[1]?.charge === 1387500 && sch.length === 4, sch);
+  const sl = depreciationSchedule({ cost: 1200000, method: "straight", ratePercent: null, usefulLifeYears: 4, salvage: 0, start: "2025-07-01" }, new Date("2026-10-06T12:00:00"));
+  ok("straight line = cost / years", sl[0]?.charge === 300000 && sl[1]?.charge === 300000, sl);
+  ok("phone 0300-1234567 → 923001234567", waNumber("0300-1234567") === "923001234567" && waNumber("+92 300 1234567") === "923001234567" && waNumber("12") === null);
+}
+
+console.log("lease-to-own instalments");
+{
+  // 1,000,000 to pay, 300,000 a month from 10 July 2026; 450,000 recovered so far; today 15 September
+  const p = installmentSchedule({ opening: 1000000, recovered: 450000, amount: 300000, day: null, start: "2026-07-10" }, "2026-09-15")!;
+  ok("4 instalments, the last one smaller", p.count === 4 && p.rows[3].amount === 100000, p.rows);
+  ok("due on the 10th of each month", p.rows.map((r) => r.due).join() === "2026-07-10,2026-08-10,2026-09-10,2026-10-10");
+  ok("what was recovered fills the oldest first", p.rows[0].status === "paid" && p.rows[1].status === "part" && p.rows[1].paid === 150000 && p.rows[2].status === "overdue" && p.rows[3].status === "upcoming", p.rows);
+  ok("overdue = due by today − recovered", p.dueByToday === 900000 && p.overdue === 450000 && p.overdueCount === 2 && p.ahead === 0);
+  ok("next is what is left of the oldest unpaid", p.next?.no === 2 && p.next?.amount === 150000 && p.next?.due === "2026-08-10");
+  const q = installmentSchedule({ opening: 600000, recovered: 400000, amount: 200000, day: 31, start: "2026-01-31" }, "2026-02-15")!;
+  ok("the 31st falls on the month's last day", q.rows[1].due === "2026-02-28" && q.rows[2].due === "2026-03-31");
+  ok("ahead of the plan", q.overdue === 0 && q.ahead === 200000 && q.paidCount === 2);
+  ok("no plan → no schedule", installmentSchedule({ opening: 500000, recovered: 0, amount: null, day: null, start: null }, "2026-10-10") === null);
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);

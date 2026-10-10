@@ -13,8 +13,10 @@ import { Router, Response } from "express";
 import multer from "multer";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
+import { rowIssues } from "./books_check.ts";
 import { and, eq, desc, asc, sql, ilike, or, inArray, ne } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
+import { holdForApproval } from "./approvals.ts";
 import { parseTruckWorkbook, sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { sendSms, ledgerSmsText, ledgerSmsTokens } from "./sms.ts";
 
@@ -91,6 +93,13 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
     if (!name.endsWith(".xlsx") && !name.endsWith(".xlsm")) {
       return res.status(400).json({ error: "File must be an Excel .xlsx workbook." });
     }
+    // A "Lender" sheet (someone who loaned HFK money, e.g. deposits + HFK's own
+    // running expenses paid from that fund) has the opposite sense from a normal
+    // customer/vendor sheet: the sheet's CREDIT column is money THEY gave US
+    // (increases what we owe them), not money we received from doing business
+    // with them. Swap received/paid into debit/credit so the balance still
+    // lands on the correct side (+ve = receivable, -ve = payable).
+    const isLender = String(req.body?.partyType || "").toLowerCase() === "lender";
     // reuse the truck-workbook parser — same "SR#|DATE|…|RECEIVED|PAID|BALANCE" per-sheet shape
     const { ledgers, report } = await parseTruckWorkbook(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
     if (ledgers.length === 0) {
@@ -115,7 +124,7 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
             .values({
               partyCode: await nextPartyCode(),
               name: partyName,
-              type: "Other",
+              type: isLender ? "Lender" : "Other",
               openingBalance: L.openingBalance || 0,
               closingBalance: L.closingBalance || 0,
               sourceSheet: L.sourceSheet,
@@ -127,7 +136,15 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
         } else {
           await db
             .update(schema.parties)
-            .set({ name: partyName, sourceSheet: L.sourceSheet, isDeleted: false, deletedAt: null, updatedAt: new Date(), updatedBy: req.user?.id })
+            .set({
+              name: partyName,
+              sourceSheet: L.sourceSheet,
+              ...(isLender ? { type: "Lender" } : {}),
+              isDeleted: false,
+              deletedAt: null,
+              updatedAt: new Date(),
+              updatedBy: req.user?.id,
+            })
             .where(eq(schema.parties.id, party.id));
           partiesUpdated++;
         }
@@ -149,8 +166,13 @@ router.post("/import-workbook", requireRole(WRITE), workbookUpload.single("file"
             description: e.description || null,
             refNo: null as string | null,
             method: e.method,
-            debit: e.paid, // party ko diya
-            credit: e.received, // party se mila
+            // Normal party: debit = given to them, credit = received from them.
+            // Lender: their "CREDIT" (money they gave us) increases what we owe
+            // them, so it swaps onto the debit side here (+ve running balance =
+            // receivable, -ve = payable, per recompute() below) - see the
+            // isLender note above POST /import-workbook.
+            debit: isLender ? e.received : e.paid,
+            credit: isLender ? e.paid : e.received,
             runningBalance: e.runningBalance,
             sheetBalance: e.sheetBalance,
             category: e.category,
@@ -444,6 +466,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
         name: b.name,
         type: b.type || "Other",
         phone: b.phone || null,
+        email: b.email || null,
         address: b.address || null,
         city: b.city || null,
         ntn: b.ntn || null,
@@ -474,7 +497,7 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
     if (!old) return res.status(404).json({ error: "Party not found" });
     const b = req.body || {};
     const patch: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
-    for (const k of ["name", "type", "phone", "address", "city", "ntn", "strn", "bankName", "bankAccountTitle", "bankAccountNo", "iban", "notes", "status"]) {
+    for (const k of ["name", "type", "phone", "email", "address", "city", "ntn", "strn", "bankName", "bankAccountTitle", "bankAccountNo", "iban", "notes", "status"]) {
       if (b[k] !== undefined) patch[k] = b[k] || null;
     }
     if (b.smsAlerts !== undefined) patch.smsAlerts = !!b.smsAlerts;
@@ -488,15 +511,31 @@ router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) =
   }
 });
 
+// Deletes the party AND every entry in its ledger — not just the party
+// record (which used to leave orphaned entries behind, invisible but never
+// actually removed).
 router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+    const [party] = await db.select().from(schema.parties).where(eq(schema.parties.id, id)).limit(1);
+    if (!party) return res.status(404).json({ error: "Party not found" });
+
+    const entries = await db
+      .select({ id: schema.partyLedgerEntries.id })
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)));
+
+    await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(schema.partyLedgerEntries.partyId, id));
     await db
       .update(schema.parties)
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(schema.parties.id, id));
-    await audit(req, "DELETE", "parties", id, null, null);
-    res.json({ message: "Party deleted" });
+
+    await audit(req, "DELETE", "parties", id, { ...party, entriesDeleted: entries.length }, null);
+    res.json({ message: `Party "${party.name}" and ${entries.length} entries deleted` });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -516,6 +555,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const cond = [eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)];
     if (req.query.needsReview === "1") cond.push(eq(schema.partyLedgerEntries.needsReview, true));
     if (req.query.category) cond.push(eq(schema.partyLedgerEntries.category, req.query.category as string));
+    const day = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const from = day(req.query.from);
+    const to = day(req.query.to);
+    if (from) cond.push(sql`${schema.partyLedgerEntries.entryDate} >= ${from}::timestamp`);
+    if (to) cond.push(sql`${schema.partyLedgerEntries.entryDate} < (${to}::date + 1)::timestamp`);
 
     const entriesRaw = await db
       .select()
@@ -541,7 +585,8 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
           .groupBy(schema.attachments.entityId)
       : [];
     const attBy = new Map(attCounts.map((a) => [a.entityId, a.n]));
-    const entries = entriesRaw.map((e) => ({ ...e, attachmentCount: attBy.get(e.id) || 0 }));
+    const issues = await rowIssues("ple", entryIds).catch(() => new Map<number, string>());
+    const entries = entriesRaw.map((e) => ({ ...e, attachmentCount: attBy.get(e.id) || 0, ...(issues.has(e.id) ? { issue: issues.get(e.id) } : {}) }));
 
     const [agg] = await db
       .select({
@@ -552,8 +597,30 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
       .from(schema.partyLedgerEntries)
       .where(and(eq(schema.partyLedgerEntries.partyId, id), eq(schema.partyLedgerEntries.isDeleted, false)));
 
+    // the balance flow for the chosen dates: opening + we gave (debit) − we received (credit) = closing
+    // (+ = the party owes HFK / receivable, − = HFK owes the party / payable)
+    const [flow] = ((await db.execute(sql`select
+        coalesce(sum(debit - credit) filter (where ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 0)::bigint before,
+        coalesce(sum(debit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint debit,
+        coalesce(sum(credit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint credit,
+        count(*) filter (where entry_date is null)::int undated
+      from party_ledger_entries where party_id = ${id} and not is_deleted`)) as any).rows;
+    const opening = (party.openingBalance || 0) + Number(flow?.before || 0);
+    const debit = Number(flow?.debit || 0);
+    const credit = Number(flow?.credit || 0);
+
     res.json({
       party,
+      balance: {
+        from,
+        to,
+        openingBalance: party.openingBalance || 0, // the party's own opening balance (editable)
+        opening,
+        debit,
+        credit,
+        closing: opening + debit - credit,
+        undated: from || to ? flow?.undated || 0 : 0, // rows with no date are left out of a dated period
+      },
       entries,
       totals: {
         totalDebit: Number(agg?.debit || 0),
@@ -577,6 +644,21 @@ router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Re
     const credit = Math.max(0, Math.round(Number(b.credit) || 0));
     const amount = debit > 0 ? debit : credit;
     const refKey = String(b.refNo || b.description || "").trim().toLowerCase();
+
+    // money paid out to the party (not a charge / adjustment) may need an approver first
+    if (
+      debit > 0 &&
+      ["Cash", "Online", "Cheque", "Bank Transfer", "Bank"].includes(String(b.method || "")) &&
+      (await holdForApproval(req, res, {
+        kind: "party_payment",
+        amount: debit,
+        summary: `Payment to ${party.name} · ${b.method} · ${b.description || b.refNo || ""}`.trim(),
+        method: "POST",
+        path: `/api/parties/${partyId}/entries`,
+        payload: b,
+      }))
+    )
+      return;
 
     // "yeh banda double dey raha hai" — same party, amount, date, ref already recorded?
     let dupWarning: string | null = null;

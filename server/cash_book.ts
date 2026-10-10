@@ -1,0 +1,881 @@
+/**
+ * Daily Cash Book — itemized cash in/out log, grouped by calendar day
+ * (midnight to midnight). A day's opening balance is just the running total
+ * of every transaction before that day started, so nothing needs to be
+ * manually carried forward each morning — log what came in and what went
+ * out, to whom, and the running balance (and each day's close) fall out of
+ * that automatically.
+ *
+ * An entry can also be linked to a truck's ledger, a party's ledger, the
+ * Personal & Household book, or Zakat (linkType [+ linkTargetId for truck/
+ * party]): posting it here also posts a matching entry there (via
+ * derivedEntryId), so the same cash movement only has to be typed once.
+ * Editing or deleting the cash-book entry keeps the linked one in sync
+ * (running balance recomputed too, for truck/party).
+ *
+ * Deliberately NOT linkable this way: Bills/Payments/Expenses (a Finance
+ * expense posts a balanced double-entry to the General Ledger — auto-firing
+ * that from a two-field cash row risks an unbalanced or wrong GL posting),
+ * Invoices/Quotations (structured documents with line items and tax; an
+ * invoice payment already has its own correct flow in Invoices → paidAmount/
+ * outstandingBalance), and Partners/Partner P&L/Monthly Report (a partner's
+ * cash already flows through their linked Party; P&L and the monthly report
+ * are computed views with nothing to post into).
+ *
+ *   GET    /api/cash-book/day?date=YYYY-MM-DD   one day's opening/entries/closing
+ *   GET    /api/cash-book/link-options           trucks + parties, for the "link to" picker
+ *   POST   /api/cash-book                       add an in/out entry
+ *   PUT    /api/cash-book/:id                   edit an entry
+ *   DELETE /api/cash-book/:id                   soft-delete an entry
+ *   POST   /api/cash-book/import/preview         upload a dual cash-book .xlsx, see counts before committing
+ *   POST   /api/cash-book/import                 commit the same file
+ *   GET    /api/cash-book/count?date=            the day's cash count (what was counted vs the book)
+ *   PUT    /api/cash-book/count                  { date, counted?, denominations?, notes } count the cash
+ *   DELETE /api/cash-book/count?date=            remove a count
+ *   POST   /api/cash-book/count/settle           { date } write the difference into the cash book
+ *   GET    /api/cash-book/summary?by=&from=&to=  in / out / closing by day, week, month or year, with counts
+ *
+ * Mounted at /api/cash-book.
+ */
+import { holdForApproval } from "./approvals.ts";
+import { Router, Response } from "express";
+import multer from "multer";
+import { and, asc, eq, inArray, isNull, lt, gte, lte, sql } from "drizzle-orm";
+import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
+import { db, schema } from "../src/db/index.ts";
+import { logAudit } from "../src/db/audit.ts";
+import { parseCashbookFlat } from "../src/lib/dataio/cashbook-flat-import.ts";
+import { sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
+import { recompute as recomputeTruckLedger } from "./ledgers.ts";
+import { recompute as recomputePartyLedger } from "./parties.ts";
+import { partnershipLedgerForPlate } from "./partnership.ts";
+
+const router = Router();
+router.use(requireAuth, requireApproved);
+
+const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Auditor"];
+const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
+const DIRECTIONS = ["In", "Out"];
+// truck/party need a target id (which truck / which party); personal/zakat
+// are single global books, so there's nothing to pick.
+const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
+  truck: { needsTarget: true },
+  party: { needsTarget: true },
+  personal: { needsTarget: false },
+  zakat: { needsTarget: false },
+  // a cash-count difference (shortage / excess) written by "Record the difference" — books: 5095
+  count: { needsTarget: false },
+};
+
+const workbookUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+const T = schema.cashTransactions;
+
+const audit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", id: number, oldV: unknown, newV: unknown) =>
+  logAudit({
+    action,
+    tableName: "cash_transactions",
+    recordId: id,
+    oldValues: oldV,
+    newValues: newV,
+    performedBy: req.user?.id,
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+  }).catch(() => {});
+
+function coerce(b: any): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  if (b.entryDate !== undefined) patch.entryDate = b.entryDate ? new Date(b.entryDate) : new Date();
+  if (b.direction !== undefined) patch.direction = DIRECTIONS.includes(b.direction) ? b.direction : "Out";
+  if (b.amount !== undefined) patch.amount = Math.max(0, Math.round(Number(b.amount) || 0));
+  if (b.person !== undefined) patch.person = b.person ? String(b.person).trim() : null;
+  if (b.description !== undefined) patch.description = b.description ? String(b.description) : null;
+  if (b.notes !== undefined) patch.notes = b.notes ? String(b.notes) : null;
+  if (b.linkType !== undefined) patch.linkType = b.linkType in LINK_TYPES ? b.linkType : null;
+  if (b.linkTargetId !== undefined) patch.linkTargetId = b.linkTargetId ? parseInt(b.linkTargetId) : null;
+  return patch;
+}
+
+function dayBounds(dateStr: string) {
+  const start = new Date(`${dateStr}T00:00:00`);
+  const end = new Date(start.getTime() + 24 * 3600_000);
+  return { start, end };
+}
+
+// the one ledger Trip Desk (and now Cash Book) ever writes to for a truck: its partnership
+// khata when it is shared with a partner (see partnershipLedgerForPlate), otherwise hand-entered,
+// never tied to a specific old Excel sheet. Created on first use.
+//
+// Matched by NORMALIZED PLATE, not by vehicleId: the fleet has more than one `vehicles` row
+// for the same physical truck in places (old imports spelled the same plate "TLD 918" in one
+// batch and "TLD-918" in another, so they never matched as "the same vehicle"). Trusting
+// vehicleId alone would let a truck accumulate a second manual ledger just because the picker
+// happened to list its other near-duplicate vehicle row — the exact "now there are two TLD 918
+// ledgers" bug this replaced. Matching on the plate itself (same normalization used everywhere
+// else a truck is looked up) makes ledger resolution correct even while that vehicle-row
+// duplication still exists.
+async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
+  const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
+  if (!veh) throw new Error("Truck not found");
+  const plate = veh.vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // a truck shared with a partner keeps ONE khata — the one its partnership cycle reads
+  const shared = await partnershipLedgerForPlate(veh.vehicleNumber);
+  if (shared) return shared;
+  const [existing] = await db
+    .select()
+    .from(schema.truckLedgers)
+    .where(
+      and(
+        eq(schema.truckLedgers.isDeleted, false),
+        isNull(schema.truckLedgers.sourceSheet),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    if (!existing.vehicleId) await db.update(schema.truckLedgers).set({ vehicleId }).where(eq(schema.truckLedgers.id, existing.id));
+    return existing.id;
+  }
+  const [created] = await db
+    .insert(schema.truckLedgers)
+    .values({ vehicleId, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: userId })
+    .returning();
+  return created.id;
+}
+
+// Parties have the exact same "one sheet, one new row" import history as trucks (see
+// server/parties.ts's import: matched by sourceSheet first, exact name only as a fallback) — so the
+// same real party can exist as more than one `parties` row if it was ever typed with different
+// spacing/case across sheets. Unlike a truck plate we won't aggressively strip everything and risk
+// merging two genuinely different companies — only whitespace/case, which is never meaningful in a
+// name. Among rows that are identical once trimmed, always resolve to the lowest id (first created),
+// so every link for "the same name" converges on one party regardless of which near-duplicate a
+// stale picker happened to have selected.
+async function resolveCanonicalPartyId(partyId: number): Promise<number> {
+  const [p] = await db.select().from(schema.parties).where(eq(schema.parties.id, partyId)).limit(1);
+  if (!p) throw new Error("Party not found");
+  const norm = p.name.trim().toLowerCase().replace(/\s+/g, " ");
+  const [canonical] = await db
+    .select({ id: schema.parties.id })
+    .from(schema.parties)
+    .where(and(eq(schema.parties.isDeleted, false), sql`lower(trim(regexp_replace(${schema.parties.name}, '\\s+', ' ', 'g'))) = ${norm}`))
+    .orderBy(asc(schema.parties.id))
+    .limit(1);
+  return canonical ? canonical.id : partyId;
+}
+
+// ---- create / update / remove the linked truck-ledger or party-ledger entry that
+// mirrors a cash-book row, so the two stay in step with a single edit here. ----------
+async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) {
+  // removing a link is handled by the caller (unlinkDerivedEntry), which still has the
+  // OLD linkType/derivedEntryId to soft-delete the right row; nothing to do here for that case.
+  if (!row.linkType) return;
+  const cfg = LINK_TYPES[row.linkType];
+  if (!cfg || (cfg.needsTarget && !row.linkTargetId)) return;
+
+  const description = row.description || row.person || (row.direction === "In" ? "Cash book income" : "Cash book expense");
+  if (row.linkType === "truck") {
+    // linkTargetId is the TRUCK (vehicleId), never a specific truck_ledgers row: a truck can have many
+    // legacy ledgers (one per old Excel sheet it was ever imported from), all showing the same plate, so
+    // picking one of those by id from a list would silently post into whichever old sheet happened to be
+    // chosen. Always resolve to that truck's own hand-entered ledger — the same one Trip Desk posts to —
+    // creating it if the truck doesn't have one yet.
+    if (row.derivedEntryId) {
+      const [existing] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, row.derivedEntryId)).limit(1);
+      if (!existing) return;
+      await db
+        .update(schema.truckLedgerEntries)
+        .set({
+          entryDate: row.entryDate,
+          rawDate: row.entryDate.toISOString().slice(0, 10),
+          received: row.direction === "In" ? row.amount : 0,
+          paid: row.direction === "Out" ? row.amount : 0,
+          direction: row.direction,
+          description,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.truckLedgerEntries.id, row.derivedEntryId));
+      await recomputeTruckLedger(existing.ledgerId);
+    } else {
+      const ledgerId = await resolveManualLedgerId(row.linkTargetId!, userId);
+      const [entry] = await db
+        .insert(schema.truckLedgerEntries)
+        .values({
+          ledgerId,
+          entryDate: row.entryDate,
+          rawDate: row.entryDate.toISOString().slice(0, 10),
+          method: "Cash",
+          description,
+          received: row.direction === "In" ? row.amount : 0,
+          paid: row.direction === "Out" ? row.amount : 0,
+          category: "Other",
+          direction: row.direction,
+          sectionLabel: "Manual",
+          createdBy: userId,
+        })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+      await recomputeTruckLedger(ledgerId);
+    }
+  } else if (row.linkType === "party") {
+    // cash IN (office received) = party paid us = credit; cash OUT (office paid) = debit
+    const debit = row.direction === "Out" ? row.amount : 0;
+    const credit = row.direction === "In" ? row.amount : 0;
+    if (row.derivedEntryId) {
+      const [existing] = await db.select().from(schema.partyLedgerEntries).where(eq(schema.partyLedgerEntries.id, row.derivedEntryId)).limit(1);
+      if (!existing) return;
+      await db
+        .update(schema.partyLedgerEntries)
+        .set({ entryDate: row.entryDate, rawDate: row.entryDate.toISOString().slice(0, 10), debit, credit, description, updatedAt: new Date() })
+        .where(eq(schema.partyLedgerEntries.id, row.derivedEntryId));
+      await recomputePartyLedger(existing.partyId);
+    } else {
+      const partyId = await resolveCanonicalPartyId(row.linkTargetId!);
+      const [entry] = await db
+        .insert(schema.partyLedgerEntries)
+        .values({
+          partyId,
+          entryDate: row.entryDate,
+          rawDate: row.entryDate.toISOString().slice(0, 10),
+          method: "Cash",
+          description,
+          debit,
+          credit,
+          category: "Other",
+          sectionLabel: "Manual",
+          createdBy: userId,
+        })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+      await recomputePartyLedger(partyId);
+    }
+  } else if (row.linkType === "personal") {
+    // Household direction (income/expense) mirrors the cash-book direction; no running
+    // balance to recompute here, it's a plain dated list like the cash book itself.
+    if (row.derivedEntryId) {
+      await db
+        .update(schema.personalExpenses)
+        .set({ entryDate: row.entryDate, direction: row.direction === "In" ? "income" : "expense", amount: row.amount, person: row.person, payee: row.person, description, updatedAt: new Date() })
+        .where(eq(schema.personalExpenses.id, row.derivedEntryId));
+    } else {
+      const [entry] = await db
+        .insert(schema.personalExpenses)
+        .values({
+          entryDate: row.entryDate,
+          direction: row.direction === "In" ? "income" : "expense",
+          category: "Other",
+          person: row.person,
+          payee: row.person,
+          description,
+          amount: row.amount,
+          method: "Cash",
+          createdBy: userId,
+        })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+    }
+  } else if (row.linkType === "zakat") {
+    // Zakat given is always an outflow, whatever direction was picked on the cash-book row.
+    if (row.derivedEntryId) {
+      await db
+        .update(schema.zakatPayments)
+        .set({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, updatedAt: new Date() })
+        .where(eq(schema.zakatPayments.id, row.derivedEntryId));
+    } else {
+      const [entry] = await db
+        .insert(schema.zakatPayments)
+        .values({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, method: "Cash", createdBy: userId })
+        .returning();
+      await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
+    }
+  }
+}
+
+async function unlinkDerivedEntry(oldLinkType: string | null, derivedEntryId: number | null) {
+  if (!derivedEntryId) return;
+  if (oldLinkType === "truck") {
+    const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, derivedEntryId)).limit(1);
+    if (old) {
+      await db.update(schema.truckLedgerEntries).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.truckLedgerEntries.id, derivedEntryId));
+      await recomputeTruckLedger(old.ledgerId);
+    }
+  } else if (oldLinkType === "party") {
+    const [old] = await db.select().from(schema.partyLedgerEntries).where(eq(schema.partyLedgerEntries.id, derivedEntryId)).limit(1);
+    if (old) {
+      await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.partyLedgerEntries.id, derivedEntryId));
+      await recomputePartyLedger(old.partyId);
+    }
+  } else if (oldLinkType === "personal") {
+    await db.update(schema.personalExpenses).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.personalExpenses.id, derivedEntryId));
+  } else if (oldLinkType === "zakat") {
+    await db.update(schema.zakatPayments).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.zakatPayments.id, derivedEntryId));
+  }
+}
+
+router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    // one row per truck (not per legacy Excel ledger) — see resolveManualLedgerId for why.
+    // Also collapse near-duplicate vehicle rows for the same plate ("TLD 918" vs "TLD-918" from
+    // different old imports) to one option, so the picker itself doesn't offer the same truck twice.
+    const vehicleRows = await db
+      .select({ id: schema.vehicles.id, registration: schema.vehicles.vehicleNumber })
+      .from(schema.vehicles)
+      .where(eq(schema.vehicles.isDeleted, false))
+      .orderBy(asc(schema.vehicles.id));
+    const seenPlate = new Set<string>();
+    const trucks = vehicleRows.filter((v) => {
+      const plate = v.registration.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (seenPlate.has(plate)) return false;
+      seenPlate.add(plate);
+      return true;
+    });
+    trucks.sort((a, b) => a.registration.localeCompare(b.registration));
+
+    // same de-duplication for parties, but conservative: only whitespace/case are folded, never
+    // parts of the name — collapsing "Dawood" into "Muhammad Dawood Mercedes Autos" needs a human,
+    // not a guess (see resolveCanonicalPartyId for the write-time half of this).
+    const partyRows = await db
+      .select({ id: schema.parties.id, name: schema.parties.name })
+      .from(schema.parties)
+      .where(eq(schema.parties.isDeleted, false))
+      .orderBy(asc(schema.parties.id));
+    const seenName = new Set<string>();
+    const parties = partyRows.filter((p) => {
+      const norm = p.name.trim().toLowerCase().replace(/\s+/g, " ");
+      if (seenName.has(norm)) return false;
+      seenName.add(norm);
+      return true;
+    });
+    parties.sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ trucks, parties });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ""))
+      ? String(req.query.date)
+      : new Date().toISOString().slice(0, 10);
+    const { start, end } = dayBounds(dateStr);
+
+    const [openingRow] = await db
+      .select({
+        in: sql<number>`coalesce(sum(case when ${T.direction}='In' then ${T.amount} else 0 end),0)::bigint`,
+        out: sql<number>`coalesce(sum(case when ${T.direction}='Out' then ${T.amount} else 0 end),0)::bigint`,
+      })
+      .from(T)
+      .where(and(eq(T.isDeleted, false), lt(T.entryDate, start)));
+    const openingBalance = Number(openingRow?.in || 0) - Number(openingRow?.out || 0);
+
+    const entries = await db
+      .select()
+      .from(T)
+      .where(and(eq(T.isDeleted, false), gte(T.entryDate, start), lte(T.entryDate, end)))
+      .orderBy(asc(T.entryDate), asc(T.id));
+
+    const totalIn = entries.filter((e) => e.direction === "In").reduce((s, e) => s + e.amount, 0);
+    const totalOut = entries.filter((e) => e.direction === "Out").reduce((s, e) => s + e.amount, 0);
+
+    // resolve where a linked entry ACTUALLY landed (its real ledgerId / partyId), not the
+    // possibly-stale linkTargetId that was picked at the time — so "open this entry" always
+    // lands on the right ledger even if the picker's vehicle/party row has since changed.
+    const truckDerivedIds = entries.filter((e) => e.linkType === "truck" && e.derivedEntryId).map((e) => e.derivedEntryId!);
+    const partyDerivedIds = entries.filter((e) => e.linkType === "party" && e.derivedEntryId).map((e) => e.derivedEntryId!);
+    const [truckTargets, partyTargets] = await Promise.all([
+      truckDerivedIds.length
+        ? db.select({ id: schema.truckLedgerEntries.id, ledgerId: schema.truckLedgerEntries.ledgerId }).from(schema.truckLedgerEntries).where(inArray(schema.truckLedgerEntries.id, truckDerivedIds))
+        : Promise.resolve([]),
+      partyDerivedIds.length
+        ? db.select({ id: schema.partyLedgerEntries.id, partyId: schema.partyLedgerEntries.partyId }).from(schema.partyLedgerEntries).where(inArray(schema.partyLedgerEntries.id, partyDerivedIds))
+        : Promise.resolve([]),
+    ]);
+    const truckLedgerById = new Map(truckTargets.map((t) => [t.id, t.ledgerId]));
+    const partyIdById = new Map(partyTargets.map((t) => [t.id, t.partyId]));
+    const entriesWithTargets = entries.map((e) => ({
+      ...e,
+      resolvedLedgerId: e.linkType === "truck" && e.derivedEntryId ? truckLedgerById.get(e.derivedEntryId) ?? null : null,
+      resolvedPartyId: e.linkType === "party" && e.derivedEntryId ? partyIdById.get(e.derivedEntryId) ?? null : null,
+    }));
+
+    res.json({
+      date: dateStr,
+      openingBalance,
+      entries: entriesWithTargets,
+      totalIn,
+      totalOut,
+      closingBalance: openingBalance + totalIn - totalOut,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/**
+ * Write one Cash Book entry and post its link (truck / party …), exactly like "Add entry" does.
+ * Used by Fleet Desk "Close trip → Mark received" so money received for a trip is in the Cash
+ * Book AND the truck's khata from one action. Returns the saved row (with derivedEntryId).
+ */
+export async function createCashEntry(body: Record<string, unknown>, userId: number | undefined) {
+  const patch = coerce(body);
+  if (!patch.amount) throw new Error("Amount is required");
+  if (patch.direction === undefined) patch.direction = "Out";
+  if (patch.entryDate === undefined) patch.entryDate = new Date();
+  const [row] = await db.insert(T).values({ ...patch, createdBy: userId } as any).returning();
+  await syncLink(row, userId);
+  const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
+  await logAudit({ action: "CREATE", tableName: "cash_transactions", recordId: row.id, newValues: fresh, performedBy: userId }).catch(() => {});
+  return fresh;
+}
+
+router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const patch = coerce(req.body || {});
+    if (!patch.amount) return res.status(400).json({ error: "Amount is required" });
+    if (patch.direction === undefined) patch.direction = "Out";
+    if (patch.entryDate === undefined) patch.entryDate = new Date();
+    if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
+      return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
+    }
+    if (
+      patch.direction === "Out" &&
+      (await holdForApproval(req, res, {
+        kind: "cash_book",
+        amount: Number(patch.amount) || 0,
+        summary: `Cash Book · Out · ${[req.body?.person, req.body?.description].filter(Boolean).join(" — ") || "payment"}`,
+        method: "POST",
+        path: "/api/cash-book",
+        payload: req.body,
+      }))
+    )
+      return;
+    const [row] = await db.insert(T).values({ ...patch, createdBy: req.user?.id } as any).returning();
+    await syncLink(row, req.user?.id);
+    const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
+    await audit(req, "CREATE", row.id, null, fresh);
+    res.json(fresh);
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);
+    if (!old) return res.status(404).json({ error: "Entry not found" });
+    const patch = coerce(req.body || {});
+    const effectiveLinkType = "linkType" in patch ? (patch.linkType as string | null) : old.linkType;
+    const effectiveTargetId = "linkTargetId" in patch ? patch.linkTargetId : old.linkTargetId;
+    if (effectiveLinkType && LINK_TYPES[effectiveLinkType]?.needsTarget && !effectiveTargetId) {
+      return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
+    }
+
+    const linkChanged =
+      ("linkType" in patch && patch.linkType !== old.linkType) || ("linkTargetId" in patch && patch.linkTargetId !== old.linkTargetId);
+    if (linkChanged && old.derivedEntryId) {
+      await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+      patch.derivedEntryId = null;
+    }
+
+    const [row] = await db
+      .update(T)
+      .set({ ...patch, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(eq(T.id, id))
+      .returning();
+    await syncLink(row, req.user?.id);
+    const [fresh] = await db.select().from(T).where(eq(T.id, id)).limit(1);
+    await audit(req, "UPDATE", id, old, fresh);
+    res.json(fresh);
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/** The real reason a database write failed, not the SQL text (drizzle puts the cause underneath). */
+function dbError(e: any): string {
+  const c = e?.cause;
+  if (c?.code === "23505") return "This would duplicate another entry of the same imported row · یہ لائن پہلے سے موجود ہے";
+  return String(c?.detail || c?.message || e?.message || "Could not save");
+}
+
+// ---- import from Excel (dual cash-book shape) --------------------------
+
+/**
+ * Rows of an upload that the Cash Book already has from somewhere else — an earlier import of
+ * another file, or the same day typed in by hand: same day, In/Out, amount and description
+ * ("SPN 016 • Dawood Online …"). Importing them again would count that money twice. A re-import
+ * of the SAME file isn't a duplicate (it updates its own rows by sheet + row).
+ */
+async function alreadyInBook(rows: Array<{ entryDate: Date | null; direction: string; amount: number; description: string | null; sourceSheet: string; sourceRow: number }>) {
+  const days = rows.map((r) => r.entryDate).filter(Boolean).map((d) => new Date(d as Date).getTime());
+  const dup = new Set<number>();
+  if (!days.length) return dup;
+  const from = new Date(Math.min(...days) - 36 * 3600_000);
+  const to = new Date(Math.max(...days) + 36 * 3600_000);
+  const existing = await db
+    .select({ id: T.id, entryDate: T.entryDate, direction: T.direction, amount: T.amount, description: T.description, sourceSheet: T.sourceSheet, sourceRow: T.sourceRow, sourceSide: T.sourceSide })
+    .from(T)
+    .where(and(eq(T.isDeleted, false), sql`${T.entryDate} between ${from.toISOString()}::timestamp and ${to.toISOString()}::timestamp`));
+  const words = (x: string | null) => String(x || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "");
+  const day = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  const key = (d: Date | null, dir: string, amt: number, desc: string | null) => `${day(d)}|${dir}|${amt}|${words(desc)}`;
+  const pool = new Map<string, number[]>();
+  for (const e of existing) {
+    const k = key(e.entryDate, e.direction, e.amount, e.description);
+    pool.set(k, [...(pool.get(k) || []), e.id]);
+  }
+  const sameSource = new Set(existing.filter((e) => e.sourceSheet).map((e) => `${e.sourceSheet}|${e.sourceRow}|${e.sourceSide ?? e.direction}`));
+  rows.forEach((r, i) => {
+    if (sameSource.has(`${r.sourceSheet}|${r.sourceRow}|${r.direction}`)) return; // this very file again: it updates itself
+    const ids = pool.get(key(r.entryDate, r.direction, r.amount, r.description));
+    if (ids && ids.length) {
+      ids.shift(); // each existing entry covers one row
+      dup.add(i);
+    }
+  });
+  return dup;
+}
+router.post("/import/preview", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
+    const { rows, totalIn, totalOut, skippedSheets } = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    const dup = await alreadyInBook(rows);
+    const fresh = rows.filter((_, i) => !dup.has(i));
+    res.json({
+      rowCount: rows.length,
+      totalIn,
+      totalOut,
+      skippedSheets,
+      sample: rows.slice(0, 10),
+      // already in the Cash Book (skipped on import) and what will really be added
+      alreadyThere: [...dup].map((i) => rows[i]),
+      newCount: fresh.length,
+      newIn: fresh.filter((r) => r.direction === "In").reduce((a, r) => a + r.amount, 0),
+      newOut: fresh.filter((r) => r.direction === "Out").reduce((a, r) => a + r.amount, 0),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Could not read this workbook" });
+  }
+});
+
+// Batched bulk upsert instead of one row at a time - a few hundred round
+// trips instead of thousands, which is what made large imports (e.g. 3500+
+// rows) take several minutes.
+const IMPORT_BATCH_SIZE = 500;
+
+router.post("/import", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Upload an .xlsx workbook in the 'file' field." });
+    const parsed = await parseCashbookFlat(req.file.buffer, sourceLabelFromFilename(req.file.originalname));
+    const skippedSheets = parsed.skippedSheets;
+    // rows the Cash Book already has from another file / typed by hand are not added twice
+    const dup = await alreadyInBook(parsed.rows);
+    const rows = parsed.rows.filter((_, i) => !dup.has(i));
+
+    for (let i = 0; i < rows.length; i += IMPORT_BATCH_SIZE) {
+      const chunk = rows.slice(i, i + IMPORT_BATCH_SIZE).map((r) => ({
+        entryDate: r.entryDate || new Date(),
+        direction: r.direction,
+        amount: r.amount,
+        person: r.person,
+        description: r.description,
+        sourceSheet: r.sourceSheet,
+        sourceRow: r.sourceRow,
+        sourceSide: r.direction, // fixed: the side it came from in the file
+        createdBy: req.user?.id,
+        isDeleted: false,
+        deletedAt: null,
+      }));
+      await db
+        .insert(T)
+        .values(chunk as any)
+        .onConflictDoUpdate({
+          target: [T.sourceSheet, T.sourceRow, T.sourceSide],
+          set: {
+            entryDate: sql`excluded.entry_date`,
+            amount: sql`excluded.amount`,
+            person: sql`excluded.person`,
+            description: sql`excluded.description`,
+            // a row deleted earlier and brought back by this import starts without a link: its
+            // ledger entry was removed when it was deleted, and the old link may have been wrong
+            linkType: sql`case when ${T.isDeleted} then null else ${T.linkType} end`,
+            linkTargetId: sql`case when ${T.isDeleted} then null else ${T.linkTargetId} end`,
+            derivedEntryId: sql`case when ${T.isDeleted} then null else ${T.derivedEntryId} end`,
+            isDeleted: false,
+            deletedAt: null,
+            updatedAt: new Date(),
+            updatedBy: req.user?.id,
+          },
+        });
+    }
+
+    res.json({
+      message: `Imported ${rows.length} entries.${dup.size ? ` ${dup.size} were already in the Cash Book and were not added again.` : ""}`,
+      count: rows.length,
+      alreadyThere: dup.size,
+      skippedSheets,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Import failed" });
+  }
+});
+
+/** Delete every entry of one day (e.g. to import that day's sheet again cleanly). Linked
+ * truck / party ledger lines go with them, exactly as when deleting one entry. */
+// ---------------------------------------------------------------- the day's cash count
+export const NOTES = ["5000", "1000", "500", "100", "50", "20", "10"] as const;
+
+/** What the cash book says the cash should be at the end of a day. */
+export async function bookPosition(dateStr: string) {
+  const { start, end } = dayBounds(dateStr);
+  const [r] = await db
+    .select({
+      before: sql<number>`coalesce(sum(case when ${T.entryDate} < ${start} then case when ${T.direction}='In' then ${T.amount} else -${T.amount} end else 0 end),0)::bigint`,
+      cin: sql<number>`coalesce(sum(case when ${T.entryDate} >= ${start} and ${T.entryDate} < ${end} and ${T.direction}='In' then ${T.amount} else 0 end),0)::bigint`,
+      cout: sql<number>`coalesce(sum(case when ${T.entryDate} >= ${start} and ${T.entryDate} < ${end} and ${T.direction}='Out' then ${T.amount} else 0 end),0)::bigint`,
+      n: sql<number>`count(*) filter (where ${T.entryDate} >= ${start} and ${T.entryDate} < ${end})::int`,
+    })
+    .from(T)
+    .where(and(eq(T.isDeleted, false), lt(T.entryDate, end)));
+  const opening = Number(r?.before || 0);
+  const cashIn = Number(r?.cin || 0);
+  const cashOut = Number(r?.cout || 0);
+  return { opening, cashIn, cashOut, closing: opening + cashIn - cashOut, entries: Number(r?.n || 0) };
+}
+
+const C = schema.cashClosings;
+const countAudit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", id: number, oldV: unknown, newV: unknown) =>
+  logAudit({ action, tableName: "cash_closings", recordId: id, oldValues: oldV, newValues: newV, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+const okDay = (v: any) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
+
+async function countFor(day: string) {
+  const [row] = await db.select().from(C).where(and(eq(C.isDeleted, false), eq(C.day, day))).limit(1);
+  return row || null;
+}
+
+router.get("/count", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.query.date) || new Date().toISOString().slice(0, 10);
+    const book = await bookPosition(day);
+    const count = await countFor(day);
+    // the difference is always against the book as it is NOW (an entry added later corrects it)
+    res.json({ date: day, book, count, difference: count ? count.declaredBalance - book.closing : null });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.put("/count", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const day = okDay(b.date);
+    if (!day) return res.status(400).json({ error: "Which day? · کون سا دن؟" });
+    const den: Record<string, number> = {};
+    let fromNotes = 0;
+    for (const k of [...NOTES, "coins"]) {
+      const n = Math.max(0, Math.round(Number(b.denominations?.[k]) || 0));
+      if (n) {
+        den[k] = n;
+        fromNotes += k === "coins" ? n : n * Number(k);
+      }
+    }
+    const counted = b.counted !== undefined && b.counted !== "" ? Math.max(0, Math.round(Number(b.counted) || 0)) : fromNotes;
+    if (!counted && !Object.keys(den).length && b.counted === undefined) return res.status(400).json({ error: "Enter what was counted · گنی ہوئی رقم لکھیں" });
+    const book = await bookPosition(day);
+    const values = {
+      day,
+      closingDate: dayBounds(day).start,
+      denominations: Object.keys(den).length ? den : null,
+      openingBalance: book.opening,
+      cashIn: book.cashIn,
+      cashOut: book.cashOut,
+      closingBalance: book.closing,
+      declaredBalance: counted,
+      discrepancy: counted - book.closing,
+      notes: b.notes ? String(b.notes).slice(0, 500) : null,
+      updatedAt: new Date(),
+    };
+    const old = await countFor(day);
+    const [row] = old
+      ? await db.update(C).set({ ...values, updatedBy: req.user?.id }).where(eq(C.id, old.id)).returning()
+      : await db.insert(C).values({ ...values, status: "Draft", createdBy: req.user?.id }).returning();
+    await countAudit(req, old ? "UPDATE" : "CREATE", row.id, old, row);
+    res.json({ date: day, book, count: row, difference: counted - book.closing });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.delete("/count", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.query.date);
+    const old = day ? await countFor(day) : null;
+    if (!old) return res.status(404).json({ error: "No count for that day" });
+    await db.update(C).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(C.id, old.id));
+    await countAudit(req, "DELETE", old.id, old, null);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/** The count and the book differ: write the difference into the cash book (shortage = out, excess = in). */
+router.post("/count/settle", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const day = okDay(req.body?.date);
+    const count = day ? await countFor(day) : null;
+    if (!day || !count) return res.status(404).json({ error: "Count the cash for that day first" });
+    const book = await bookPosition(day);
+    const diff = count.declaredBalance - book.closing;
+    if (diff === 0) return res.json({ ok: true, message: "Nothing to record — the count matches the book" });
+    const at = new Date(dayBounds(day).end.getTime() - 60_000); // last minute of that day
+    const row = await createCashEntry(
+      {
+        entryDate: at.toISOString(),
+        direction: diff < 0 ? "Out" : "In",
+        amount: Math.abs(diff),
+        person: "Cash count",
+        description: diff < 0 ? `Cash short on count (${day}) · گنتی میں کم` : `Cash extra on count (${day}) · گنتی میں زیادہ`,
+        linkType: "count",
+      },
+      req.user?.id,
+    );
+    res.json({ ok: true, entry: row, message: diff < 0 ? `Shortage of ${Math.abs(diff).toLocaleString()} recorded` : `Excess of ${diff.toLocaleString()} recorded` });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+/** In / out / closing by day, week, month or year — and how the counts went in each. */
+router.get("/summary", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const by = ["day", "week", "month", "year"].includes(String(req.query.by)) ? String(req.query.by) : "month";
+    const now = new Date();
+    const fy = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    const from = okDay(req.query.from) || `${fy}-07-01`;
+    const to = okDay(req.query.to) || `${fy + 1}-06-30`;
+    const { start } = dayBounds(from);
+    const { end } = dayBounds(to);
+    const opening = (await bookPosition(from)).opening;
+    const list = await db
+      .select({ d: T.entryDate, dir: T.direction, amount: T.amount })
+      .from(T)
+      .where(and(eq(T.isDeleted, false), gte(T.entryDate, start), lt(T.entryDate, end)))
+      .orderBy(asc(T.entryDate));
+    const counts = await db
+      .select({ day: C.day, declared: C.declaredBalance })
+      .from(C)
+      .where(and(eq(C.isDeleted, false), gte(C.day, from), lte(C.day, to)));
+
+    // the day as the cash book shows it (server-local midnight, like /day)
+    const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const keyOf = (day: string) => {
+      if (by === "day") return day;
+      if (by === "month") return day.slice(0, 7);
+      if (by === "year") {
+        const y = Number(day.slice(0, 4));
+        const m = Number(day.slice(5, 7));
+        const s = m >= 7 ? y : y - 1;
+        return `FY ${s}-${String((s + 1) % 100).padStart(2, "0")}`;
+      }
+      const dt = new Date(`${day}T00:00:00Z`); // week starting Monday
+      dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+      return dt.toISOString().slice(0, 10);
+    };
+    const days = new Map<string, { in: number; out: number }>();
+    for (const r of list) {
+      const day = localDay(new Date(r.d));
+      const cur = days.get(day) || { in: 0, out: 0 };
+      if (r.dir === "In") cur.in += r.amount;
+      else cur.out += r.amount;
+      days.set(day, cur);
+    }
+    // closing per day (running), for the counts' difference
+    let run = opening;
+    const closingOf = new Map<string, number>();
+    for (const day of [...days.keys()].sort()) {
+      run += days.get(day)!.in - days.get(day)!.out;
+      closingOf.set(day, run);
+    }
+    const closingAt = (day: string) => {
+      let c = opening;
+      for (const [d, v] of closingOf) if (d <= day) c = v;
+      return c;
+    };
+    const periods = new Map<string, { key: string; first: string; last: string; in: number; out: number; days: number; counted: number; difference: number; diffDays: number }>();
+    for (const day of [...days.keys()].sort()) {
+      const k = keyOf(day);
+      const p = periods.get(k) || { key: k, first: day, last: day, in: 0, out: 0, days: 0, counted: 0, difference: 0, diffDays: 0 };
+      p.in += days.get(day)!.in;
+      p.out += days.get(day)!.out;
+      p.days += 1;
+      p.last = day;
+      periods.set(k, p);
+    }
+    for (const c of counts) {
+      if (!c.day) continue;
+      const k = keyOf(c.day);
+      const p = periods.get(k) || { key: k, first: c.day, last: c.day, in: 0, out: 0, days: 0, counted: 0, difference: 0, diffDays: 0 };
+      p.counted += 1;
+      const d = c.declared - closingAt(c.day);
+      if (d !== 0) {
+        p.difference += d;
+        p.diffDays += 1;
+      }
+      periods.set(k, p);
+    }
+    let bal = opening;
+    const rows = [...periods.values()]
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((p) => {
+        const o = bal;
+        bal = o + p.in - p.out;
+        return { ...p, opening: o, closing: bal };
+      });
+    res.json({ by, from, to, opening, closing: bal, totalIn: rows.reduce((s, r) => s + r.in, 0), totalOut: rows.reduce((s, r) => s + r.out, 0), rows });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.delete("/day", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const dateStr = String(req.query.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return res.status(400).json({ error: "Pick the day · تاریخ منتخب کریں" });
+    const { start, end } = dayBounds(dateStr);
+    const rows = await db
+      .select()
+      .from(T)
+      .where(and(eq(T.isDeleted, false), gte(T.entryDate, start), lte(T.entryDate, end))); // the very rows the day view shows
+    for (const old of rows) {
+      await db.update(T).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(T.id, old.id));
+      await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+      await audit(req, "DELETE", old.id, old, null);
+    }
+    res.json({ message: `${rows.length} entries of ${dateStr} deleted`, deleted: rows.length });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+router.delete("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(T).where(eq(T.id, id)).limit(1);
+    if (!old) return res.status(404).json({ error: "Entry not found" });
+    await db
+      .update(T)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(eq(T.id, id));
+    await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+    await audit(req, "DELETE", id, old, null);
+    res.json({ message: "Entry deleted" });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
+export const cashBookRouter = router;

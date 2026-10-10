@@ -177,8 +177,8 @@ export default function DataPortal({
             {entity.label} columns ({entity.columns.length})
           </summary>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-500">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
                 <tr>
                   <th className="text-left px-3 py-1.5">Column</th>
                   <th className="text-left px-3 py-1.5">Type</th>
@@ -268,7 +268,7 @@ export default function DataPortal({
 
             {validation.errors.length > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-lg border border-red-200">
-                <table className="w-full text-xs">
+                <table className="w-full text-[12.5px]">
                   <thead className="bg-red-50 text-red-700 sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-1.5 w-16">Row</th>

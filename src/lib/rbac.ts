@@ -65,11 +65,24 @@ export const permissionMatrix: Record<string, PermissionSet> = {
     chat: ["create", "read", "update", "delete"],
     ai: ["create", "read", "update", "delete"],
   },
+  // Full use of every business module (entries, edits, calculations) without
+  // the ability to manage other users or touch system settings/backups -
+  // those stay Super Admin-only.
   "Admin": {
-    dispatch: ["create", "read", "update", "delete"],
+    vehicles: ["create", "read", "update", "delete"],
+    drivers: ["create", "read", "update", "delete"],
     routes: ["create", "read", "update", "delete"],
+    contractors: ["create", "read", "update", "delete"],
+    dispatch: ["create", "read", "update", "delete"],
+    fuel: ["create", "read", "update", "delete"],
+    maintenance: ["create", "read", "update", "delete"],
+    hrms: ["create", "read", "update", "delete"],
+    finance: ["create", "read", "update", "delete"],
+    payroll: ["create", "read", "update", "delete"],
     reports: ["create", "read", "update", "delete"],
+    documents: ["create", "read", "update", "delete"],
     chat: ["create", "read", "update", "delete"],
+    ai: ["create", "read", "update", "delete"],
   },
   "Fleet Manager": {
     vehicles: ["create", "read", "update", "delete"],

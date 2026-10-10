@@ -1,0 +1,1229 @@
+/**
+ * Partnership Account (شراکت کا حساب) — a truck co-owned with a partner, kept exactly
+ * the way the paper book keeps it (see TLE 730 / Qudrat Ullah):
+ *
+ *  1. The truck's khata runs as usual (kiraya in, diesel / gadi kharcha / tyre / visa out).
+ *  2. Everything written after the last closed cycle is the OPEN CYCLE — taken in the order
+ *     rows were written (like the paper), not by date.
+ *  3. Close the cycle:
+ *       money left  -> صافی بچت: split by % → credited to the partner's party ledger and to
+ *                      HFK's party ledger. Together those credits are the مشترکہ جمع (joint pool).
+ *       money short -> قرضدار: carried into the next cycle (paper method) — or, if chosen,
+ *                      the loss is split by % right away.
+ *  4. شخصی برداشت (money a partner takes for home): debited to that partner; by default the
+ *     same amount is written for the other partner too — the paper writes both, so the 50/50
+ *     stays level.
+ *  5. A partner's old قرضہ is debited to him; his profit share (credit) then cuts it down on
+ *     its own, and anything he takes for home adds to it.
+ *
+ * Every rupee lives in the two party ledgers (tagged refNo "PSHIP-<id>"), so each side's money
+ * is in its own ledger and shows up in Party Ledgers / Dues like any other entry.
+ *
+ *   GET    /api/partnership/options           trucks (khatas) + parties for the setup form
+ *   GET    /api/partnership                   all partnership accounts with their balances
+ *   POST   /api/partnership                   set one up
+ *   GET    /api/partnership/suggest?ledgerId   what the setup form can fill in from a picked truck khata
+ *   GET    /api/partnership/report?ledgerId&from&to   any-dates report for one truck khata
+ *   GET    /api/partnership/ledger/:id/pages   the khata's paper pages (one per paper cycle)
+ *   GET    /api/partnership/ledger/:id/rows    rows of a page (?page=) or an id range (?after=&upto=)
+ *   GET    /api/partnership/:id               open cycle + balances + history + closed cycles
+ *   POST   /api/partnership/:id/close         close the open cycle
+ *   POST   /api/partnership/:id/undo-close    reopen the last closed cycle
+ *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
+ *   PUT    /api/partnership/:id                edit: partner / HFK ledger (entries move along), %, note
+ *   DELETE /api/partnership/:id                delete the partnership and its party-ledger entries
+ *   GET    /api/partnership/deleted            deleted partnerships (restore / set up again)
+ *   POST   /api/partnership/:id/restore        bring a deleted partnership back as it was
+ *   PUT    /api/partnership/:id/event/:entryId edit an entry (a home-money pair changes together)
+ *   DELETE /api/partnership/:id/event/:entryId (a home-money pair goes together)
+ *   POST   /api/partnership/:id/adopt         move the truck's other app-made khatas into this one
+ */
+import { Router, Response } from "express";
+import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
+import { db, schema } from "../src/db/index.ts";
+import { logAudit } from "../src/db/audit.ts";
+import { recompute as recomputeParty } from "./parties.ts";
+import { recompute as recomputeKhata } from "./ledgers.ts";
+import { pendingTripsForPlate } from "./trip_close.ts";
+
+const router = Router();
+router.use(requireAuth, requireApproved);
+const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Operations Manager", "Auditor"];
+const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
+
+// what each tagged party entry means — the label is also what Party Ledgers shows
+export const KIND = {
+  opening: "Opening joint pool · ابتدائی مشترکہ جمع",
+  safi: "Safi bachat · صافی بچت",
+  loss: "Loss split · نقصان تقسیم",
+  shakhsi: "Shakhsi bardasht · شخصی برداشت",
+  debt: "Old qarz · پرانا قرضہ",
+  repayment: "Qarz returned · قرضہ واپسی",
+  payout: "Share paid out · حصہ ادا",
+} as const;
+type Kind = keyof typeof KIND;
+const kindOf = (label: string | null): Kind | null => (Object.entries(KIND).find(([, v]) => v === label)?.[0] as Kind) || null;
+
+const tag = (id: number) => `PSHIP-${id}`;
+const whole = (v: any) => Math.round(Number(String(v ?? "").replace(/[^0-9.-]/g, "")) || 0);
+const dayOf = (v: any) => {
+  const d = v ? new Date(v) : new Date();
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
+async function audit(req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", tableName: string, recordId: number, oldValues: any, newValues: any) {
+  await logAudit({ action, tableName, recordId, oldValues, newValues, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+}
+
+async function ensureParty(id: any, name: any, notes: string, userId?: number): Promise<number> {
+  if (id) return Number(id);
+  const n = String(name || "").trim();
+  if (!n) throw new Error("Pick or type a name for both sides · دونوں شریکوں کا نام دیں");
+  const [found] = await db
+    .select({ id: schema.parties.id })
+    .from(schema.parties)
+    .where(and(eq(schema.parties.isDeleted, false), sql`lower(regexp_replace(trim(${schema.parties.name}), '\\s+', ' ', 'g')) = ${n.toLowerCase().replace(/\s+/g, " ")}`))
+    .orderBy(asc(schema.parties.id))
+    .limit(1);
+  if (found) return found.id;
+  const [{ max }] = await db.select({ max: sql<number>`coalesce(max(${schema.parties.id}),0)::int` }).from(schema.parties);
+  const [created] = await db
+    .insert(schema.parties)
+    .values({ partyCode: `PTY-${String((max || 0) + 1).padStart(4, "0")}-${Date.now().toString(36).slice(-3).toUpperCase()}`, name: n, type: "Other", notes, status: "Active", createdBy: userId })
+    .returning();
+  return created.id;
+}
+
+async function post(opts: {
+  accountId: number;
+  partyId: number;
+  kind: Kind;
+  date: Date;
+  description: string;
+  debit?: number;
+  credit?: number;
+  method?: string;
+  prevWatermark?: number;
+  userId?: number;
+}) {
+  const [e] = await db
+    .insert(schema.partyLedgerEntries)
+    .values({
+      partyId: opts.partyId,
+      entryDate: opts.date,
+      rawDate: opts.date.toISOString().slice(0, 10),
+      description: opts.description,
+      refNo: tag(opts.accountId),
+      method: opts.method || "Adjustment",
+      debit: Math.max(0, Math.round(opts.debit || 0)),
+      credit: Math.max(0, Math.round(opts.credit || 0)),
+      category: "Partnership",
+      sectionLabel: KIND[opts.kind],
+      sourceRow: opts.prevWatermark ?? null, // on a cycle close: where the cycle started, so it can be undone
+      createdBy: opts.userId,
+    })
+    .returning();
+  return e;
+}
+
+async function loadAccount(id: number) {
+  const [a] = await db
+    .select({
+      acc: schema.partnershipAccounts,
+      truck: schema.truckLedgers.registration,
+      truckTitle: schema.truckLedgers.title,
+      partnerName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.partnerPartyId})`,
+      hfkName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.hfkPartyId})`,
+    })
+    .from(schema.partnershipAccounts)
+    .innerJoin(schema.truckLedgers, eq(schema.partnershipAccounts.truckLedgerId, schema.truckLedgers.id))
+    .where(and(eq(schema.partnershipAccounts.id, id), eq(schema.partnershipAccounts.isDeleted, false)))
+    .limit(1);
+  return a || null;
+}
+
+/**
+ * The khata a partnership truck keeps its money in, or null when the truck has no partnership.
+ * Daily Cash Book and Trip Desk write here, so the truck has ONE khata — the same one the
+ * partnership's cycle reads — instead of a second app-made one the cycle never sees.
+ * (Writing into an imported khata is safe: a re-import only matches the sheet's own rows and
+ * always keeps rows added in the app.)
+ */
+export async function partnershipLedgerForPlate(vehicleNumber: string): Promise<number | null> {
+  const plate = String(vehicleNumber || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!plate) return null;
+  const [row] = await db
+    .select({ id: schema.truckLedgers.id })
+    .from(schema.partnershipAccounts)
+    .innerJoin(schema.truckLedgers, eq(schema.partnershipAccounts.truckLedgerId, schema.truckLedgers.id))
+    .where(
+      and(
+        eq(schema.partnershipAccounts.isDeleted, false),
+        eq(schema.truckLedgers.isDeleted, false),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
+    .orderBy(asc(schema.partnershipAccounts.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/** The truck's other app-made khatas (no sheet of their own) that still hold entries. */
+async function strayKhatas(ledgerId: number) {
+  const [main] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+  if (!main) return [];
+  const plate = String(main.registration || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return db
+    .select({
+      id: schema.truckLedgers.id,
+      title: schema.truckLedgers.title,
+      entries: sql<number>`(select count(*)::int from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+      received: sql<number>`(select coalesce(sum(e.received),0)::bigint from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+      paid: sql<number>`(select coalesce(sum(e.paid),0)::bigint from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+    })
+    .from(schema.truckLedgers)
+    .where(
+      and(
+        eq(schema.truckLedgers.isDeleted, false),
+        isNull(schema.truckLedgers.sourceSheet),
+        ne(schema.truckLedgers.id, ledgerId),
+        sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`,
+      ),
+    )
+    .then((rows) => rows.filter((r) => r.entries > 0).map((r) => ({ ...r, received: Number(r.received), paid: Number(r.paid) })));
+}
+
+// A previous page's result written again at the top of the next page — a shortfall
+// ("قرضدار 705,475", "fura qarzder") or a saving ("bacht 129,460", "صافی بچت 677,280"). Part
+// of the paper's running balance, but not new money: a report that counted it would count
+// that result twice.
+const CARRY_RE = /قرضدار|qarz\s*d[ae]r|qarzder|بچت|bach?at|bacht/i;
+
+/**
+ * Truck khata rows in writing order, each flagged:
+ *  box   — a figure from the settlement box drawn beside the paper table ("Des 350,000",
+ *          "Total حساب ہوگئا ہے 405,000"): imported from the sheet, but it has no Sr# and no
+ *          balance of its own. Never money of the truck.
+ *  carry — a carried-forward line (see CARRY_RE)
+ *  marker— a صافی بچت / "hisab nil" close line
+ */
+// NOTE: correlated sub-queries below name the outer table literally ("truck_ledger_entries"."id").
+// On a single-table select drizzle renders ${col} as a bare "id", which inside the sub-query
+// binds to the sub-query's own table — every count came out wrong.
+// A khata row's place on the paper: its id, unless it was imported into the khata from another
+// sheet and placed between existing rows (sort_key). Cycle watermarks stay row ids; ranges are
+// compared by place.
+const ROW_ORDER = sql`coalesce(${schema.truckLedgerEntries.sortKey}, ${schema.truckLedgerEntries.id})`;
+
+async function placeOf(entryId: number): Promise<number | null> {
+  if (!entryId) return null;
+  const [r] = await db.select({ k: sql<number>`${ROW_ORDER}` }).from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, entryId)).limit(1);
+  return r ? Number(r.k) : entryId;
+}
+
+/** The khata's last paper close line (صافی بچت / "hisab nil"), by place — 0 when there is none. */
+async function lastCloseEntryId(ledgerId: number): Promise<number> {
+  const [r] = await db
+    .select({ id: schema.truckLedgerEntries.id })
+    .from(schema.truckLedgerEntries)
+    .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), sql`(${schema.truckLedgerEntries.category} = 'SafiBachat' or ${schema.truckLedgerEntries.isReset})`))
+    .orderBy(desc(ROW_ORDER))
+    .limit(1);
+  return r?.id ?? 0;
+}
+
+async function khataRows(ledgerId: number, ...extra: any[]) {
+  const rows = await db
+    .select({
+      id: schema.truckLedgerEntries.id,
+      srNo: schema.truckLedgerEntries.srNo,
+      entryDate: schema.truckLedgerEntries.entryDate,
+      rawDate: schema.truckLedgerEntries.rawDate,
+      description: schema.truckLedgerEntries.description,
+      received: schema.truckLedgerEntries.received,
+      paid: schema.truckLedgerEntries.paid,
+      category: schema.truckLedgerEntries.category,
+      method: schema.truckLedgerEntries.method,
+      page: schema.truckLedgerEntries.sectionLabel,
+      sheetBalance: schema.truckLedgerEntries.sheetBalance,
+      sourceRow: schema.truckLedgerEntries.sourceRow,
+      isReset: schema.truckLedgerEntries.isReset,
+      mergedFrom: schema.truckLedgerEntries.mergedFrom,
+      files: sql<number>`(select count(*)::int from attachments a where a.entity_type = 'truck_ledger_entry' and a.entity_id = "truck_ledger_entries"."id" and not a.is_deleted)`,
+    })
+    .from(schema.truckLedgerEntries)
+    .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false), ...extra))
+    .orderBy(asc(ROW_ORDER));
+  return rows.map((r) => {
+    const money = (r.received || 0) !== 0 || (r.paid || 0) !== 0;
+    return {
+      ...r,
+      money,
+      box: money && r.sourceRow != null && r.sheetBalance == null && r.srNo == null,
+      carry: CARRY_RE.test(r.description || ""),
+      marker: r.category === "SafiBachat" || !!r.isReset,
+    };
+  });
+}
+type KhataRow = Awaited<ReturnType<typeof khataRows>>[number];
+
+/**
+ * The paper settles a page by one unlabelled last line that brings its balance to exactly 0
+ * (page 2: "677,280 → 0", page 8: "265,965 → 0") — a transfer to / from the joint pool, not
+ * income or expense. Needs whole pages, so only used where all the khata's rows are loaded.
+ */
+function settleIds(rows: KhataRow[]): Set<number> {
+  const out = new Set<number>();
+  const byPage = new Map<string, KhataRow[]>();
+  for (const r of rows) if (r.page) byPage.set(r.page, [...(byPage.get(r.page) || []), r]);
+  for (const page of byPage.values()) {
+    const lines = page.filter((r) => r.money && !r.box);
+    if (lines.length < 2) continue;
+    const last = lines[lines.length - 1];
+    const before = lines.slice(0, -1).reduce((s, r) => s + (r.received || 0) - (r.paid || 0), 0);
+    const after = before + (last.received || 0) - (last.paid || 0);
+    if (before !== 0 && after === 0 && !(last.description || "").trim()) out.add(last.id);
+  }
+  return out;
+}
+
+/** Lines with a running balance from 0, the way a paper page reads (box figures left out). */
+function withBalance(rows: KhataRow[]) {
+  let bal = 0;
+  return rows
+    .filter((r) => r.money && !r.box)
+    .map((r) => {
+      bal += (r.received || 0) - (r.paid || 0);
+      return { ...r, balance: bal };
+    });
+}
+
+/** The open cycle: every khata row written after the watermark, in writing order. */
+async function openCycle(ledgerId: number, afterId: number) {
+  const after = await placeOf(afterId);
+  const rows = after == null ? await khataRows(ledgerId) : await khataRows(ledgerId, sql`${ROW_ORDER} > ${after}`);
+  // Older paper pages imported into the khata LATER and placed before its own rows are past
+  // cycles, not this one: the open cycle starts at the first row the khata had of its own
+  // (rows merged in between its own rows — the same page's missing lines — still count).
+  const firstOwn = rows.findIndex((r) => r.mergedFrom == null && r.money);
+  const inCycle = firstOwn > 0 ? rows.slice(firstOwn) : rows;
+  // a صافی بچت line is the paper's close marker, not money
+  const lines = withBalance(inCycle.filter((r) => r.category !== "SafiBachat"));
+  const received = lines.reduce((s, r) => s + (r.received || 0), 0);
+  const paid = lines.reduce((s, r) => s + (r.paid || 0), 0);
+  return { lines, received, paid, net: received - paid, lastId: rows.length ? rows[rows.length - 1].id : afterId };
+}
+
+/** Both sides' positions, from the tagged party entries. */
+async function balances(accountId: number, partnerPartyId: number, hfkPartyId: number) {
+  const rows = await db
+    .select({ partyId: schema.partyLedgerEntries.partyId, label: schema.partyLedgerEntries.sectionLabel, debit: sql<number>`sum(${schema.partyLedgerEntries.debit})::bigint`, credit: sql<number>`sum(${schema.partyLedgerEntries.credit})::bigint` })
+    .from(schema.partyLedgerEntries)
+    .where(and(eq(schema.partyLedgerEntries.refNo, tag(accountId)), eq(schema.partyLedgerEntries.isDeleted, false)))
+    .groupBy(schema.partyLedgerEntries.partyId, schema.partyLedgerEntries.sectionLabel);
+
+  const side = (partyId: number) => {
+    const s = { share: 0, withdrawn: 0, paidOut: 0, debt: 0 };
+    for (const r of rows.filter((x) => x.partyId === partyId)) {
+      const k = kindOf(r.label);
+      const d = Number(r.debit || 0);
+      const c = Number(r.credit || 0);
+      if (k === "opening" || k === "safi" || k === "loss") s.share += c - d;
+      else if (k === "shakhsi") s.withdrawn += d - c;
+      else if (k === "payout") s.paidOut += d - c;
+      else if (k === "debt" || k === "repayment") s.debt += d - c;
+    }
+    // what is left for this side in the joint pool, and after his old qarz is set against it
+    const inPool = s.share - s.withdrawn - s.paidOut;
+    return { ...s, inPool, net: inPool - s.debt };
+  };
+  const partner = side(partnerPartyId);
+  const hfk = side(hfkPartyId);
+  return { partner, hfk, pool: partner.inPool + hfk.inPool };
+}
+
+// ---------------------------------------------------------------------------
+
+router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const ledgers = await db
+      .select({
+        id: schema.truckLedgers.id,
+        registration: schema.truckLedgers.registration,
+        title: schema.truckLedgers.title,
+        sourceSheet: schema.truckLedgers.sourceSheet,
+        entries: sql<number>`(select count(*)::int from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted)`,
+        // the paper's last close line: the newest صافی بچت / "hisab nil" row
+        lastCloseId: sql<number>`(select max(e.id) from truck_ledger_entries e where e.ledger_id = "truck_ledgers"."id" and not e.is_deleted and (e.category = 'SafiBachat' or e.is_reset))`,
+      })
+      .from(schema.truckLedgers)
+      .where(eq(schema.truckLedgers.isDeleted, false))
+      .orderBy(asc(schema.truckLedgers.registration));
+    const parties = await db
+      .select({ id: schema.parties.id, name: schema.parties.name, type: schema.parties.type })
+      .from(schema.parties)
+      .where(eq(schema.parties.isDeleted, false))
+      .orderBy(asc(schema.parties.name));
+    const accs = await db
+      .select({ id: schema.partnershipAccounts.id, ledgerId: schema.partnershipAccounts.truckLedgerId })
+      .from(schema.partnershipAccounts)
+      .where(eq(schema.partnershipAccounts.isDeleted, false));
+    const accByLedger = new Map(accs.map((a) => [a.ledgerId, a.id]));
+    res.json({
+      ledgers: ledgers.filter((l) => l.entries > 0 || !l.sourceSheet).map((l) => ({ ...l, accountId: accByLedger.get(l.id) ?? null })),
+      parties,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Everything the "New partnership" form can fill in from a truck khata the user just picked:
+ *  - who the partner probably is: the name in the sheet's title, the partner agreement the
+ *    import made, the khata's driver, the truck's trip drivers, and the party ledgers whose
+ *    entries mention this truck — each matched to an existing Party Ledger where one exists
+ *  - who holds HFK's half: party ledgers named HFK / Haji Mahboob
+ *  - where the open cycle would start and what it stands at now
+ */
+router.get("/suggest", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const ledgerId = Number(req.query.ledgerId);
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+    if (!led) return res.status(404).json({ error: "Khata not found" });
+    const plate = String(led.registration || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const normName = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    // a title fragment like "صافی بچت", "Nill" or the plate itself is not a person
+    const notAName = (s: string) =>
+      !s.trim() || /بچت|nill?|safi|bach|khata|ledger|hisab|حساب|page|gadi|kimat|qeemat|total|^zz\b/i.test(s) || s.toUpperCase().replace(/[^A-Z0-9]/g, "") === plate;
+
+    const parties = await db
+      .select({ id: schema.parties.id, name: schema.parties.name })
+      .from(schema.parties)
+      .where(eq(schema.parties.isDeleted, false))
+      .orderBy(asc(schema.parties.id));
+    const partyByName = new Map<string, number>();
+    for (const p of parties) if (!partyByName.has(normName(p.name))) partyByName.set(normName(p.name), p.id);
+
+    const found: { name: string; partyId: number | null; why: string }[] = [];
+    const add = (name: string | null | undefined, why: string) => {
+      const n = String(name || "").trim();
+      if (!n || notAName(n)) return;
+      const cur = found.find((f) => normName(f.name) === normName(n));
+      if (cur) cur.why += ` · ${why}`;
+      else found.push({ name: n, partyId: partyByName.get(normName(n)) ?? null, why });
+    };
+
+    // the same truck's khatas (the picked one first) — sheet title owner, driver
+    const khatas = await db
+      .select({ id: schema.truckLedgers.id, ownerName: schema.truckLedgers.ownerName, driverName: schema.truckLedgers.driverName, agreementId: schema.truckLedgers.partnerAgreementId })
+      .from(schema.truckLedgers)
+      .where(and(eq(schema.truckLedgers.isDeleted, false), sql`regexp_replace(upper(${schema.truckLedgers.registration}), '[^A-Z0-9]', '', 'g') = ${plate}`));
+    khatas.sort((a, b) => (a.id === ledgerId ? -1 : b.id === ledgerId ? 1 : 0));
+    for (const k of khatas) add(k.ownerName, "name on the sheet");
+    const agreementIds = khatas.map((k) => k.agreementId).filter((x): x is number => x != null);
+    if (agreementIds.length) {
+      const agr = await db
+        .select({ name: schema.partners.name })
+        .from(schema.partnerAgreements)
+        .innerJoin(schema.partners, eq(schema.partnerAgreements.partnerId, schema.partners.id))
+        .where(inArray(schema.partnerAgreements.id, agreementIds));
+      for (const a of agr) add(a.name, "partner agreement");
+    }
+    // whoever the khata's own rows keep naming — "Dawood Online Gadi Kharcha Qudrat Ullah TO …",
+    // "babt diesel qudratullah ko" — matched against Party Ledger and driver names (spacing ignored)
+    {
+      const key = (x: string) => x.toLowerCase().replace(/[^a-z؀-ۿ]/g, ""); // Latin + Urdu letters only
+      const rowKeys = (
+        await db
+          .select({ d: schema.truckLedgerEntries.description })
+          .from(schema.truckLedgerEntries)
+          .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.isDeleted, false)))
+      ).map((r) => key(r.d || ""));
+      const driverNames = await db.select({ name: schema.drivers.driverName }).from(schema.drivers).where(eq(schema.drivers.isDeleted, false));
+      const names = new Map<string, string>();
+      for (const n of [...parties.map((p) => p.name), ...driverNames.map((d) => d.name)]) {
+        const k = key(n || "");
+        if (k.length >= 6 && !notAName(n) && !names.has(k)) names.set(k, n);
+      }
+      const counted = [...names.entries()]
+        .map(([k, n]) => ({ n, c: rowKeys.filter((r) => r.includes(k)).length }))
+        .filter((x) => x.c >= 3)
+        .sort((x, y) => y.c - x.c)
+        .slice(0, 3);
+      for (const x of counted) add(x.n, `named in ${x.c} rows of this khata`);
+    }
+    for (const k of khatas) add(k.driverName, "driver on the khata");
+    const drivers = await db
+      .select({ name: schema.drivers.driverName })
+      .from(schema.trips)
+      .innerJoin(schema.vehicles, eq(schema.trips.vehicleId, schema.vehicles.id))
+      .innerJoin(schema.drivers, eq(schema.trips.driverId, schema.drivers.id))
+      .where(and(eq(schema.trips.isDeleted, false), sql`regexp_replace(upper(${schema.vehicles.vehicleNumber}), '[^A-Z0-9]', '', 'g') = ${plate}`))
+      .orderBy(desc(schema.trips.departureTime))
+      .limit(5);
+    for (const d of drivers) add(d.name, "drives this truck (trips)");
+    // party ledgers that keep writing this truck's number
+    const mentions = plate.length >= 4
+      ? await db
+          .select({ partyId: schema.partyLedgerEntries.partyId, n: sql<number>`count(*)::int` })
+          .from(schema.partyLedgerEntries)
+          .where(and(eq(schema.partyLedgerEntries.isDeleted, false), sql`regexp_replace(upper(coalesce(${schema.partyLedgerEntries.description}, '')), '[^A-Z0-9]', '', 'g') like ${"%" + plate + "%"}`))
+          .groupBy(schema.partyLedgerEntries.partyId)
+          .orderBy(desc(sql`count(*)`))
+          .limit(4)
+      : [];
+    for (const m of mentions.filter((x) => x.n >= 3)) {
+      const p = parties.find((x) => x.id === m.partyId);
+      if (p) add(p.name, `${m.n} entries in his ledger mention ${led.registration}`);
+    }
+
+    const hfk = parties
+      .filter((p) => /hfk|mahboob|محبوب/i.test(p.name))
+      .sort((x, y) => Number(/hfk/i.test(y.name)) - Number(/hfk/i.test(x.name)))
+      .map((p) => ({ name: p.name, partyId: p.id, why: "HFK ledger" }));
+
+    // where the open cycle would start (same rule the create uses)
+    const after = await lastCloseEntryId(ledgerId);
+    const [closeRow] = after ? await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, after)).limit(1) : [];
+    const cyc = await openCycle(ledgerId, after);
+
+    res.json({
+      partner: found,
+      hfk,
+      cycle: {
+        startsAfter: closeRow ? { date: closeRow.rawDate || closeRow.entryDate, description: closeRow.description } : null,
+        rows: cyc.lines.length,
+        received: cyc.received,
+        paid: cyc.paid,
+        net: cyc.net,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Any-dates report for one truck khata: money in − money out, by category, split by %.
+ * Counts every real row (online payments and "kiraya jama" deposits included — they are the
+ * truck's money), and leaves out only what isn't new money: صافی بچت lines, carried-forward
+ * قرضدار lines and the settlement-box figures. Those are listed separately so nothing is hidden.
+ */
+router.get("/report", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const ledgerId = Number(req.query.ledgerId);
+    if (!ledgerId) return res.status(400).json({ error: "ledgerId is required" });
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(new Date(String(req.query.to)).getTime() + 24 * 3600_000 - 1) : null;
+    const [acc] = await db
+      .select()
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, ledgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    const pct = acc ? acc.partnerPercent : Math.max(0, Math.min(100, whole(req.query.pct ?? 50)));
+
+    const all = await khataRows(ledgerId);
+    const settled = settleIds(all);
+    const inRange = all.filter((r) => {
+      if (!from && !to) return true;
+      if (!r.entryDate) return false;
+      const t = new Date(r.entryDate).getTime();
+      return (!from || t >= from.getTime()) && (!to || t <= to.getTime());
+    });
+    const money = inRange.filter((r) => r.money);
+    const counted = money.filter((r) => !r.box && !r.carry && !settled.has(r.id) && r.category !== "SafiBachat");
+    const leftOut = money
+      .filter((r) => !counted.includes(r))
+      .map((r) => ({ ...r, why: r.box ? "box" : r.carry ? "carry" : settled.has(r.id) ? "settle" : "safi" }));
+
+    const byCat = new Map<string, { category: string; received: number; paid: number; entries: number }>();
+    for (const r of counted) {
+      const c = byCat.get(r.category) || { category: r.category, received: 0, paid: 0, entries: 0 };
+      c.received += r.received || 0;
+      c.paid += r.paid || 0;
+      c.entries++;
+      byCat.set(r.category, c);
+    }
+    const revenue = counted.reduce((s, r) => s + (r.received || 0), 0);
+    const cost = counted.reduce((s, r) => s + (r.paid || 0), 0);
+    const net = revenue - cost;
+    const partnerShare = Math.round((net * pct) / 100);
+    const dated = all.filter((r) => r.entryDate).map((r) => new Date(r.entryDate as any).getTime());
+    res.json({
+      pct,
+      accountId: acc?.id ?? null,
+      categories: [...byCat.values()].sort((a, b) => b.paid - a.paid || b.received - a.received),
+      rows: counted,
+      leftOut,
+      undated: all.filter((r) => r.money && !r.entryDate).length,
+      coverage: dated.length ? { from: new Date(Math.min(...dated)).toISOString(), to: new Date(Math.max(...dated)).toISOString() } : null,
+      totals: { revenue, cost, net, partnerShare, hfkShare: net - partnerShare },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The khata's paper pages — each SR# table on the paper is one cycle — newest first. */
+router.get("/ledger/:ledgerId/pages", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await khataRows(Number(req.params.ledgerId));
+    const groups: { page: string; rows: KhataRow[] }[] = [];
+    for (const r of rows) {
+      const page = r.page || "Entries";
+      if (!groups.length || groups[groups.length - 1].page !== page) groups.push({ page, rows: [] });
+      groups[groups.length - 1].rows.push(r);
+    }
+    const pages = groups.map((g) => {
+      const lines = withBalance(g.rows);
+      const real = g.rows.filter((r) => !r.box);
+      // what the paper itself wrote as the page's last balance (before any "nil" zeroing line)
+      // (numbered paper rows only — the settlement box beside the table has balances of its own)
+      const written = [...real].reverse().find((r) => r.srNo != null && r.sheetBalance != null && r.sheetBalance !== 0)?.sheetBalance;
+      const dates = lines.map((l) => l.rawDate).filter(Boolean);
+      return {
+        page: g.page,
+        firstId: g.rows[0].id,
+        lastId: g.rows[g.rows.length - 1].id,
+        from: dates[0] || null,
+        to: dates[dates.length - 1] || null,
+        lines: lines.length,
+        received: lines.reduce((s, l) => s + (l.received || 0), 0),
+        paid: lines.reduce((s, l) => s + (l.paid || 0), 0),
+        result: written ?? (lines.length ? lines[lines.length - 1].balance : 0),
+        files: g.rows.reduce((s, r) => s + (r.files || 0), 0),
+      };
+    });
+    res.json(pages.reverse());
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Rows of one paper page, or of an id range (a cycle closed on this screen). */
+router.get("/ledger/:ledgerId/rows", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const extra: any[] = [];
+    if (req.query.page) extra.push(eq(schema.truckLedgerEntries.sectionLabel, String(req.query.page)));
+    const after = await placeOf(Number(req.query.after || 0));
+    const upto = await placeOf(Number(req.query.upto || 0));
+    if (after != null) extra.push(sql`${ROW_ORDER} > ${after}`);
+    if (upto != null) extra.push(sql`${ROW_ORDER} <= ${upto}`);
+    const rows = await khataRows(Number(req.params.ledgerId), ...extra);
+    res.json({ lines: withBalance(rows), box: rows.filter((r) => r.box) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Deleted partnerships (newest first) — each can be restored as it was, or set up again. */
+router.get("/deleted", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: schema.partnershipAccounts.id,
+        truckLedgerId: schema.partnershipAccounts.truckLedgerId,
+        partnerPercent: schema.partnershipAccounts.partnerPercent,
+        deletedAt: schema.partnershipAccounts.deletedAt,
+        truck: schema.truckLedgers.registration,
+        truckTitle: schema.truckLedgers.title,
+        khataDeleted: schema.truckLedgers.isDeleted,
+        partnerName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.partnerPartyId})`,
+        hfkName: sql<string>`(select name from parties where id = ${schema.partnershipAccounts.hfkPartyId})`,
+        active: sql<boolean>`exists (select 1 from partnership_accounts x where x.truck_ledger_id = ${schema.partnershipAccounts.truckLedgerId} and not x.is_deleted)`,
+      })
+      .from(schema.partnershipAccounts)
+      .innerJoin(schema.truckLedgers, eq(schema.partnershipAccounts.truckLedgerId, schema.truckLedgers.id))
+      .where(eq(schema.partnershipAccounts.isDeleted, true))
+      .orderBy(desc(schema.partnershipAccounts.deletedAt))
+      .limit(20);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Bring a deleted partnership back as it was: the account and the entries deleted with it. */
+router.post("/:id/restore", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const [a] = await db.select().from(schema.partnershipAccounts).where(eq(schema.partnershipAccounts.id, Number(req.params.id))).limit(1);
+    if (!a || !a.isDeleted) return res.status(404).json({ error: "No deleted partnership to restore" });
+    const [busy] = await db
+      .select({ id: schema.partnershipAccounts.id })
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, a.truckLedgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    if (busy) return res.status(400).json({ error: "This truck already has a partnership again — delete that one first to restore this · اس ٹرک کا نیا حساب موجود ہے" });
+    const [led] = await db.select({ isDeleted: schema.truckLedgers.isDeleted }).from(schema.truckLedgers).where(eq(schema.truckLedgers.id, a.truckLedgerId)).limit(1);
+    if (!led || led.isDeleted) return res.status(400).json({ error: "The truck's khata was deleted — restore or import the khata first · پہلے ٹرک کا کھاتہ واپس لائیں" });
+
+    // the entries deleted together with the account (same stamp; a few seconds' leeway for
+    // partnerships deleted before the stamp was shared)
+    const at = a.deletedAt ? new Date(a.deletedAt).getTime() : 0;
+    const back = await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: false, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(
+        and(
+          eq(schema.partyLedgerEntries.refNo, tag(a.id)),
+          eq(schema.partyLedgerEntries.isDeleted, true),
+          // (ISO strings cast to timestamp: the column has no time zone and stores UTC, while a raw
+          // Date parameter would be sent in the server's local time — 5 hours off in Pakistan)
+          sql`${schema.partyLedgerEntries.deletedAt} between ${new Date(at - 5000).toISOString()}::timestamp and ${new Date(at + 5000).toISOString()}::timestamp`,
+        ),
+      )
+      .returning({ id: schema.partyLedgerEntries.id });
+    await db
+      .update(schema.partnershipAccounts)
+      .set({ isDeleted: false, deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(eq(schema.partnershipAccounts.id, a.id));
+    await db.update(schema.truckLedgers).set({ isPartnership: true }).where(eq(schema.truckLedgers.id, a.truckLedgerId));
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "UPDATE", "partnership_accounts", a.id, { isDeleted: true }, { restored: true, entriesRestored: back.length });
+    res.json({ ok: true, entriesRestored: back.length, truckLedgerId: a.truckLedgerId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/", requireRole(READ), async (_req: AuthRequest, res: Response) => {
+  try {
+    const accs = await db.select().from(schema.partnershipAccounts).where(eq(schema.partnershipAccounts.isDeleted, false)).orderBy(asc(schema.partnershipAccounts.id));
+    const out = [];
+    for (const a of accs) {
+      const full = await loadAccount(a.id);
+      if (!full) continue;
+      const cyc = await openCycle(a.truckLedgerId, a.lastEntryId);
+      const bal = await balances(a.id, a.partnerPartyId, a.hfkPartyId);
+      out.push({ ...a, truck: full.truck, truckTitle: full.truckTitle, partnerName: full.partnerName, hfkName: full.hfkName, cycleNet: cyc.net, cycleLines: cyc.lines.length, ...bal });
+    }
+    res.json(out);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const ledgerId = Number(b.truckLedgerId);
+    if (!ledgerId) return res.status(400).json({ error: "Pick the truck's khata · ٹرک کا کھاتہ منتخب کریں" });
+    const pct = Math.max(1, Math.min(99, whole(b.partnerPercent ?? 50)));
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, ledgerId)).limit(1);
+    if (!led) return res.status(404).json({ error: "Khata not found" });
+    const [dup] = await db
+      .select({ id: schema.partnershipAccounts.id })
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, ledgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    if (dup) return res.status(400).json({ error: "This khata already has a partnership account · اس کھاتے کا شراکتی حساب پہلے سے موجود ہے" });
+
+    const partnerPartyId = await ensureParty(b.partnerPartyId, b.partnerName, `Partner in ${led.registration}`, req.user?.id);
+    const hfkPartyId = await ensureParty(b.hfkPartyId, b.hfkName, `HFK share in ${led.registration}`, req.user?.id);
+    if (partnerPartyId === hfkPartyId) return res.status(400).json({ error: "The partner and HFK must be two different ledgers · شریک اور HFK کے الگ کھاتے ہوں" });
+
+    // where the open cycle starts: after the given row, else after the paper's last close line
+    let lastEntryId = whole(b.startAfterEntryId);
+    if (!lastEntryId) {
+      lastEntryId = await lastCloseEntryId(ledgerId);
+    }
+
+    const [acc] = await db
+      .insert(schema.partnershipAccounts)
+      .values({ truckLedgerId: ledgerId, partnerPartyId, hfkPartyId, partnerPercent: pct, lastEntryId, notes: String(b.notes || "").trim() || null, createdBy: req.user?.id })
+      .returning();
+    await db.update(schema.truckLedgers).set({ isPartnership: true }).where(eq(schema.truckLedgers.id, ledgerId));
+
+    // money already in the joint pool on the day this starts (paper: "بقایا مشترکہ جمع رقم")
+    const pool = whole(b.openingPool);
+    const poolDate = dayOf(b.openingDate);
+    if (pool > 0) {
+      const partnerPart = Math.round((pool * pct) / 100);
+      const desc = `${led.registration}: joint pool brought forward ${pool.toLocaleString()} · مشترکہ جمع`;
+      await post({ accountId: acc.id, partyId: partnerPartyId, kind: "opening", date: poolDate, description: `${desc} × ${pct}%`, credit: partnerPart, userId: req.user?.id });
+      await post({ accountId: acc.id, partyId: hfkPartyId, kind: "opening", date: poolDate, description: `${desc} × ${100 - pct}%`, credit: pool - partnerPart, userId: req.user?.id });
+    }
+    const debt = whole(b.openingDebt);
+    if (debt > 0) {
+      await post({ accountId: acc.id, partyId: partnerPartyId, kind: "debt", date: dayOf(b.debtDate || b.openingDate), description: `${led.registration}: old qarz · پرانا قرضہ${b.debtNote ? ` — ${String(b.debtNote).trim()}` : ""}`, debit: debt, userId: req.user?.id });
+    }
+    await recomputeParty(partnerPartyId);
+    await recomputeParty(hfkPartyId);
+    await audit(req, "CREATE", "partnership_accounts", acc.id, null, acc);
+    res.status(201).json(acc);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
+    const bal = await balances(a.id, a.partnerPartyId, a.hfkPartyId);
+    const history = await db
+      .select({
+        id: schema.partyLedgerEntries.id,
+        partyId: schema.partyLedgerEntries.partyId,
+        entryDate: schema.partyLedgerEntries.entryDate,
+        description: schema.partyLedgerEntries.description,
+        method: schema.partyLedgerEntries.method,
+        debit: schema.partyLedgerEntries.debit,
+        credit: schema.partyLedgerEntries.credit,
+        label: schema.partyLedgerEntries.sectionLabel,
+        sourceRow: schema.partyLedgerEntries.sourceRow,
+        files: sql<number>`(select count(*)::int from attachments x where x.entity_type = 'party_ledger_entry' and x.entity_id = "party_ledger_entries"."id" and not x.is_deleted)`,
+      })
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .orderBy(desc(schema.partyLedgerEntries.entryDate), desc(schema.partyLedgerEntries.id));
+    const pct = a.partnerPercent;
+
+    // cycles closed on this screen: each close wrote one line per side, carrying where that
+    // cycle started (sourceRow); it ended where the next one started, or at the watermark
+    const closeLines = history.filter((h) => (kindOf(h.label) === "safi" || kindOf(h.label) === "loss") && h.sourceRow != null);
+    const starts = [...new Set(closeLines.map((h) => h.sourceRow as number))].sort((x, y) => x - y);
+    const closed = starts.map((after, i) => {
+      const lines = closeLines.filter((h) => h.sourceRow === after);
+      return {
+        no: i + 1,
+        after,
+        upto: starts[i + 1] ?? a.lastEntryId,
+        date: lines[0]?.entryDate,
+        net: lines.reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+        partnerShare: lines.filter((h) => h.partyId === a.partnerPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+      };
+    });
+    res.json({
+      account: a,
+      truck: full.truck,
+      truckTitle: full.truckTitle,
+      partnerName: full.partnerName,
+      hfkName: full.hfkName,
+      cycle: {
+        ...cycle,
+        cycleNo: a.cycleNo + 1,
+        partnerShare: Math.round((cycle.net * pct) / 100),
+        hfkShare: cycle.net - Math.round((cycle.net * pct) / 100),
+      },
+      ...bal,
+      history: history.map((h) => ({ ...h, kind: kindOf(h.label), side: h.partyId === a.partnerPartyId ? "partner" : "hfk" })),
+      closed: closed.reverse(),
+      strays: await strayKhatas(a.truckLedgerId),
+      // closed trips of this truck still waiting for money from a customer (red until received)
+      pendingTrips: await pendingTripsForPlate(full.truck).catch(() => []),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Close a partnership's open cycle (the paper's صافی بچت / قرضدار): split in − out since the last
+ * close by % into the partner's and HFK's party ledgers. Used by Partner P&L and by "Close trip"
+ * on Fleet Desk. Throws an Error with a user-facing message when it can't close.
+ */
+export async function closePartnershipCycle(accountId: number, opts: { date?: any; splitLoss?: boolean; userId?: number; note?: string } = {}) {
+  const full = await loadAccount(accountId);
+  if (!full) throw new Error("Partnership account not found");
+  const a = full.acc;
+  const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
+  if (!cycle.lines.length) throw new Error("Nothing written in the khata since the last close · پچھلے حساب کے بعد کوئی انٹری نہیں");
+  if (cycle.net < 0 && !opts.splitLoss) {
+    throw new Error(
+      `This cycle is short by ${Math.abs(cycle.net).toLocaleString()} (قرضدار). Paper method: leave it open — it carries into the next trip. Or choose "split the loss now". · یہ حساب ${Math.abs(cycle.net).toLocaleString()} کم ہے — اگلے حساب میں شامل ہو گا`,
+    );
+  }
+  const date = dayOf(opts.date);
+  const no = a.cycleNo + 1;
+  const partnerPart = Math.round((cycle.net * a.partnerPercent) / 100);
+  const hfkPart = cycle.net - partnerPart;
+  const kind: Kind = cycle.net >= 0 ? "safi" : "loss";
+  const head = `${full.truck} cycle ${no}${opts.note ? ` (${opts.note})` : ""}: in ${cycle.received.toLocaleString()} − out ${cycle.paid.toLocaleString()} = ${cycle.net.toLocaleString()}`;
+  const e1 = await post({
+    accountId: a.id, partyId: a.partnerPartyId, kind, date, prevWatermark: a.lastEntryId, userId: opts.userId,
+    description: `${head} × ${a.partnerPercent}%`,
+    credit: partnerPart > 0 ? partnerPart : 0, debit: partnerPart < 0 ? -partnerPart : 0,
+  });
+  const e2 = await post({
+    accountId: a.id, partyId: a.hfkPartyId, kind, date, prevWatermark: a.lastEntryId, userId: opts.userId,
+    description: `${head} × ${100 - a.partnerPercent}%`,
+    credit: hfkPart > 0 ? hfkPart : 0, debit: hfkPart < 0 ? -hfkPart : 0,
+  });
+  await db.update(schema.partnershipAccounts).set({ lastEntryId: cycle.lastId, cycleNo: no, updatedAt: new Date(), updatedBy: opts.userId }).where(eq(schema.partnershipAccounts.id, a.id));
+  await recomputeParty(a.partnerPartyId);
+  await recomputeParty(a.hfkPartyId);
+  await logAudit({
+    action: "UPDATE",
+    tableName: "partnership_accounts",
+    recordId: a.id,
+    oldValues: { lastEntryId: a.lastEntryId, cycleNo: a.cycleNo },
+    newValues: { lastEntryId: cycle.lastId, cycleNo: no, net: cycle.net, entries: [e1.id, e2.id], note: opts.note ?? null },
+    performedBy: opts.userId,
+  }).catch(() => {});
+  return { ok: true, net: cycle.net, partnerShare: partnerPart, hfkShare: hfkPart, cycleNo: no, partnerName: full.partnerName, hfkName: full.hfkName, accountId: a.id };
+}
+
+/** The partnership (if any) a truck belongs to, with what its open cycle stands at now. */
+export async function partnershipPreviewForPlate(vehicleNumber: string) {
+  const ledgerId = await partnershipLedgerForPlate(vehicleNumber);
+  if (!ledgerId) return null;
+  const [acc] = await db
+    .select({ id: schema.partnershipAccounts.id })
+    .from(schema.partnershipAccounts)
+    .where(and(eq(schema.partnershipAccounts.truckLedgerId, ledgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+    .limit(1);
+  if (!acc) return null;
+  const full = await loadAccount(acc.id);
+  if (!full) return null;
+  const a = full.acc;
+  const cycle = await openCycle(a.truckLedgerId, a.lastEntryId);
+  const partnerShare = Math.round((cycle.net * a.partnerPercent) / 100);
+  return {
+    accountId: a.id,
+    partnerName: full.partnerName,
+    hfkName: full.hfkName,
+    partnerPartyId: a.partnerPartyId,
+    hfkPartyId: a.hfkPartyId,
+    partnerPercent: a.partnerPercent,
+    cycleNo: a.cycleNo + 1,
+    rows: cycle.lines.length,
+    received: cycle.received,
+    paid: cycle.paid,
+    net: cycle.net,
+    partnerShare,
+    hfkShare: cycle.net - partnerShare,
+  };
+}
+
+router.post("/:id/close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const r = await closePartnershipCycle(Number(req.params.id), { date: req.body?.date, splitLoss: !!req.body?.splitLoss, userId: req.user?.id });
+    res.json(r);
+  } catch (e: any) {
+    const known = /not found|Nothing written|short by/.test(e.message || "");
+    res.status(known ? 400 : 500).json({ error: e.message });
+  }
+});
+
+/**
+ * Reopen a partnership's last closed cycle: its صافی بچت / loss lines leave both ledgers and the
+ * cycle is open again. A trip split by that close (Fleet Desk → Close trip) goes back to "not
+ * split". `onlyIfNote`: refuse unless the last close was made for that trip (its note).
+ */
+export async function reopenLastCycle(accountId: number, userId?: number, onlyIfNote?: string) {
+  const full = await loadAccount(accountId);
+  if (!full) throw new Error("Partnership account not found");
+  const a = full.acc;
+  const closes = await db
+    .select()
+    .from(schema.partyLedgerEntries)
+    .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false), inArray(schema.partyLedgerEntries.sectionLabel, [KIND.safi, KIND.loss])))
+    .orderBy(desc(schema.partyLedgerEntries.id))
+    .limit(2);
+  if (!closes.length || closes[0].sourceRow == null) throw new Error("No closed cycle to reopen");
+  if (onlyIfNote && !String(closes[0].description || "").includes(`(${onlyIfNote})`)) {
+    throw new Error("A later split was made after this one — reopen that first (Partner P&L → Reopen last cycle) · بعد والا حساب پہلے کھولیں");
+  }
+  const prev = closes[0].sourceRow;
+  const pair = closes.filter((c) => c.sourceRow === prev);
+  await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId }).where(inArray(schema.partyLedgerEntries.id, pair.map((x) => x.id)));
+  await db.update(schema.partnershipAccounts).set({ lastEntryId: prev, cycleNo: Math.max(0, a.cycleNo - 1), updatedAt: new Date(), updatedBy: userId }).where(eq(schema.partnershipAccounts.id, a.id));
+  // the trip this close split (if it came from Close trip) is not split any more
+  const closedAt = new Date(closes[0].createdAt).getTime();
+  const [trip] = await db
+    .select({ id: schema.trips.id, splitAt: schema.trips.splitAt })
+    .from(schema.trips)
+    .where(eq(schema.trips.splitAccountId, a.id))
+    .orderBy(desc(schema.trips.splitAt))
+    .limit(1);
+  if (trip?.splitAt && Math.abs(new Date(trip.splitAt).getTime() - closedAt) < 5 * 60_000) {
+    await db.update(schema.trips).set({ splitAt: null, splitAmount: null, splitAccountId: null }).where(eq(schema.trips.id, trip.id));
+  }
+  await recomputeParty(a.partnerPartyId);
+  await recomputeParty(a.hfkPartyId);
+  await logAudit({ action: "UPDATE", tableName: "partnership_accounts", recordId: a.id, oldValues: { lastEntryId: a.lastEntryId }, newValues: { lastEntryId: prev, reopened: true }, performedBy: userId }).catch(() => {});
+  return { ok: true };
+}
+
+router.post("/:id/undo-close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    res.json(await reopenLastCycle(Number(req.params.id), req.user?.id));
+  } catch (e: any) {
+    res.status(/No closed|not found/.test(e.message || "") ? 400 : 500).json({ error: e.message });
+  }
+});
+
+router.post("/:id/event", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const b = req.body || {};
+    const kind = String(b.kind) as Kind;
+    if (!["shakhsi", "debt", "repayment", "payout"].includes(kind)) return res.status(400).json({ error: "Unknown entry type" });
+    const amount = whole(b.amount);
+    if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
+    const who = b.who === "hfk" ? "hfk" : "partner";
+    if ((kind === "debt" || kind === "repayment") && who !== "partner") return res.status(400).json({ error: "Qarz is kept on the partner's side" });
+    const date = dayOf(b.date);
+    const note = String(b.note || "").trim();
+    const method = String(b.method || "Cash");
+    const partyId = who === "partner" ? a.partnerPartyId : a.hfkPartyId;
+    const name = who === "partner" ? full.partnerName : full.hfkName;
+    const desc = `${full.truck}: ${KIND[kind].split(" · ")[0]} — ${name}${note ? ` — ${note}` : ""}`;
+
+    const before = await balances(a.id, a.partnerPartyId, a.hfkPartyId);
+    const e = await post({
+      accountId: a.id, partyId, kind, date, method, userId: req.user?.id, description: desc,
+      debit: kind === "repayment" ? 0 : amount,
+      credit: kind === "repayment" ? amount : 0,
+    });
+    let matched = null;
+    // paper method: when one partner takes money for home, the same amount is written for the other
+    if (kind === "shakhsi" && b.matchOther !== false) {
+      const otherId = who === "partner" ? a.hfkPartyId : a.partnerPartyId;
+      const otherName = who === "partner" ? full.hfkName : full.partnerName;
+      matched = await post({
+        accountId: a.id, partyId: otherId, kind, date, method: "Adjustment", userId: req.user?.id,
+        prevWatermark: e.id, // for a matched line, sourceRow = the entry it matches (edit / delete them together)
+        description: `${full.truck}: Shakhsi bardasht — ${otherName} — same as ${name} (50/50 kept level · برابر)`,
+        debit: amount,
+      });
+    }
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    const after = await balances(a.id, a.partnerPartyId, a.hfkPartyId);
+    await audit(req, "CREATE", "party_ledger_entries", e.id, null, { partnership: a.id, kind, who, amount, matched: matched?.id });
+    res.status(201).json({
+      entry: e,
+      matched,
+      // tell the user straight away when a partner who already owes is taking more
+      warning:
+        who === "partner" && (kind === "shakhsi" || kind === "payout") && before.partner.net < 0
+          ? `${full.partnerName} already owed ${Math.abs(before.partner.net).toLocaleString()}; now owes ${Math.abs(after.partner.net).toLocaleString()} · پہلے سے قرضدار ہے`
+          : null,
+      ...after,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete("/:id/event/:entryId", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const [e] = await db
+      .select()
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.id, Number(req.params.entryId)), eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .limit(1);
+    if (!e) return res.status(404).json({ error: "Entry not found" });
+    const k = kindOf(e.sectionLabel);
+    if (k === "safi" || k === "loss") return res.status(400).json({ error: "A cycle close is removed with “Reopen last cycle” · حساب دوبارہ کھولیں" });
+    const pair = req.query.pair === "0" ? null : await pairOf(a.id, e);
+    const ids = [e.id, ...(pair ? [pair.id] : [])];
+    await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(inArray(schema.partyLedgerEntries.id, ids));
+    await recomputeParty(e.partyId);
+    if (pair) await recomputeParty(pair.partyId);
+    await audit(req, "DELETE", "party_ledger_entries", e.id, { ...e, alsoRemoved: pair?.id ?? null }, null);
+    res.json({ ok: true, removed: ids.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * The other half of a "money taken for home" pair: the same amount written for the other
+ * partner (paper method). New pairs are linked (the matched line's sourceRow = the entry's
+ * id); older ones are recognised by same day, same amount, other side, "same as" wording.
+ */
+async function pairOf(accountId: number, e: typeof schema.partyLedgerEntries.$inferSelect) {
+  if (kindOf(e.sectionLabel) !== "shakhsi") return null;
+  const live = and(eq(schema.partyLedgerEntries.refNo, tag(accountId)), eq(schema.partyLedgerEntries.isDeleted, false), eq(schema.partyLedgerEntries.sectionLabel, KIND.shakhsi));
+  const [linked] = await db.select().from(schema.partyLedgerEntries).where(and(live, eq(schema.partyLedgerEntries.sourceRow, e.id))).limit(1);
+  if (linked) return linked;
+  if (e.sourceRow) {
+    const [main] = await db.select().from(schema.partyLedgerEntries).where(and(live, eq(schema.partyLedgerEntries.id, e.sourceRow))).limit(1);
+    if (main) return main;
+  }
+  const isCopy = /same as/i.test(e.description || "");
+  const candidates = await db
+    .select()
+    .from(schema.partyLedgerEntries)
+    .where(and(live, ne(schema.partyLedgerEntries.partyId, e.partyId), eq(schema.partyLedgerEntries.debit, e.debit)));
+  const sameDay = (x: any) => x.entryDate && e.entryDate && new Date(x.entryDate).toISOString().slice(0, 10) === new Date(e.entryDate).toISOString().slice(0, 10);
+  return candidates.find((x) => sameDay(x) && /same as/i.test(x.description || "") !== isCopy) ?? null;
+}
+
+/** Edit one partner / HFK entry: amount, date, how, note. A home-money pair changes together. */
+router.put("/:id/event/:entryId", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const [e] = await db
+      .select()
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.id, Number(req.params.entryId)), eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .limit(1);
+    if (!e) return res.status(404).json({ error: "Entry not found" });
+    const k = kindOf(e.sectionLabel);
+    if (k === "safi" || k === "loss") {
+      return res.status(400).json({ error: "A cycle close comes from the khata — fix the khata rows, then “Reopen last cycle” and close it again · کھاتہ درست کر کے حساب دوبارہ بند کریں" });
+    }
+    const b = req.body || {};
+    const patch: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
+    let amount: number | null = null;
+    if (b.amount !== undefined) {
+      amount = whole(b.amount);
+      if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
+      // the amount stays on the side it was written on (added = jama, taken = naam)
+      if (e.credit > 0) patch.credit = amount;
+      else patch.debit = amount;
+    }
+    let date: Date | null = null;
+    if (b.date) {
+      date = dayOf(b.date);
+      patch.entryDate = date;
+      patch.rawDate = date.toISOString().slice(0, 10);
+    }
+    if (b.method) patch.method = String(b.method);
+    if (b.note !== undefined && k && k !== "opening" && !/same as/i.test(e.description || "")) {
+      const who = e.partyId === a.partnerPartyId ? full.partnerName : full.hfkName;
+      const note = String(b.note || "").trim();
+      patch.description = `${full.truck}: ${KIND[k].split(" · ")[0]} — ${who}${note ? ` — ${note}` : ""}`;
+    }
+    const pair = b.pair === false ? null : await pairOf(a.id, e);
+    await db.update(schema.partyLedgerEntries).set(patch).where(eq(schema.partyLedgerEntries.id, e.id));
+    if (pair && (amount != null || date)) {
+      const pp: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
+      if (amount != null) pp.debit = amount;
+      if (date) {
+        pp.entryDate = date;
+        pp.rawDate = date.toISOString().slice(0, 10);
+      }
+      await db.update(schema.partyLedgerEntries).set(pp).where(eq(schema.partyLedgerEntries.id, pair.id));
+    }
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "UPDATE", "party_ledger_entries", e.id, e, { ...patch, pairUpdated: pair?.id ?? null });
+    res.json({ ok: true, pairUpdated: !!pair, ...(await balances(a.id, a.partnerPartyId, a.hfkPartyId)) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Edit the partnership: who the partner / HFK side is (their entries move with them), %, note. */
+router.put("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const b = req.body || {};
+    const [led] = await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, a.truckLedgerId)).limit(1);
+    const reg = led?.registration || "";
+    const partnerPartyId = b.partnerPartyId || b.partnerName ? await ensureParty(b.partnerPartyId, b.partnerName, `Partner in ${reg}`, req.user?.id) : a.partnerPartyId;
+    const hfkPartyId = b.hfkPartyId || b.hfkName ? await ensureParty(b.hfkPartyId, b.hfkName, `HFK share in ${reg}`, req.user?.id) : a.hfkPartyId;
+    if (partnerPartyId === hfkPartyId) return res.status(400).json({ error: "The partner and HFK must be two different ledgers · شریک اور HFK کے الگ کھاتے ہوں" });
+    const pct = b.partnerPercent !== undefined ? Math.max(1, Math.min(99, whole(b.partnerPercent))) : a.partnerPercent;
+
+    // a side moved to another ledger: its entries go with it
+    const moves: [number, number][] = [];
+    if (partnerPartyId !== a.partnerPartyId) moves.push([a.partnerPartyId, partnerPartyId]);
+    if (hfkPartyId !== a.hfkPartyId) moves.push([a.hfkPartyId, hfkPartyId]);
+    for (const [from, to] of moves) {
+      await db
+        .update(schema.partyLedgerEntries)
+        .set({ partyId: to, updatedAt: new Date(), updatedBy: req.user?.id })
+        .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.partyId, from)));
+    }
+    const [updated] = await db
+      .update(schema.partnershipAccounts)
+      .set({
+        partnerPartyId,
+        hfkPartyId,
+        partnerPercent: pct,
+        ...(b.notes !== undefined ? { notes: String(b.notes || "").trim() || null } : {}),
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnershipAccounts.id, a.id))
+      .returning();
+    for (const id of new Set([a.partnerPartyId, a.hfkPartyId, partnerPartyId, hfkPartyId])) await recomputeParty(id);
+    await audit(req, "UPDATE", "partnership_accounts", a.id, a, updated);
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Delete the partnership: the account and every entry it wrote into the two party ledgers
+ * (shares, money taken for home, old debt …). The truck's own khata is not touched.
+ */
+router.delete("/:id", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const at = new Date(); // the account and its entries share this stamp — "Restore" brings back exactly them
+    const removed = await db
+      .update(schema.partyLedgerEntries)
+      .set({ isDeleted: true, deletedAt: at, deletedBy: req.user?.id })
+      .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false)))
+      .returning({ id: schema.partyLedgerEntries.id });
+    await db
+      .update(schema.partnershipAccounts)
+      .set({ isDeleted: true, deletedAt: at, deletedBy: req.user?.id })
+      .where(eq(schema.partnershipAccounts.id, a.id));
+    const [other] = await db
+      .select({ id: schema.partnershipAccounts.id })
+      .from(schema.partnershipAccounts)
+      .where(and(eq(schema.partnershipAccounts.truckLedgerId, a.truckLedgerId), eq(schema.partnershipAccounts.isDeleted, false)))
+      .limit(1);
+    if (!other) await db.update(schema.truckLedgers).set({ isPartnership: false }).where(eq(schema.truckLedgers.id, a.truckLedgerId));
+    await recomputeParty(a.partnerPartyId);
+    await recomputeParty(a.hfkPartyId);
+    await audit(req, "DELETE", "partnership_accounts", a.id, { ...a, entriesRemoved: removed.length }, null);
+    res.json({ ok: true, entriesRemoved: removed.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * Move the entries of the truck's other app-made khatas into the partnership khata, so the
+ * truck has one khata and the cycle sees every rupee. Only app-made khatas (no sheet of
+ * their own) are touched; the emptied khata is left in place with nothing in it.
+ */
+router.post("/:id/adopt", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const strays = await strayKhatas(a.truckLedgerId);
+    if (!strays.length) return res.json({ moved: 0 });
+    const ids = strays.map((x) => x.id);
+    const moved = await db
+      .update(schema.truckLedgerEntries)
+      .set({ ledgerId: a.truckLedgerId, updatedAt: new Date(), updatedBy: req.user?.id })
+      .where(and(inArray(schema.truckLedgerEntries.ledgerId, ids), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .returning({ id: schema.truckLedgerEntries.id });
+    for (const id of ids) await recomputeKhata(id);
+    await recomputeKhata(a.truckLedgerId);
+    await audit(req, "UPDATE", "truck_ledger_entries", a.truckLedgerId, { fromLedgers: ids }, { toLedger: a.truckLedgerId, entries: moved.map((m) => m.id) });
+    res.json({ moved: moved.length, intoOpenCycle: moved.filter((m) => m.id > a.lastEntryId).length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+export default router;

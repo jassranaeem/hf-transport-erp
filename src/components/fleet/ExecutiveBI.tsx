@@ -160,7 +160,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
             </div>
           </div>
           <div className="flex justify-between items-baseline">
-            <p className="text-xl font-mono font-black text-white">PKR {fin.totalRevenue.toLocaleString()}</p>
+            <p className="text-xl tabular-nums font-semibold text-white">PKR {fin.totalRevenue.toLocaleString()}</p>
           </div>
           <p className="text-[9px] text-slate-500">Booked trip revenue (profitability ledger)</p>
         </div>
@@ -169,12 +169,12 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
         <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-[10px] text-slate-500 font-bold uppercase">Net Profit (Margin)</span>
-            <div className="flex items-center gap-0.5 text-emerald-400 text-[10px] font-bold">
-              <ArrowUpRight className="w-3 h-3" /> {fin.profitMargin}%
+            <div className={`flex items-center gap-0.5 text-[10px] font-bold ${fin.netProfit < 0 ? "text-red-600" : "text-emerald-400"}`}>
+              {fin.netProfit < 0 ? <ArrowDownRight className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />} {fin.profitMargin}%
             </div>
           </div>
           <div className="flex justify-between items-baseline">
-            <p className="text-xl font-mono font-black text-emerald-400">PKR {fin.netProfit.toLocaleString()}</p>
+            <p className={`text-xl tabular-nums font-semibold ${fin.netProfit < 0 ? "text-red-600" : "text-emerald-400"}`}>PKR {fin.netProfit.toLocaleString()}</p>
           </div>
           <p className="text-[9px] text-slate-500">Expected net operational margins</p>
         </div>
@@ -183,12 +183,12 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
         <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-[10px] text-slate-500 font-bold uppercase">Cash Position</span>
-            <div className="flex items-center gap-0.5 text-blue-400 text-[10px] font-bold">
-              Stable
+            <div className={`flex items-center gap-0.5 text-[10px] font-bold ${fin.cashPosition < 0 ? "text-red-600" : "text-blue-400"}`}>
+              {fin.cashPosition < 0 ? "Short" : "Stable"}
             </div>
           </div>
           <div className="flex justify-between items-baseline">
-            <p className="text-xl font-mono font-black text-white">PKR {fin.cashPosition.toLocaleString()}</p>
+            <p className={`text-xl tabular-nums font-semibold ${fin.cashPosition < 0 ? "text-red-600" : "text-white"}`}>PKR {fin.cashPosition.toLocaleString()}</p>
           </div>
           <p className="text-[9px] text-slate-500">Liquid bank and cash balances</p>
         </div>
@@ -197,12 +197,12 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
         <div className="bg-slate-950/40 border border-slate-900 rounded-xl p-4 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-[10px] text-slate-500 font-bold uppercase">Fleet Utilization</span>
-            <div className="flex items-center gap-0.5 text-emerald-400 text-[10px] font-bold">
+            <div className={`flex items-center gap-0.5 text-[10px] font-bold ${fin.netProfit < 0 ? "text-red-600" : "text-emerald-400"}`}>
               Optimal
             </div>
           </div>
           <div className="flex justify-between items-baseline">
-            <p className="text-xl font-mono font-black text-white">{ops.driverUtilization}%</p>
+            <p className="text-xl tabular-nums font-semibold text-white">{ops.driverUtilization}%</p>
           </div>
           <p className="text-[9px] text-slate-500">{ops.totalFleetCount - ops.idleVehicles} active trucks on routes</p>
         </div>
@@ -231,7 +231,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                 {/* Trend line for revenue */}
                 <polyline
                   fill="none"
-                  stroke="#3b82f6"
+                  stroke="#2C5CAE"
                   strokeWidth="2.5"
                   points="20,110 80,95 140,75 200,60 260,40 320,55 380,25"
                 />
@@ -239,18 +239,18 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                 {/* Trend line for Net profit */}
                 <polyline
                   fill="none"
-                  stroke="#10b981"
+                  stroke="#2C5CAE"
                   strokeWidth="2.5"
                   points="20,120 80,112 140,90 200,85 260,65 320,78 380,48"
                 />
 
                 {/* Data point anchors */}
-                <circle cx="380" cy="25" r="4" fill="#3b82f6" />
-                <circle cx="380" cy="48" r="4" fill="#10b981" />
+                <circle cx="380" cy="25" r="4" fill="#2C5CAE" />
+                <circle cx="380" cy="48" r="4" fill="#2C5CAE" />
               </svg>
 
               {/* Labels */}
-              <div className="flex justify-between px-2 pt-1 border-t border-slate-900 text-[9px] font-mono text-slate-500">
+              <div className="flex justify-between px-2 pt-1 border-t border-slate-900 text-[9px] tabular-nums text-slate-500">
                 <span>Week 1</span>
                 <span>Week 2</span>
                 <span>Week 3</span>
@@ -276,7 +276,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                   <span className="font-semibold text-white">Active Transit Dispatches</span>
                   <p className="text-[10px] text-slate-500">Assets currently moving in transit corridors</p>
                 </div>
-                <span className="font-mono text-sm font-black text-blue-400">{ops.activeTrips} Trips</span>
+                <span className="tabular-nums text-sm font-semibold text-blue-400">{ops.activeTrips} Trips</span>
               </div>
 
               <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-900 flex justify-between items-center">
@@ -284,7 +284,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                   <span className="font-semibold text-white">Transit Delays / Incidents</span>
                   <p className="text-[10px] text-slate-500">Trips lagging planned operational ETAs</p>
                 </div>
-                <span className="font-mono text-sm font-black text-rose-400">{ops.delayedTrips} Alert</span>
+                <span className="tabular-nums text-sm font-semibold text-rose-400">{ops.delayedTrips} Alert</span>
               </div>
 
               <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-900 flex justify-between items-center">
@@ -292,7 +292,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                   <span className="font-semibold text-white">Idle Unassigned Fleet Assets</span>
                   <p className="text-[10px] text-slate-500">Trucks available for corridor allocation</p>
                 </div>
-                <span className="font-mono text-sm font-black text-slate-300">{ops.idleVehicles} Units</span>
+                <span className="tabular-nums text-sm font-semibold text-slate-300">{ops.idleVehicles} Units</span>
               </div>
 
               <div className="p-3 bg-slate-900/40 rounded-lg border border-slate-900 flex justify-between items-center">
@@ -300,7 +300,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
                   <span className="font-semibold text-white">Total Fleet Capacity</span>
                   <p className="text-[10px] text-slate-500">Total registered trucks in database</p>
                 </div>
-                <span className="font-mono text-sm font-black text-slate-300">{ops.totalFleetCount} Trucks</span>
+                <span className="tabular-nums text-sm font-semibold text-slate-300">{ops.totalFleetCount} Trucks</span>
               </div>
             </div>
           </div>
@@ -354,7 +354,7 @@ export default function ExecutiveBI({ showFeedback }: ExecutiveBIProps) {
               {depots.map((d, i) => (
                 <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-900 last:border-0">
                   <span className="text-slate-300 font-semibold">{i + 1}. {d.name}</span>
-                  <span className="font-mono font-bold text-slate-400">{d.value}</span>
+                  <span className="tabular-nums font-bold text-slate-400">{d.value}</span>
                 </div>
               ))}
             </div>
