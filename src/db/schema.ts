@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision, bigint } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, jsonb, index, numeric, uniqueIndex, customType, doublePrecision, bigint, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // ---------------------------------------------------------
@@ -1967,6 +1967,10 @@ export const partnerAgreements = pgTable("partner_agreements", {
   expenseRatioBenchmark: integer("expense_ratio_benchmark").notNull().default(55),
   startDate: timestamp("start_date").defaultNow().notNull(),
   closeDate: timestamp("close_date"),
+  // the instalment plan (qist): how much, on which day of the month, from when
+  installmentAmount: integer("installment_amount"),
+  installmentDay: integer("installment_day"),
+  installmentStart: date("installment_start"),
   status: text("status").notNull().default("Active"), // Active, Settled, Defaulted, Suspended
   notes: text("notes"),
 

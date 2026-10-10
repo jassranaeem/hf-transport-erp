@@ -12,6 +12,7 @@ import { enterpriseFetch } from "../../../client/api.ts";
 import { Handshake, RefreshCw, Loader2, Plus, X, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, FileText, Pencil, Trash2, Undo2 } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import PartnerInstallments from "./PartnerInstallments.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const pkr = (n: number) => (n < 0 ? "−" : "") + PKR(n); // keeps the minus
@@ -34,6 +35,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
   const [showAddAgreement, setShowAddAgreement] = useState(false);
   const [agreementForm, setAgreementForm] = useState({
     partnerId: "", vehicleId: "", agreedPrice: "", advancePaid: "", companySharePercent: "100", expenseRatioBenchmark: "55", startDate: today(), notes: "",
+    installmentAmount: "", installmentDay: "", installmentStart: "",
   });
   const [savingAgreement, setSavingAgreement] = useState(false);
 
@@ -86,7 +88,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
     try {
       await enterpriseFetch("/api/partnerships/agreements", { method: "POST", body: JSON.stringify(agreementForm) });
       showFeedback("success", "Agreement created");
-      setAgreementForm({ partnerId: "", vehicleId: "", agreedPrice: "", advancePaid: "", companySharePercent: "100", expenseRatioBenchmark: "55", startDate: today(), notes: "" });
+      setAgreementForm({ partnerId: "", vehicleId: "", agreedPrice: "", advancePaid: "", companySharePercent: "100", expenseRatioBenchmark: "55", startDate: today(), notes: "", installmentAmount: "", installmentDay: "", installmentStart: "" });
       setShowAddAgreement(false);
       load();
     } catch (e: any) {
@@ -139,6 +141,10 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
     }
   };
 
+  const editOf = (a: any) => ({
+    id: a.id, agreedPrice: String(a.agreedPrice ?? ""), advancePaid: String(a.advancePaid ?? ""), companySharePercent: String(a.companySharePercent ?? ""), expenseRatioBenchmark: String(a.expenseRatioBenchmark ?? ""), notes: a.notes || "",
+    installmentAmount: String(a.installmentAmount ?? ""), installmentDay: String(a.installmentDay ?? ""), installmentStart: a.installmentStart || "",
+  });
   const call = async (path: string, method: string, body: any, ok: string) => {
     try {
       await enterpriseFetch(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -165,7 +171,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
           <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
             <Handshake className="w-5 h-5 text-[#24539B]" /> Partners <span className="text-[#9CA3AF] font-normal text-sm">· شراکت دار</span>
           </h2>
-          <p className="text-[12px] text-[#6B7280]" dir="auto">Partner-owned trucks on lease-to-own — partner, agreement, and every settlement together.</p>
+          <p className="text-[12px] text-[#6B7280]" dir="auto">Trucks sold to a partner on instalments (lease-to-own): the agreement, its instalment plan, every instalment received and what came from the truck's earnings · قسطوں پر دیے گئے ٹرک</p>
         </div>
         <div className="flex-1" />
         <button onClick={load} disabled={loading} className="h-9 px-3 rounded-lg border border-[#E5E7EB] bg-white text-sm flex items-center gap-1.5 disabled:opacity-60">
@@ -227,6 +233,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
             <Field label="Company share %"><input inputMode="numeric" value={agreementForm.companySharePercent} onChange={(e) => setAgreementForm({ ...agreementForm, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
             <Field label="Expected expense ratio %"><input inputMode="numeric" value={agreementForm.expenseRatioBenchmark} onChange={(e) => setAgreementForm({ ...agreementForm, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
             <Field label="Start date"><input type="date" value={agreementForm.startDate} onChange={(e) => setAgreementForm({ ...agreementForm, startDate: e.target.value })} className="border rounded px-2 py-1" /></Field>
+            <Field label="Instalment each month (PKR) · ماہانہ قسط"><input inputMode="numeric" value={agreementForm.installmentAmount} onChange={(e) => setAgreementForm({ ...agreementForm, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+            <Field label="First instalment date · پہلی قسط"><input type="date" value={agreementForm.installmentStart} onChange={(e) => setAgreementForm({ ...agreementForm, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
             <Field label="Notes" className="col-span-2"><input value={agreementForm.notes} onChange={(e) => setAgreementForm({ ...agreementForm, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
           </div>
           <div className="flex gap-2 mt-3">
@@ -365,6 +373,14 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                 <span className="font-semibold w-32 shrink-0 truncate">{a.partnerName || "—"}</span>
                 <span className="text-[#6B7280] w-24 shrink-0">{a.vehicleNumber || "—"}</span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${a.status === "Settled" ? "bg-[#E6ECF6] text-[#173563]" : "bg-[#F3F4F6] text-[#374151]"}`}>{a.status}</span>
+                {a.plan ? (
+                  <span className="text-[#6B7280] truncate">
+                    Qist {PKR(a.installmentAmount)} · {a.plan.paidCount}/{a.plan.count} paid
+                    {a.plan.overdue > 0 ? <span className="ml-1.5 rounded-full bg-[#FEE2E2] text-[#991B1B] px-1.5 py-0.5 font-semibold">{PKR(a.plan.overdue)} overdue</span> : a.plan.next ? ` · next ${a.plan.next.due.split("-").reverse().join(".")}` : ""}
+                  </span>
+                ) : a.status !== "Settled" ? (
+                  <span className="text-[#B45309]">no instalment plan</span>
+                ) : null}
                 <span className="flex-1" />
                 <span className="text-[#6B7280]">Outstanding</span>
                 <span className="font-bold tabular-nums text-[#B00005] w-28 text-right">{PKR(a.currentBalance)}</span>
@@ -374,7 +390,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                 <div className="px-3 pb-3 bg-[#FAFAFA]">
                   <div className="flex items-center gap-3 pt-2 text-xs">
                     <button
-                      onClick={() => setEditAgreement(editAgreement?.id === a.id ? null : { id: a.id, agreedPrice: String(a.agreedPrice ?? ""), advancePaid: String(a.advancePaid ?? ""), companySharePercent: String(a.companySharePercent ?? ""), expenseRatioBenchmark: String(a.expenseRatioBenchmark ?? ""), notes: a.notes || "" })}
+                      onClick={() => setEditAgreement(editAgreement?.id === a.id ? null : editOf(a))}
                       className="flex items-center gap-1 text-[#24539B]"
                     >
                       <Pencil className="w-3.5 h-3.5" /> Edit agreement · ترمیم
@@ -398,6 +414,9 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                         <Field label="Company share %"><input inputMode="numeric" value={editAgreement.companySharePercent} onChange={(e) => setEditAgreement({ ...editAgreement, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
                         <Field label="Expected expense ratio %"><input inputMode="numeric" value={editAgreement.expenseRatioBenchmark} onChange={(e) => setEditAgreement({ ...editAgreement, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
                         <Field label="Notes"><input value={editAgreement.notes} onChange={(e) => setEditAgreement({ ...editAgreement, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Instalment each month (PKR) · ماہانہ قسط"><input inputMode="numeric" value={editAgreement.installmentAmount} onChange={(e) => setEditAgreement({ ...editAgreement, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="First instalment date · پہلی قسط"><input type="date" value={editAgreement.installmentStart} onChange={(e) => setEditAgreement({ ...editAgreement, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Day of the month (optional)"><input inputMode="numeric" value={editAgreement.installmentDay} onChange={(e) => setEditAgreement({ ...editAgreement, installmentDay: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" placeholder="same as the first date" /></Field>
                       </div>
                       <div className="flex gap-2 mt-2">
                         <button
@@ -420,6 +439,9 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                     <div className="py-4 text-center text-[#9CA3AF] text-xs flex items-center justify-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</div>
                   ) : ledger[a.id] ? (
                     <AgreementLedger
+                      showFeedback={showFeedback}
+                      onChanged={() => { refreshLedger(a.id); load(); }}
+                      onEditPlan={() => setEditAgreement(editOf(a))}
                       data={ledger[a.id]}
                       onSettle={() => setShowSettleFor(a.id)}
                       showSettleForm={showSettleFor === a.id}
@@ -448,17 +470,19 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
   );
 }
 
-function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving, onUndoSettlement }: any) {
+function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving, onUndoSettlement, showFeedback, onChanged, onEditPlan }: any) {
   const lastId = data.settlements.length ? Math.max(...data.settlements.map((x: any) => x.id)) : null;
   const [newestFirst, toggleNewest] = useNewestFirst();
   const t = data.totals;
   return (
-    <div className="space-y-3 pt-1">
+    <div className="space-y-3 pt-2">
+      <PartnerInstallments data={data} onChanged={onChanged} onEditPlan={onEditPlan} showFeedback={showFeedback} />
+      <div className="text-[12px] font-semibold text-[#374151] pt-1">From the truck's earnings · ٹرک کی کمائی سے (settlements)</div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
         <Big label="Declared revenue" value={PKR(t.totalDeclaredRevenue)} tone="neutral" />
         <Big label="Expenses" value={PKR(t.totalExpenses)} tone="bad" />
         <Big label="Net earnings" value={PKR(t.totalNet)} tone="neutral" />
-        <Big label="Recovered" value={PKR(t.totalRecovered)} tone="good" />
+        <Big label="Went to the balance" value={PKR(t.totalRecovered)} tone="good" />
         <Big label="Outstanding" value={PKR(t.outstanding)} tone="bad" />
       </div>
       {t.estimatedPartnerSkimToDate > 0 && (

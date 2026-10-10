@@ -267,6 +267,13 @@
       "when": 1791310000000,
       "tag": "0037_currency_precision",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0038_partner_installments",
+      "breakpoints": true
     }
   ]
 }

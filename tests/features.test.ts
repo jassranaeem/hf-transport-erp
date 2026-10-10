@@ -10,6 +10,7 @@ import { parseJsonLoose } from "../server/ai/llm.ts";
 import { nextDue } from "../server/recurring.ts";
 import { depreciationSchedule } from "../server/business_misc.ts";
 import { waNumber } from "../src/lib/share.ts";
+import { installmentSchedule } from "../server/partnerships.ts";
 
 let failures = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -112,6 +113,21 @@ console.log("business tools");
   const sl = depreciationSchedule({ cost: 1200000, method: "straight", ratePercent: null, usefulLifeYears: 4, salvage: 0, start: "2025-07-01" }, new Date("2026-10-06T12:00:00"));
   ok("straight line = cost / years", sl[0]?.charge === 300000 && sl[1]?.charge === 300000, sl);
   ok("phone 0300-1234567 → 923001234567", waNumber("0300-1234567") === "923001234567" && waNumber("+92 300 1234567") === "923001234567" && waNumber("12") === null);
+}
+
+console.log("lease-to-own instalments");
+{
+  // 1,000,000 to pay, 300,000 a month from 10 July 2026; 450,000 recovered so far; today 15 September
+  const p = installmentSchedule({ opening: 1000000, recovered: 450000, amount: 300000, day: null, start: "2026-07-10" }, "2026-09-15")!;
+  ok("4 instalments, the last one smaller", p.count === 4 && p.rows[3].amount === 100000, p.rows);
+  ok("due on the 10th of each month", p.rows.map((r) => r.due).join() === "2026-07-10,2026-08-10,2026-09-10,2026-10-10");
+  ok("what was recovered fills the oldest first", p.rows[0].status === "paid" && p.rows[1].status === "part" && p.rows[1].paid === 150000 && p.rows[2].status === "overdue" && p.rows[3].status === "upcoming", p.rows);
+  ok("overdue = due by today − recovered", p.dueByToday === 900000 && p.overdue === 450000 && p.overdueCount === 2 && p.ahead === 0);
+  ok("next is what is left of the oldest unpaid", p.next?.no === 2 && p.next?.amount === 150000 && p.next?.due === "2026-08-10");
+  const q = installmentSchedule({ opening: 600000, recovered: 400000, amount: 200000, day: 31, start: "2026-01-31" }, "2026-02-15")!;
+  ok("the 31st falls on the month's last day", q.rows[1].due === "2026-02-28" && q.rows[2].due === "2026-03-31");
+  ok("ahead of the plan", q.overdue === 0 && q.ahead === 200000 && q.paidCount === 2);
+  ok("no plan → no schedule", installmentSchedule({ opening: 500000, recovered: 0, amount: null, day: null, start: null }, "2026-10-10") === null);
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);

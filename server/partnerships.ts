@@ -12,6 +12,11 @@
  * (companySharePercent, default 100 = all net to the company) until the
  * balance reaches zero, then the agreement auto-settles.
  *
+ * Instalments (qist): the agreement can carry a plan — an amount, on a day of each month, from a
+ * date. The balance comes down two ways: an instalment the partner pays (cash / bank), and a
+ * settlement of the truck's earnings. Both count against the plan, oldest instalment first, so
+ * the schedule shows which instalments are paid, part-paid, overdue or still to come.
+ *
  * The settlement engine also cross-checks the partner's declared revenue
  * against (a) GPS trip history × route rates and (b) fuel drawn × expected
  * economy, and flags under-reported revenue / inflated expenses.
@@ -23,6 +28,7 @@ import { db, schema } from "../src/db/index.ts";
 import { and, eq, gte, lte, desc, asc, sql, ne, inArray } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
+import { selfApi } from "./self_api.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -31,6 +37,71 @@ const READ_ROLES = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Op
 const WRITE_ROLES = ["Super Admin", "Admin", "Finance Manager", "Operations Manager"];
 
 const EXPECTED_KMPL = 3.5; // loaded long-haul truck
+const rowsOf = async (q: any) => ((await db.execute(q)) as any).rows as any[];
+const isDay = (v: any) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+
+export interface ScheduleRow { no: number; due: string; amount: number; paid: number; status: "paid" | "part" | "overdue" | "upcoming" }
+
+/**
+ * The instalment plan as a schedule. What has been recovered so far (instalments paid + truck
+ * earnings settled) fills the instalments oldest first.
+ */
+export function installmentSchedule(a: { opening: number; recovered: number; amount: number | null; day: number | null; start: string | null }, today: string) {
+  if (!a.amount || a.amount <= 0 || !a.start || a.opening <= 0) return null;
+  const [sy, sm, sd] = a.start.split("-").map(Number);
+  const day = a.day && a.day >= 1 && a.day <= 31 ? a.day : sd;
+  const dueOf = (i: number) => {
+    // the first due date is the plan's day on or after the start date
+    const m0 = sm - 1 + (day < sd ? 1 : 0) + i;
+    const last = new Date(Date.UTC(sy, m0 + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(sy, m0, Math.min(day, last))).toISOString().slice(0, 10);
+  };
+  const n = Math.min(600, Math.ceil(a.opening / a.amount));
+  let left = Math.max(0, a.recovered);
+  const rows: ScheduleRow[] = [];
+  for (let i = 0; i < n; i++) {
+    const amount = Math.min(a.amount, a.opening - i * a.amount);
+    const paid = Math.min(amount, left);
+    left -= paid;
+    const due = dueOf(i);
+    rows.push({ no: i + 1, due, amount, paid, status: paid >= amount ? "paid" : due <= today ? (paid > 0 ? "part" : "overdue") : paid > 0 ? "part" : "upcoming" });
+  }
+  const dueByToday = rows.filter((r) => r.due <= today).reduce((t, r) => t + r.amount, 0);
+  const next = rows.find((r) => r.paid < r.amount) || null;
+  return {
+    rows,
+    count: n,
+    paidCount: rows.filter((r) => r.status === "paid").length,
+    overdueCount: rows.filter((r) => r.due <= today && r.paid < r.amount).length,
+    dueByToday,
+    overdue: Math.max(0, dueByToday - a.recovered), // behind the plan by this much
+    ahead: Math.max(0, a.recovered - dueByToday), // ahead of the plan by this much
+    next: next ? { no: next.no, due: next.due, amount: next.amount - next.paid } : null,
+    lastDue: rows.length ? rows[rows.length - 1].due : null,
+  };
+}
+
+/** Balance = opening − truck earnings settled − instalments paid. Also opens / closes the agreement. */
+async function recalcBalance(id: number, userId?: number) {
+  const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
+  if (!ag) return null;
+  const [t] = await rowsOf(sql`select
+      (select coalesce(sum(amount_to_company), 0) from partner_settlements where agreement_id = ${id} and not is_deleted)::int settled,
+      (select coalesce(sum(amount), 0) from partner_installments where agreement_id = ${id} and not is_deleted)::int paid`);
+  const currentBalance = Math.max(0, ag.openingBalance - Number(t.settled) - Number(t.paid));
+  await db
+    .update(schema.partnerAgreements)
+    .set({
+      currentBalance,
+      status: currentBalance <= 0 ? "Settled" : ag.status === "Settled" ? "Active" : ag.status,
+      closeDate: currentBalance <= 0 ? ag.closeDate || new Date() : null,
+      updatedAt: new Date(),
+      updatedBy: userId,
+    })
+    .where(eq(schema.partnerAgreements.id, id));
+  return { currentBalance, settled: Number(t.settled), paid: Number(t.paid) };
+}
 const num = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
 async function audit(req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", table: string, id: number, oldV: any, newV: any) {
@@ -241,8 +312,18 @@ router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res
       .leftJoin(schema.vehicles, eq(schema.partnerAgreements.vehicleId, schema.vehicles.id))
       .where(eq(schema.partnerAgreements.isDeleted, false))
       .orderBy(desc(schema.partnerAgreements.createdAt));
+    const today = pkToday();
     res.json(
-      list.map((r) => ({
+      list.map((r) => {
+        const sch = installmentSchedule(
+          { opening: r.agreement.openingBalance, recovered: r.agreement.openingBalance - r.agreement.currentBalance, amount: r.agreement.installmentAmount, day: r.agreement.installmentDay, start: r.agreement.installmentStart },
+          today,
+        );
+        return { ...row(r), plan: sch ? { count: sch.count, paidCount: sch.paidCount, overdueCount: sch.overdueCount, overdue: sch.overdue, ahead: sch.ahead, next: sch.next, lastDue: sch.lastDue } : null };
+      }),
+    );
+    function row(r: (typeof list)[number]) {
+      return {
         ...r.agreement,
         partnerName: r.partnerName,
         vehicleNumber: r.vehicleNumber,
@@ -251,8 +332,8 @@ router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res
           r.agreement.openingBalance > 0
             ? Math.round(((r.agreement.openingBalance - r.agreement.currentBalance) / r.agreement.openingBalance) * 100)
             : 100,
-      }))
-    );
+      };
+    }
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -286,6 +367,9 @@ router.post("/agreements", requireRole(WRITE_ROLES), async (req: AuthRequest, re
         companySharePercent: companySharePercent != null ? Math.round(num(companySharePercent)) : 100,
         expenseRatioBenchmark: expenseRatioBenchmark != null ? Math.round(num(expenseRatioBenchmark)) : 55,
         startDate: startDate ? new Date(startDate) : new Date(),
+        installmentAmount: Math.round(num(req.body.installmentAmount)) || null,
+        installmentDay: req.body.installmentDay ? Math.min(31, Math.max(1, Math.round(num(req.body.installmentDay)))) : null,
+        installmentStart: isDay(req.body.installmentStart) ? req.body.installmentStart : null,
         status: opening <= 0 ? "Settled" : "Active",
         notes,
         createdBy: req.user?.id,
@@ -328,6 +412,14 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
       .orderBy(asc(schema.partnerSettlements.createdAt));
 
+    const installments = await rowsOf(sql`select i.id, to_char(i.pay_date, 'YYYY-MM-DD') pay_day, i.amount, i.method, i.reference, i.notes, i.cash_transaction_id, u.name by_name
+      from partner_installments i left join users u on u.id = i.created_by where i.agreement_id = ${id} and not i.is_deleted order by i.pay_date, i.id`);
+    const totalInstallments = installments.reduce((s, x) => s + Number(x.amount), 0);
+    const schedule = installmentSchedule(
+      { opening: ag.agreement.openingBalance, recovered: ag.agreement.openingBalance - ag.agreement.currentBalance, amount: ag.agreement.installmentAmount, day: ag.agreement.installmentDay, start: ag.agreement.installmentStart },
+      pkToday(),
+    );
+
     const totalDeclaredRevenue = settlements.reduce((s, x) => s + x.grossRevenue, 0);
     const totalExpenses = settlements.reduce((s, x) => s + x.totalExpenses, 0);
     const totalNet = settlements.reduce((s, x) => s + x.netEarnings, 0);
@@ -349,7 +441,11 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
         vehicleNumber: ag.vehicleNumber,
       },
       settlements,
+      installments,
+      schedule,
       totals: {
+        installments: installments.length,
+        totalInstallments,
         settlements: settlements.length,
         totalDeclaredRevenue,
         totalExpenses,
@@ -359,7 +455,7 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
         outstanding: ag.agreement.currentBalance,
         recoveryPercent:
           ag.agreement.openingBalance > 0
-            ? Math.round((totalRecovered / ag.agreement.openingBalance) * 100)
+            ? Math.round(((ag.agreement.openingBalance - ag.agreement.currentBalance) / ag.agreement.openingBalance) * 100)
             : 100,
         totalExpectedRevenue,
         estimatedPartnerSkimToDate: totalSkim,
@@ -551,12 +647,19 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
     const n = (v: any, d: number) => (v === undefined || v === "" ? d : Math.max(0, Math.round(Number(v) || 0)));
     const agreedPrice = n(b.agreedPrice, old.agreedPrice);
     const advancePaid = n(b.advancePaid, old.advancePaid);
-    const openingBalance = Math.max(0, agreedPrice - advancePaid);
-    const [rec] = await db
-      .select({ s: sql<number>`coalesce(sum(${schema.partnerSettlements.amountToCompany}),0)::int` })
-      .from(schema.partnerSettlements)
-      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)));
+    // the opening balance is re-worked only when the price or the advance is changed (an imported
+    // agreement keeps the balance it came with when only its plan or notes are edited)
+    const moneyChanged = agreedPrice !== old.agreedPrice || advancePaid !== old.advancePaid;
+    const openingBalance = moneyChanged ? Math.max(0, agreedPrice - advancePaid) : old.openingBalance;
+    const [rec] = await rowsOf(sql`select
+        (select coalesce(sum(amount_to_company), 0) from partner_settlements where agreement_id = ${id} and not is_deleted)::int
+      + (select coalesce(sum(amount), 0) from partner_installments where agreement_id = ${id} and not is_deleted)::int s`);
     const currentBalance = Math.max(0, openingBalance - Number(rec?.s || 0));
+    const plan = {
+      installmentAmount: b.installmentAmount === undefined ? old.installmentAmount : b.installmentAmount === "" || b.installmentAmount == null ? null : Math.max(0, Math.round(Number(b.installmentAmount) || 0)) || null,
+      installmentDay: b.installmentDay === undefined ? old.installmentDay : b.installmentDay === "" || b.installmentDay == null ? null : Math.min(31, Math.max(1, Math.round(Number(b.installmentDay) || 1))),
+      installmentStart: b.installmentStart === undefined ? old.installmentStart : isDay(b.installmentStart) ? b.installmentStart : null,
+    };
     const [updated] = await db
       .update(schema.partnerAgreements)
       .set({
@@ -569,6 +672,7 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
         companySharePercent: Math.min(100, n(b.companySharePercent, old.companySharePercent)),
         expenseRatioBenchmark: Math.min(100, n(b.expenseRatioBenchmark, old.expenseRatioBenchmark)),
         startDate: b.startDate ? new Date(b.startDate) : old.startDate,
+        ...plan,
         notes: b.notes !== undefined ? String(b.notes || "") || null : old.notes,
         status: currentBalance <= 0 ? "Settled" : old.status === "Settled" ? "Active" : old.status,
         closeDate: currentBalance <= 0 ? old.closeDate || new Date() : null,
@@ -579,6 +683,69 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
       .returning();
     await audit(req, "UPDATE", "partner_agreements", id, old, updated);
     res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * An instalment received from the partner. Cash can also be written into the Daily Cash Book
+ * (money In) in the same step, so the drawer's balance is right.
+ */
+router.post("/agreements/:id/installments", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [ag] = await db
+      .select({ a: schema.partnerAgreements, partnerName: schema.partners.name, vehicleNumber: schema.vehicles.vehicleNumber })
+      .from(schema.partnerAgreements)
+      .leftJoin(schema.partners, eq(schema.partnerAgreements.partnerId, schema.partners.id))
+      .leftJoin(schema.vehicles, eq(schema.partnerAgreements.vehicleId, schema.vehicles.id))
+      .where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false)))
+      .limit(1);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const amount = Math.round(Number(b.amount) || 0);
+    if (!(amount > 0)) return res.status(400).json({ error: "Enter the amount received · رقم درج کریں" });
+    if (amount > ag.a.currentBalance)
+      return res.status(400).json({ error: `Only PKR ${ag.a.currentBalance.toLocaleString()} is still owed on this truck · باقی رقم سے زیادہ نہیں ہو سکتا` });
+    const day = isDay(b.date) ? b.date : pkToday();
+    const method = ["Cash", "Online", "Cheque", "Bank Transfer"].includes(b.method) ? b.method : "Cash";
+    let cashId: number | null = null;
+    if (b.toCashBook && method === "Cash") {
+      const c = await selfApi(req, "POST", "/api/cash-book", {
+        entryDate: `${day}T12:00:00`,
+        direction: "In",
+        amount,
+        person: ag.partnerName || "Partner",
+        description: `Qist / instalment — ${ag.vehicleNumber || ""} (${ag.a.agreementNumber})${b.reference ? ` · ${b.reference}` : ""}`,
+      });
+      cashId = c?.id ?? null;
+    }
+    const [inst] = await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, created_by)
+      values (${id}, ${`${day}T12:00:00`}::timestamp, ${amount}, ${method}, ${b.reference || null}, ${b.notes || null}, ${cashId}, ${req.user?.id ?? null}) returning *`);
+    const bal = await recalcBalance(id, req.user?.id);
+    await audit(req, "CREATE", "partner_installments", inst.id, null, inst);
+    res.status(201).json({ installment: inst, currentBalance: bal?.currentBalance, cashBookEntry: cashId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Take an instalment back (typed by mistake). Its Cash Book entry, if it made one, goes too. */
+router.delete("/agreements/:id/installments/:iid", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [inst] = await rowsOf(sql`update partner_installments set is_deleted = true where id = ${parseInt(req.params.iid)} and agreement_id = ${id} and not is_deleted returning *`);
+    if (!inst) return res.status(404).json({ error: "Instalment not found" });
+    let cashNote: string | null = null;
+    if (inst.cash_transaction_id) {
+      await selfApi(req, "DELETE", `/api/cash-book/${inst.cash_transaction_id}`).catch((e: any) => {
+        cashNote = `Its Cash Book entry could not be removed (${e.message}) — delete it there`;
+      });
+    }
+    const bal = await recalcBalance(id, req.user?.id);
+    await audit(req, "DELETE", "partner_installments", inst.id, inst, null);
+    res.json({ ok: true, currentBalance: bal?.currentBalance, warning: cashNote });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -619,12 +786,10 @@ router.delete("/agreements/:id/settlements/:sid", requireRole(WRITE_ROLES), asyn
     if (!last) return res.status(404).json({ error: "No settlement to take back" });
     if (last.id !== sid) return res.status(400).json({ error: "Only the latest settlement can be taken back — take back the newer ones first · پہلے بعد والی واپس لیں" });
     await db.update(schema.partnerSettlements).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partnerSettlements.id, sid));
-    await db
-      .update(schema.partnerAgreements)
-      .set({ currentBalance: last.balanceBefore, status: last.balanceBefore > 0 ? "Active" : "Settled", closeDate: last.balanceBefore > 0 ? null : undefined, updatedAt: new Date(), updatedBy: req.user?.id })
-      .where(eq(schema.partnerAgreements.id, id));
+    // worked out again from everything that is left (an instalment may have been paid since)
+    const bal = await recalcBalance(id, req.user?.id);
     await audit(req, "DELETE", "partner_settlements", sid, last, null);
-    res.json({ ok: true, currentBalance: last.balanceBefore });
+    res.json({ ok: true, currentBalance: bal?.currentBalance ?? last.balanceBefore });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
