@@ -189,8 +189,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
       {summary && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Big label="Active agreements" value={String(summary.activeCount ?? agreements.filter((a) => a.status === "Active").length)} tone="neutral" />
-          <Big label="Total outstanding" value={PKR(summary.totalOutstanding ?? agreements.reduce((s, a) => s + (a.currentBalance || 0), 0))} tone="bad" />
-          <Big label="Total recovered" value={PKR(summary.totalRecovered ?? agreements.reduce((s, a) => s + (a.recoveredAmount || 0), 0))} tone="good" />
+          <Big label="Still to be paid to HFK" value={PKR(summary.totalOutstanding ?? agreements.reduce((s, a) => s + (a.currentBalance || 0), 0))} tone="bad" />
+          <Big label="Paid off so far" value={PKR(summary.totalRecovered ?? agreements.reduce((s, a) => s + (a.recoveredAmount || 0), 0))} tone="good" />
           <Big label="Partners" value={String(partners.length)} tone="neutral" />
         </div>
       )}
@@ -230,11 +230,11 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
             </Field>
             <Field label="Agreed price (PKR) *"><input inputMode="numeric" value={agreementForm.agreedPrice} onChange={(e) => setAgreementForm({ ...agreementForm, agreedPrice: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
             <Field label="Advance paid"><input inputMode="numeric" value={agreementForm.advancePaid} onChange={(e) => setAgreementForm({ ...agreementForm, advancePaid: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Company share %"><input inputMode="numeric" value={agreementForm.companySharePercent} onChange={(e) => setAgreementForm({ ...agreementForm, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Expected expense ratio %"><input inputMode="numeric" value={agreementForm.expenseRatioBenchmark} onChange={(e) => setAgreementForm({ ...agreementForm, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+            <Field label="% of the trip's net that pays the truck (100 until paid) · بچت کا کتنا حصہ"><input inputMode="numeric" value={agreementForm.companySharePercent} onChange={(e) => setAgreementForm({ ...agreementForm, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+            <Field label="Expense check % (a warning only) · خرچے کی جانچ"><input inputMode="numeric" value={agreementForm.expenseRatioBenchmark} onChange={(e) => setAgreementForm({ ...agreementForm, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
             <Field label="Start date"><input type="date" value={agreementForm.startDate} onChange={(e) => setAgreementForm({ ...agreementForm, startDate: e.target.value })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Instalment each month (PKR) · ماہانہ قسط"><input inputMode="numeric" value={agreementForm.installmentAmount} onChange={(e) => setAgreementForm({ ...agreementForm, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-            <Field label="First instalment date · پہلی قسط"><input type="date" value={agreementForm.installmentStart} onChange={(e) => setAgreementForm({ ...agreementForm, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
+            <Field label="Fixed monthly qist, if agreed (optional)"><input inputMode="numeric" value={agreementForm.installmentAmount} onChange={(e) => setAgreementForm({ ...agreementForm, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+            <Field label="…from this date (optional)"><input type="date" value={agreementForm.installmentStart} onChange={(e) => setAgreementForm({ ...agreementForm, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
             <Field label="Notes" className="col-span-2"><input value={agreementForm.notes} onChange={(e) => setAgreementForm({ ...agreementForm, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
           </div>
           <div className="flex gap-2 mt-3">
@@ -310,7 +310,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
 
       {partners.length > 0 && (
         <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
-          <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Lease-to-own partners · {partners.length} <span className="font-normal text-[#6B7280]">— buying a truck from HFK in instalments</span></div>
+          <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Lease-to-own drivers · {partners.length} <span className="font-normal text-[#6B7280]">— each took a truck from HFK and pays its price from the trips; a 50% partner once it is paid</span></div>
           <table className="w-full text-[12.5px]">
             <tbody>
               {partners.map((pt) =>
@@ -378,9 +378,11 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                     Qist {PKR(a.installmentAmount)} · {a.plan.paidCount}/{a.plan.count} paid
                     {a.plan.overdue > 0 ? <span className="ml-1.5 rounded-full bg-[#FEE2E2] text-[#991B1B] px-1.5 py-0.5 font-semibold">{PKR(a.plan.overdue)} overdue</span> : a.plan.next ? ` · next ${a.plan.next.due.split("-").reverse().join(".")}` : ""}
                   </span>
-                ) : a.status !== "Settled" ? (
-                  <span className="text-[#B45309]">no instalment plan</span>
-                ) : null}
+                ) : a.status === "Settled" ? (
+                  <span className="text-[#166534]">fully paid → 50% partner</span>
+                ) : (
+                  <span className="text-[#6B7280]">paid from each trip's earnings · company 100% until paid</span>
+                )}
                 <span className="flex-1" />
                 <span className="text-[#6B7280]">Outstanding</span>
                 <span className="font-bold tabular-nums text-[#B00005] w-28 text-right">{PKR(a.currentBalance)}</span>
@@ -411,11 +413,11 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
                         <Field label="Agreed price"><input inputMode="numeric" value={editAgreement.agreedPrice} onChange={(e) => setEditAgreement({ ...editAgreement, agreedPrice: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
                         <Field label="Advance paid"><input inputMode="numeric" value={editAgreement.advancePaid} onChange={(e) => setEditAgreement({ ...editAgreement, advancePaid: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-                        <Field label="Company share %"><input inputMode="numeric" value={editAgreement.companySharePercent} onChange={(e) => setEditAgreement({ ...editAgreement, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-                        <Field label="Expected expense ratio %"><input inputMode="numeric" value={editAgreement.expenseRatioBenchmark} onChange={(e) => setEditAgreement({ ...editAgreement, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="% of the trip's net that pays the truck (100 until paid)"><input inputMode="numeric" value={editAgreement.companySharePercent} onChange={(e) => setEditAgreement({ ...editAgreement, companySharePercent: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Expense check % (a warning only)"><input inputMode="numeric" value={editAgreement.expenseRatioBenchmark} onChange={(e) => setEditAgreement({ ...editAgreement, expenseRatioBenchmark: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
                         <Field label="Notes"><input value={editAgreement.notes} onChange={(e) => setEditAgreement({ ...editAgreement, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
-                        <Field label="Instalment each month (PKR) · ماہانہ قسط"><input inputMode="numeric" value={editAgreement.installmentAmount} onChange={(e) => setEditAgreement({ ...editAgreement, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-                        <Field label="First instalment date · پہلی قسط"><input type="date" value={editAgreement.installmentStart} onChange={(e) => setEditAgreement({ ...editAgreement, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="Fixed monthly qist, if agreed (optional)"><input inputMode="numeric" value={editAgreement.installmentAmount} onChange={(e) => setEditAgreement({ ...editAgreement, installmentAmount: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
+                        <Field label="…from this date (optional)"><input type="date" value={editAgreement.installmentStart} onChange={(e) => setEditAgreement({ ...editAgreement, installmentStart: e.target.value })} className="border rounded px-2 py-1" /></Field>
                         <Field label="Day of the month (optional)"><input inputMode="numeric" value={editAgreement.installmentDay} onChange={(e) => setEditAgreement({ ...editAgreement, installmentDay: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" placeholder="same as the first date" /></Field>
                       </div>
                       <div className="flex gap-2 mt-2">
@@ -442,14 +444,8 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                       showFeedback={showFeedback}
                       onChanged={() => { refreshLedger(a.id); load(); }}
                       onEditPlan={() => setEditAgreement(editOf(a))}
+                      onNavigate={onNavigate}
                       data={ledger[a.id]}
-                      onSettle={() => setShowSettleFor(a.id)}
-                      showSettleForm={showSettleFor === a.id}
-                      settleForm={settleForm}
-                      setSettleForm={setSettleForm}
-                      onSubmitSettlement={() => submitSettlement(a.id)}
-                      onCancelSettle={() => setShowSettleFor(null)}
-                      saving={saving}
                       onUndoSettlement={async (sid: number, no: string) => {
                         if (!window.confirm(`Take back settlement ${no}? The agreement's outstanding goes back to what it was before it. · یہ سیٹلمنٹ واپس لیں؟`)) return;
                         if (await call(`/api/partnerships/agreements/${a.id}/settlements/${sid}`, "DELETE", null, "Settlement taken back · واپس")) {
@@ -470,20 +466,20 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
   );
 }
 
-function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettleForm, onSubmitSettlement, onCancelSettle, saving, onUndoSettlement, showFeedback, onChanged, onEditPlan }: any) {
+function AgreementLedger({ data, onUndoSettlement, showFeedback, onChanged, onEditPlan, onNavigate }: any) {
   const lastId = data.settlements.length ? Math.max(...data.settlements.map((x: any) => x.id)) : null;
   const [newestFirst, toggleNewest] = useNewestFirst();
   const t = data.totals;
   return (
     <div className="space-y-3 pt-2">
-      <PartnerInstallments data={data} onChanged={onChanged} onEditPlan={onEditPlan} showFeedback={showFeedback} />
-      <div className="text-[12px] font-semibold text-[#374151] pt-1">From the truck's earnings · ٹرک کی کمائی سے (settlements)</div>
+      <PartnerInstallments data={data} onChanged={onChanged} onEditPlan={onEditPlan} onNavigate={onNavigate} showFeedback={showFeedback} />
+      <div className="text-[12px] font-semibold text-[#374151] pt-1">The trips in detail · ٹرپ وار تفصیل <span className="font-normal text-[#6B7280]">— what he declared, checked against GPS and fuel</span></div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-        <Big label="Declared revenue" value={PKR(t.totalDeclaredRevenue)} tone="neutral" />
+        <Big label="Earned (declared)" value={PKR(t.totalDeclaredRevenue)} tone="neutral" />
         <Big label="Expenses" value={PKR(t.totalExpenses)} tone="bad" />
-        <Big label="Net earnings" value={PKR(t.totalNet)} tone="neutral" />
-        <Big label="Went to the balance" value={PKR(t.totalRecovered)} tone="good" />
-        <Big label="Outstanding" value={PKR(t.outstanding)} tone="bad" />
+        <Big label="Net (earned − expenses)" value={PKR(t.totalNet)} tone="neutral" />
+        <Big label="Went to the truck's price" value={PKR(t.totalRecovered)} tone="good" />
+        <Big label="Still to pay" value={PKR(t.outstanding)} tone="bad" />
       </div>
       {t.estimatedPartnerSkimToDate > 0 && (
         <div className="rounded-lg border border-[#FF9294] bg-[#FFF1F1] px-3 py-2 text-[11px] text-[#B00005] flex items-center gap-2">
@@ -492,37 +488,10 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
         </div>
       )}
 
-      {!showSettleForm ? (
-        <button onClick={onSettle} className="text-xs font-semibold text-[#24539B] flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Record a settlement</button>
-      ) : (
-        <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-2">
-            <Field label="Gross revenue *"><input inputMode="numeric" value={settleForm.grossRevenue} onChange={(e: any) => setSettleForm({ ...settleForm, grossRevenue: e.target.value.replace(/\D/g, "") })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Period from"><input type="date" value={settleForm.periodFrom} onChange={(e: any) => setSettleForm({ ...settleForm, periodFrom: e.target.value })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Period to"><input type="date" value={settleForm.periodTo} onChange={(e: any) => setSettleForm({ ...settleForm, periodTo: e.target.value })} className="border rounded px-2 py-1" /></Field>
-            <Field label="Notes"><input value={settleForm.notes} onChange={(e: any) => setSettleForm({ ...settleForm, notes: e.target.value })} className="border rounded px-2 py-1" /></Field>
-          </div>
-          <div className="text-[10px] text-[#6B7280] font-bold uppercase mb-1">Partner's declared expenses</div>
-          {settleForm.expenses.map((ex: any, i: number) => (
-            <div key={i} className="flex gap-2 mb-1">
-              <input value={ex.type} onChange={(e: any) => { const arr = [...settleForm.expenses]; arr[i] = { ...arr[i], type: e.target.value }; setSettleForm({ ...settleForm, expenses: arr }); }} className="border rounded px-2 py-1 text-xs w-32" placeholder="Type" />
-              <input inputMode="numeric" value={ex.amount} onChange={(e: any) => { const arr = [...settleForm.expenses]; arr[i] = { ...arr[i], amount: e.target.value.replace(/\D/g, "") }; setSettleForm({ ...settleForm, expenses: arr }); }} className="border rounded px-2 py-1 text-xs w-28" placeholder="Amount" />
-            </div>
-          ))}
-          <button onClick={() => setSettleForm({ ...settleForm, expenses: [...settleForm.expenses, { type: "", amount: "" }] })} className="text-[11px] text-[#24539B] mb-2">+ add expense line</button>
-          <div className="flex gap-2">
-            <button onClick={onSubmitSettlement} disabled={saving} className="bg-[#24539B] text-white rounded px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5">
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Submit Settlement
-            </button>
-            <button onClick={onCancelSettle} className="border rounded px-3 py-1.5 text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Cancel</button>
-          </div>
-        </div>
-      )}
-
       <div className="rounded-lg border border-[#E5E7EB] bg-white overflow-hidden">
         <table className="w-full text-[11px]">
           <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
-            <tr><th className="text-left px-3 py-2">Settlement</th><th className="text-left px-3 py-2"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Period" /></th><th className="text-right px-3 py-2">Revenue</th><th className="text-right px-3 py-2">Expenses</th><th className="text-right px-3 py-2">To Company</th><th className="text-left px-3 py-2">Flags</th><th /></tr>
+            <tr><th className="text-left px-3 py-2">Trip qist</th><th className="text-left px-3 py-2"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Period" /></th><th className="text-right px-3 py-2">Revenue</th><th className="text-right px-3 py-2">Expenses</th><th className="text-right px-3 py-2">To the truck's price</th><th className="text-left px-3 py-2">Flags</th><th /></tr>
           </thead>
           <tbody>
             {inOrder(data.settlements, newestFirst).map((s: any) => (
@@ -544,7 +513,7 @@ function AgreementLedger({ data, onSettle, showSettleForm, settleForm, setSettle
                 </td>
               </tr>
             ))}
-            {data.settlements.length === 0 && <tr><td colSpan={7} className="px-2 py-4 text-center text-[#9CA3AF]">No settlements recorded yet</td></tr>}
+            {data.settlements.length === 0 && <tr><td colSpan={7} className="px-2 py-4 text-center text-[#9CA3AF]">No trip entered yet</td></tr>}
           </tbody>
         </table>
       </div>

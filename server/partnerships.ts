@@ -2,6 +2,11 @@
  * Partnerships — company-owned trucks run by outside partners on a
  * lease-to-own basis.
  *
+ * How HFK does it: a driver takes a truck at an agreed price (an advance if he pays one, else 0).
+ * The truck stays 100% the company's. He runs it on the routes; after each trip the earnings
+ * less the trip's expenses go to pay off the price — each such payment is one "qist". When the
+ * price is fully paid he becomes a 50% partner in the truck (Partner P&L takes over from there).
+ *
  *   agreedPrice        the full price the partner will pay for the truck
  *   advancePaid        upfront down-payment
  *   openingBalance     agreedPrice - advancePaid
@@ -420,6 +425,43 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       pkToday(),
     );
 
+    // every payment toward the truck's price, oldest first, with what is left after each (the qist list)
+    const pay: Array<{ key: string; kind: "trip" | "cash"; date: string | null; label: string; detail: string; amount: number; settlementId?: number; installmentId?: number; flags?: string[] }> = [
+      ...settlements.map((x) => ({
+        key: `s${x.id}`,
+        kind: "trip" as const,
+        date: (x.periodTo || x.createdAt)?.toISOString?.().slice(0, 10) ?? null,
+        label: `Trip earnings · ${x.settlementNumber}`,
+        detail: `earned ${x.grossRevenue.toLocaleString()} − expenses ${x.totalExpenses.toLocaleString()} = ${x.netEarnings.toLocaleString()}${x.notes ? ` · ${x.notes}` : ""}`,
+        amount: x.amountToCompany,
+        settlementId: x.id,
+        flags: (x.flags as string[]) || [],
+      })),
+      ...installments.map((x) => ({
+        key: `i${x.id}`,
+        kind: "cash" as const,
+        date: x.pay_day as string,
+        label: `Paid by him · ${x.method}`,
+        detail: [x.reference, x.notes, x.cash_transaction_id ? "in Cash Book" : ""].filter(Boolean).join(" · "),
+        amount: Number(x.amount),
+        installmentId: x.id as number,
+      })),
+    ].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.key.localeCompare(b.key));
+    let left = ag.agreement.openingBalance;
+    const payments = pay.map((x, i) => {
+      left = Math.max(0, left - x.amount);
+      return { no: i + 1, ...x, balanceAfter: left };
+    });
+
+    // the truck's khata(s), and whether the 50/50 partnership has begun
+    const khatas = await rowsOf(sql`select l.id, l.registration, l.partner_agreement_id, (select count(*) from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted)::int n
+      from truck_ledgers l where not l.is_deleted and (l.vehicle_id = ${ag.agreement.vehicleId} or l.partner_agreement_id = ${id})
+      order by (l.partner_agreement_id = ${id}) desc nulls last, n desc`);
+    const [pship] = khatas.length
+      ? await rowsOf(sql`select pa.id, pa.truck_ledger_id, pa.partner_percent, p.name partner_name from partnership_accounts pa left join parties p on p.id = pa.partner_party_id
+          where not pa.is_deleted and pa.truck_ledger_id = any(${`{${khatas.map((k) => k.id).join(",")}}`}::int[]) limit 1`)
+      : [];
+
     const totalDeclaredRevenue = settlements.reduce((s, x) => s + x.grossRevenue, 0);
     const totalExpenses = settlements.reduce((s, x) => s + x.totalExpenses, 0);
     const totalNet = settlements.reduce((s, x) => s + x.netEarnings, 0);
@@ -443,6 +485,9 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       settlements,
       installments,
       schedule,
+      payments,
+      khataLedgerId: khatas[0]?.id ?? null,
+      partnership: pship ? { id: pship.id, ledgerId: pship.truck_ledger_id, percent: pship.partner_percent, partnerName: pship.partner_name } : null,
       totals: {
         installments: installments.length,
         totalInstallments,
@@ -463,6 +508,32 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
           totalExpectedRevenue > 0 ? Math.round(((totalExpectedRevenue - totalDeclaredRevenue) / totalExpectedRevenue) * 100) : 0,
       },
     });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * What the truck's khata says between two dates — kiraya received, and each kind of expense —
+ * to fill in a trip's earnings. Default: from the day after the last settlement to today.
+ */
+router.get("/agreements/:id/khata-period", requireRole(READ_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const [last] = await rowsOf(sql`select to_char(max(period_to) + interval '1 day', 'YYYY-MM-DD') d from partner_settlements where agreement_id = ${id} and not is_deleted`);
+    const from = isDay(req.query.from) ? (req.query.from as string) : last?.d || ag.startDate.toISOString().slice(0, 10);
+    const to = isDay(req.query.to) ? (req.query.to as string) : pkToday();
+    const lines = await rowsOf(sql`select coalesce(nullif(e.category, ''), 'Other') category, sum(e.received)::bigint received, sum(e.paid)::bigint paid, count(*)::int n
+      from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+      where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
+        and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp
+        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital')
+      group by 1 order by 1`);
+    const revenue = lines.reduce((s, l) => s + Number(l.received), 0);
+    const expenses = lines.filter((l) => Number(l.paid) > 0).map((l) => ({ type: l.category, amount: Number(l.paid) }));
+    res.json({ from, to, revenue, expenses, totalExpenses: expenses.reduce((s, e) => s + e.amount, 0), entries: lines.reduce((s, l) => s + l.n, 0), byCategory: lines });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
