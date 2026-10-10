@@ -26,3 +26,25 @@ export const dmy = (d: string | Date | null | undefined) => {
   const s = typeof d === "string" ? d.slice(0, 10) : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   return s.split("-").reverse().join(".");
 };
+
+/** PKR amount in words — crore / lakh / thousand. */
+export function rupeesInWords(num: number): string {
+  num = Math.round(Math.abs(num || 0));
+  if (num === 0) return "Zero Rupees Only";
+  const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  const two = (n: number): string => (n < 20 ? ones[n] : `${tens[Math.floor(n / 10)]}${n % 10 ? " " + ones[n % 10] : ""}`);
+  const three = (n: number): string => {
+    const h = Math.floor(n / 100), r = n % 100;
+    return `${h ? ones[h] + " Hundred" + (r ? " " : "") : ""}${r ? two(r) : ""}`;
+  };
+  const parts: string[] = [];
+  const crore = Math.floor(num / 10000000); num %= 10000000;
+  const lakh = Math.floor(num / 100000); num %= 100000;
+  const thousand = Math.floor(num / 1000); num %= 1000;
+  if (crore) parts.push(`${three(crore)} Crore`);
+  if (lakh) parts.push(`${three(lakh)} Lakh`);
+  if (thousand) parts.push(`${three(thousand)} Thousand`);
+  if (num) parts.push(three(num));
+  return parts.join(" ").replace(/\s+/g, " ").trim() + " Rupees Only";
+}

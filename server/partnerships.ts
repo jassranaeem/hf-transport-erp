@@ -744,6 +744,14 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
         expenseRatioBenchmark: Math.min(100, n(b.expenseRatioBenchmark, old.expenseRatioBenchmark)),
         startDate: b.startDate ? new Date(b.startDate) : old.startDate,
         ...plan,
+        // the document was authorised for the old terms: a changed term needs it authorised again
+        ...(old.authorizedAt &&
+        (moneyChanged ||
+          (b.partnerId && Number(b.partnerId) !== old.partnerId) ||
+          (b.vehicleId && Number(b.vehicleId) !== old.vehicleId) ||
+          Math.min(100, n(b.companySharePercent, old.companySharePercent)) !== old.companySharePercent)
+          ? { authorizedAt: null, authorizedByName: null, authorizedByTitle: null, authorizedByUser: null }
+          : {}),
         notes: b.notes !== undefined ? String(b.notes || "") || null : old.notes,
         status: currentBalance <= 0 ? "Settled" : old.status === "Settled" ? "Active" : old.status,
         closeDate: currentBalance <= 0 ? old.closeDate || new Date() : null,
@@ -753,6 +761,108 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
       .where(eq(schema.partnerAgreements.id, id))
       .returning();
     await audit(req, "UPDATE", "partner_agreements", id, old, updated);
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===========================================================================
+// THE AGREEMENT AS A DOCUMENT — to print, sign and authorise
+// ===========================================================================
+const AUTHORISERS = ["Super Admin", "Admin"];
+
+/** Everything the printed agreement shows: both parties, the truck, the money, the extra details. */
+router.get("/agreements/:id/document", requireRole(READ_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [a] = await rowsOf(sql`select a.*, to_char(a.start_date, 'YYYY-MM-DD') start_day, to_char(a.authorized_at + interval '5 hours', 'YYYY-MM-DD') authorized_day,
+        p.name partner_name, p.cnic partner_cnic, p.phone partner_phone, p.address partner_address,
+        v.vehicle_number, v.registration_number, v.engine_number, v.chassis_number, v.truck_brand, v.model, v.year, v.vehicle_type
+      from partner_agreements a left join partners p on p.id = a.partner_id left join vehicles v on v.id = a.vehicle_id
+      where a.id = ${id} and not a.is_deleted`);
+    if (!a) return res.status(404).json({ error: "Agreement not found" });
+    const [company] = await rowsOf(sql`select legal_name, trade_name, tagline, address_lines, city, country, phones, email, ntn, strn, logo_data_url from company_profile where id = 1`).catch(() => [null]);
+    res.json({ agreement: a, company: company || {}, canAuthorise: AUTHORISERS.includes(req.user?.role || ""), me: { name: req.user?.name || "", role: req.user?.role || "" } });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The document's extra details. Changing them after authorisation needs it authorised again. */
+router.put("/agreements/:id/document", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const str = (v: any, max = 200) => (v == null ? "" : String(v).trim().slice(0, max));
+    const person = (v: any) => ({ name: str(v?.name), cnic: str(v?.cnic, 20), phone: str(v?.phone, 30), address: str(v?.address) });
+    const doc = {
+      fatherName: str(b.fatherName),
+      place: str(b.place) || "Quetta",
+      partnershipPercent: Math.min(99, Math.max(1, Math.round(Number(b.partnershipPercent) || 50))),
+      witnesses: (Array.isArray(b.witnesses) ? b.witnesses : []).slice(0, 2).map(person),
+      guarantor: person(b.guarantor),
+      signatoryName: str(b.signatoryName),
+      signatoryTitle: str(b.signatoryTitle),
+      clauses: Array.isArray(b.clauses) ? b.clauses.slice(0, 30).map((c: any) => ({ en: str(c?.en, 1500), ur: str(c?.ur, 1500) })).filter((c: any) => c.en || c.ur) : null,
+    };
+    const changed = JSON.stringify(doc) !== JSON.stringify(old.doc || {});
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({
+        doc,
+        ...(changed && old.authorizedAt ? { authorizedAt: null, authorizedByName: null, authorizedByTitle: null, authorizedByUser: null } : {}),
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    // the driver's own details live on the partner
+    if (b.partner && typeof b.partner === "object") {
+      await db
+        .update(schema.partners)
+        .set({ cnic: str(b.partner.cnic, 20) || null, phone: str(b.partner.phone, 30) || null, address: str(b.partner.address) || null, updatedAt: new Date() })
+        .where(eq(schema.partners.id, old.partnerId));
+    }
+    await audit(req, "UPDATE", "partner_agreements", id, { doc: old.doc }, { doc });
+    res.json({ ok: true, authorisationCleared: changed && !!old.authorizedAt, agreement: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Authorise the agreement for the company — only an administrator. */
+router.post("/agreements/:id/authorize", requireRole(AUTHORISERS), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const name = String(req.body?.name || req.user?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Write the name of the person authorising · نام لکھیں" });
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({ authorizedByName: name.slice(0, 120), authorizedByTitle: String(req.body?.title || "").trim().slice(0, 120) || null, authorizedAt: new Date(), authorizedByUser: req.user?.id, updatedAt: new Date() })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    await audit(req, "UPDATE", "partner_agreements", id, { authorizedAt: old.authorizedAt }, { authorizedAt: updated.authorizedAt, authorizedByName: updated.authorizedByName, authorizedByTitle: updated.authorizedByTitle });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/agreements/:id/unauthorize", requireRole(AUTHORISERS), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({ authorizedByName: null, authorizedByTitle: null, authorizedAt: null, authorizedByUser: null, updatedAt: new Date() })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Agreement not found" });
+    await audit(req, "UPDATE", "partner_agreements", id, { authorised: true }, { authorised: false });
     res.json(updated);
   } catch (e: any) {
     res.status(500).json({ error: e.message });

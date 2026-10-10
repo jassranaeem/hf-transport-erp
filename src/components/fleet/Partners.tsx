@@ -13,6 +13,7 @@ import { Handshake, RefreshCw, Loader2, Plus, X, CheckCircle, ChevronDown, Chevr
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import PartnerInstallments from "./PartnerInstallments.tsx";
+import AgreementDocument from "./AgreementDocument.tsx";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const pkr = (n: number) => (n < 0 ? "−" : "") + PKR(n); // keeps the minus
@@ -48,6 +49,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
   const [saving, setSaving] = useState(false);
   const [editPartner, setEditPartner] = useState<any>(null); // partner row being edited
   const [editAgreement, setEditAgreement] = useState<any>(null); // agreement being edited
+  const [docFor, setDocFor] = useState<number | null>(null); // agreement whose document is open
 
   const load = useCallback(() => {
     setLoading(true);
@@ -373,6 +375,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
                 <span className="font-semibold w-32 shrink-0 truncate">{a.partnerName || "—"}</span>
                 <span className="text-[#6B7280] w-24 shrink-0">{a.vehicleNumber || "—"}</span>
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${a.status === "Settled" ? "bg-[#E6ECF6] text-[#173563]" : "bg-[#F3F4F6] text-[#374151]"}`}>{a.status}</span>
+                {!a.authorizedAt && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 bg-[#FEF3C7] text-[#92400E]" title="The agreement document has not been authorised">draft</span>}
                 {a.plan ? (
                   <span className="text-[#6B7280] truncate">
                     Qist {PKR(a.installmentAmount)} · {a.plan.paidCount}/{a.plan.count} paid
@@ -391,6 +394,12 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
               {openId === a.id && (
                 <div className="px-3 pb-3 bg-[#FAFAFA]">
                   <div className="flex items-center gap-3 pt-2 text-xs">
+                    <button onClick={() => setDocFor(a.id)} className="flex items-center gap-1 rounded-lg bg-[#24539B] text-white px-2.5 py-1 font-semibold" title="The agreement to print, sign and authorise">
+                      <FileText className="w-3.5 h-3.5" /> Agreement document · معاہدہ
+                    </button>
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${a.authorizedAt ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#FEF3C7] text-[#92400E]"}`}>
+                      {a.authorizedAt ? `Authorised · ${a.authorizedByName}` : "Not authorised yet"}
+                    </span>
                     <button
                       onClick={() => setEditAgreement(editAgreement?.id === a.id ? null : editOf(a))}
                       className="flex items-center gap-1 text-[#24539B]"
@@ -462,6 +471,7 @@ export default function Partners({ showFeedback, onNavigate }: { showFeedback: (
           {agreements.length === 0 && <div className="px-3 py-8 text-center text-[#9CA3AF] text-xs">No agreements yet · ابھی کوئی معاہدہ نہیں</div>}
         </div>
       </div>
+      {docFor != null && <AgreementDocument agreementId={docFor} onClose={() => { setDocFor(null); load(); }} showFeedback={showFeedback} />}
     </div>
   );
 }

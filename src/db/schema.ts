@@ -1971,6 +1971,13 @@ export const partnerAgreements = pgTable("partner_agreements", {
   installmentAmount: integer("installment_amount"),
   installmentDay: integer("installment_day"),
   installmentStart: date("installment_start"),
+  // the signed document: father's name, witnesses, guarantor, place, terms…
+  doc: jsonb("doc").default({}).notNull(),
+  // who authorised it for the company (cleared when a term is changed afterwards)
+  authorizedByName: text("authorized_by_name"),
+  authorizedByTitle: text("authorized_by_title"),
+  authorizedAt: timestamp("authorized_at"),
+  authorizedByUser: integer("authorized_by_user"),
   status: text("status").notNull().default("Active"), // Active, Settled, Defaulted, Suspended
   notes: text("notes"),
 

@@ -274,6 +274,13 @@
       "when": 1791600000000,
       "tag": "0038_partner_installments",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0039_agreement_document",
+      "breakpoints": true
     }
   ]
 }
