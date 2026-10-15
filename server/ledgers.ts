@@ -694,6 +694,25 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const openingRow = Number(flow?.opening_row || 0);
     const opening = openingRow + Number(flow?.before || 0);
 
+    // the day-book: each day with entries — its opening (= the day before's closing), what came in and went
+    // out, and its closing (= the next day's opening). Worked from every row, whatever category is filtered.
+    const dayRows = ((await db.execute(sql`select to_char(entry_date, 'YYYY-MM-DD') as d,
+        coalesce(sum(received), 0)::bigint as r, coalesce(sum(paid), 0)::bigint as p
+      from truck_ledger_entries
+      where ledger_id = ${id} and not is_deleted and entry_date is not null and coalesce(method, '') <> 'Opening'
+        ${from ? sql`and entry_date >= ${from}::timestamp` : sql``} ${to ? sql`and entry_date < (${to}::date + 1)::timestamp` : sql``}
+      group by 1 order by 1`)) as any).rows as any[];
+    // rows with no date are in the balance but belong to no day: shown apart so the days still add up
+    const [und] = ((await db.execute(sql`select count(*)::int n, coalesce(sum(received - paid), 0)::bigint net
+      from truck_ledger_entries where ledger_id = ${id} and not is_deleted and entry_date is null and coalesce(method, '') <> 'Opening'`)) as any).rows;
+    let runDay = opening;
+    const days = dayRows.map((r) => {
+      const inn = Number(r.r), out = Number(r.p);
+      const d = { day: r.d as string, opening: runDay, in: inn, out, closing: runDay + inn - out };
+      runDay = d.closing;
+      return d;
+    });
+
     let partnerAgreement = null;
     if (row.ledger.partnerAgreementId) {
       [partnerAgreement] = await db
@@ -768,6 +787,9 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         prevDay: flow?.prev_day || null,
         nextDay: flow?.next_day || null,
         lastDay: flow?.last_day || null,
+        days,
+        undatedCount: from || to ? 0 : Number(und?.n || 0),
+        undatedNet: from || to ? 0 : Number(und?.net || 0),
         driverCash: drv.given ? { given: drv.given, spent: drv.spent, returned: drv.returned, withDriver: drv.given - drv.spent - drv.returned } : null,
       },
       pnl: {

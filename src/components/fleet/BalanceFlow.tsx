@@ -211,6 +211,9 @@ export default function BalanceFlow({
                 <span className="text-slate-500"> · ڈرائیور کے پاس باقی — when he returns it or brings the slips, enter it</span>
               </div>
             )}
+            {balance.undatedCount > 0 && (
+              <span className="text-amber-700"> · {balance.undatedCount} row(s) have no date (net {fmt(balance.undatedNet)}): in the balance, but in no day — the days add up to {fmt(balance.closing - balance.undatedNet)} · تاریخ نہیں لکھی</span>
+            )}
             {period.key === "all" && balance.runningClosing != null && balance.runningClosing !== balance.closing && (
               <span className="text-amber-700"> · the last row's running balance reads {fmt(balance.runningClosing)} (old paper pages each start from 0)</span>
             )}
@@ -219,6 +222,9 @@ export default function BalanceFlow({
           <>
             + means the party owes HFK (لینا), − means HFK owes the party (دینا)
             {balance.undated > 0 && <span className="text-amber-700"> · {balance.undated} row(s) with no date are not in these dates</span>}
+            {balance.undatedCount > 0 && (
+              <span className="text-amber-700"> · {balance.undatedCount} row(s) have no date (net {fmt(balance.undatedNet)}): in the balance, but in no day — the days add up to {fmt(balance.closing - balance.undatedNet)}</span>
+            )}
           </>
         )}
       </div>

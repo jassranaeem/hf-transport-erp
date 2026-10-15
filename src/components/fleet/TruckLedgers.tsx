@@ -10,6 +10,7 @@ import {
   Pencil, Trash2,
 } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
+import { DayStripRow, dayOf, DayFigures } from "../common/DayStrip.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
 import { PageHeader, Btn, Card, KpiStrip, SidePanel, Empty } from "../ui/kit.tsx";
 import KhataKindPicker, { KhataBuckets, DEFAULT_KIND, KhataKindValue } from "./KhataKindPicker.tsx";
@@ -767,8 +768,15 @@ export default function TruckLedgers({
                         {detail.entries.length === 0 && (
                           <tr><td colSpan={7} className="px-3 py-8 text-center text-[#9CA3AF]">No entries in this period · اس مدت میں کوئی اندراج نہیں</td></tr>
                         )}
-                        {inOrder<any>(detail.entries, newestFirst).map((e) => (
+                        {inOrder<any>(detail.entries, newestFirst).map((e, i, shownList) => {
+                          // a day's opening / closing line above its first row — only while every row of the
+                          // period is listed (a category or review filter would make the day's figures not match)
+                          const dayKey = dayOf(e.entryDate);
+                          const prevKey = i > 0 ? dayOf(shownList[i - 1].entryDate) : null;
+                          const dayFig: DayFigures | undefined = !catFilter && !reviewOnly && dayKey && dayKey !== prevKey ? (detail.balance?.days || []).find((d: DayFigures) => d.day === dayKey) : undefined;
+                          return (
                           <React.Fragment key={e.id}>
+                            {dayFig && <DayStripRow d={dayFig} colSpan={7} inLabel="In · آیا" outLabel="Out · گیا" />}
                             <tr
                               id={`truck-entry-${e.id}`}
                               onClick={(ev) => {
@@ -887,7 +895,8 @@ export default function TruckLedgers({
                               </tr>
                             )}
                           </React.Fragment>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

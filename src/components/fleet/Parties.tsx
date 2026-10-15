@@ -10,6 +10,7 @@ import {
   FileSpreadsheet, Upload, CheckCircle, Save, Building2, Paperclip, Pencil, Trash2, RefreshCw, FileText,
 } from "lucide-react";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
+import { DayStripRow, dayOf, DayFigures } from "../common/DayStrip.tsx";
 import { PageHeader, Btn, Card, SidePanel, Empty, Tabs } from "../ui/kit.tsx";
 import StatementOfAccount from "../business/StatementOfAccount.tsx";
 import CustomFieldsPanel from "../business/CustomFieldsPanel.tsx";
@@ -584,8 +585,14 @@ export default function Parties({
                         {detail.entries.length === 0 && (
                           <tr><td colSpan={6} className="px-3 py-8 text-center text-[#9CA3AF]">No entries in this period · اس مدت میں کوئی اندراج نہیں</td></tr>
                         )}
-                        {inOrder<any>(detail.entries, newestFirst).map((e) => (
+                        {inOrder<any>(detail.entries, newestFirst).map((e, i, shownList) => {
+                          // a day's opening / closing line above its first row (the day-book way)
+                          const dayKey = dayOf(e.entryDate);
+                          const prevKey = i > 0 ? dayOf(shownList[i - 1].entryDate) : null;
+                          const dayFig: DayFigures | undefined = dayKey && dayKey !== prevKey ? (detail.balance?.days || []).find((d: DayFigures) => d.day === dayKey) : undefined;
+                          return (
                           <React.Fragment key={e.id}>
+                            {dayFig && <DayStripRow d={dayFig} colSpan={6} inLabel="We gave · دیا" outLabel="We received · ملا" />}
                             <tr
                               id={`party-entry-${e.id}`}
                               onClick={(ev) => {
@@ -692,7 +699,8 @@ export default function Parties({
                               </td></tr>
                             )}
                           </React.Fragment>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

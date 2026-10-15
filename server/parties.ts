@@ -610,6 +610,22 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         to_char(max(entry_date), 'YYYY-MM-DD') as last_day
       from party_ledger_entries where party_id = ${id} and not is_deleted`)) as any).rows;
     const opening = (party.openingBalance || 0) + Number(flow?.before || 0);
+    // the day-book: each day with entries — opening (= the day before's closing), debit, credit, closing
+    const dayRows = ((await db.execute(sql`select to_char(entry_date, 'YYYY-MM-DD') as d,
+        coalesce(sum(debit), 0)::bigint as r, coalesce(sum(credit), 0)::bigint as p
+      from party_ledger_entries
+      where party_id = ${id} and not is_deleted and entry_date is not null
+        ${from ? sql`and entry_date >= ${from}::timestamp` : sql``} ${to ? sql`and entry_date < (${to}::date + 1)::timestamp` : sql``}
+      group by 1 order by 1`)) as any).rows as any[];
+    const [und] = ((await db.execute(sql`select count(*)::int n, coalesce(sum(debit - credit), 0)::bigint net
+      from party_ledger_entries where party_id = ${id} and not is_deleted and entry_date is null`)) as any).rows;
+    let runDay = opening;
+    const days = dayRows.map((r) => {
+      const inn = Number(r.r), out = Number(r.p);
+      const d = { day: r.d as string, opening: runDay, in: inn, out, closing: runDay + inn - out };
+      runDay = d.closing;
+      return d;
+    });
     const debit = Number(flow?.debit || 0);
     const credit = Number(flow?.credit || 0);
 
@@ -627,6 +643,9 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         prevDay: flow?.prev_day || null,
         nextDay: flow?.next_day || null,
         lastDay: flow?.last_day || null,
+        days,
+        undatedCount: from || to ? 0 : Number(und?.n || 0),
+        undatedNet: from || to ? 0 : Number(und?.net || 0),
       },
       entries,
       totals: {
