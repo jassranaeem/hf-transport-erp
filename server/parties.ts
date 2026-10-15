@@ -603,7 +603,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         coalesce(sum(debit - credit) filter (where ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 0)::bigint before,
         coalesce(sum(debit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint debit,
         coalesce(sum(credit) filter (where ${from ? sql`entry_date >= ${from}::timestamp` : sql`true`} and ${to ? sql`entry_date < (${to}::date + 1)::timestamp` : sql`true`}), 0)::bigint credit,
-        count(*) filter (where entry_date is null)::int undated
+        count(*) filter (where entry_date is null)::int undated,
+        -- the nearest days with entries before / after the period (day-by-day view: ◀ ▶)
+        to_char(max(entry_date) filter (where ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 'YYYY-MM-DD') as prev_day,
+        to_char(min(entry_date) filter (where ${to ? sql`entry_date >= (${to}::date + 1)::timestamp` : sql`false`}), 'YYYY-MM-DD') as next_day,
+        to_char(max(entry_date), 'YYYY-MM-DD') as last_day
       from party_ledger_entries where party_id = ${id} and not is_deleted`)) as any).rows;
     const opening = (party.openingBalance || 0) + Number(flow?.before || 0);
     const debit = Number(flow?.debit || 0);
@@ -620,6 +624,9 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         credit,
         closing: opening + debit - credit,
         undated: from || to ? flow?.undated || 0 : 0, // rows with no date are left out of a dated period
+        prevDay: flow?.prev_day || null,
+        nextDay: flow?.next_day || null,
+        lastDay: flow?.last_day || null,
       },
       entries,
       totals: {

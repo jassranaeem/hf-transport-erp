@@ -685,7 +685,11 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         coalesce(sum(received - paid) filter (where method = 'Opening'), 0)::bigint opening_row,
         min(to_char(entry_date, 'YYYY-MM-DD')) filter (where method = 'Opening') opening_date,
         coalesce(sum(received - paid) filter (where coalesce(method, '') <> 'Opening' and ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 0)::bigint before,
-        coalesce(sum(received - paid) filter (where coalesce(method, '') <> 'Opening' and ${to ? sql`entry_date >= (${to}::date + 1)::timestamp` : sql`false`}), 0)::bigint after
+        coalesce(sum(received - paid) filter (where coalesce(method, '') <> 'Opening' and ${to ? sql`entry_date >= (${to}::date + 1)::timestamp` : sql`false`}), 0)::bigint after,
+        -- the nearest days with entries before / after the period (day-by-day view: ◀ ▶)
+        to_char(max(entry_date) filter (where coalesce(method, '') <> 'Opening' and ${from ? sql`entry_date < ${from}::timestamp` : sql`false`}), 'YYYY-MM-DD') as prev_day,
+        to_char(min(entry_date) filter (where coalesce(method, '') <> 'Opening' and ${to ? sql`entry_date >= (${to}::date + 1)::timestamp` : sql`false`}), 'YYYY-MM-DD') as next_day,
+        to_char(max(entry_date) filter (where coalesce(method, '') <> 'Opening'), 'YYYY-MM-DD') as last_day
       from truck_ledger_entries where ledger_id = ${id} and not is_deleted`)) as any).rows;
     const openingRow = Number(flow?.opening_row || 0);
     const opening = openingRow + Number(flow?.before || 0);
@@ -761,6 +765,9 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         profit: totReceived - totPaid,
         closing: opening + totReceived - totPaid,
         runningClosing: row.ledger.closingBalance, // the last row's running balance (old paper pages each start from 0)
+        prevDay: flow?.prev_day || null,
+        nextDay: flow?.next_day || null,
+        lastDay: flow?.last_day || null,
         driverCash: drv.given ? { given: drv.given, spent: drv.spent, returned: drv.returned, withDriver: drv.given - drv.spent - drv.returned } : null,
       },
       pnl: {

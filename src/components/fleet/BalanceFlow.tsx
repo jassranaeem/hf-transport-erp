@@ -4,8 +4,11 @@
  *   truck   Opening (before) + Received (came in) − Paid (spent) = Closing (now)   · profit = received − paid
  *   party   Opening (before) + We gave (debit)    − We received (credit) = Closing  · + receivable / − payable
  *
- * with the period to look at (all, this month, this year Jul–Jun, or dates) and the khata's own opening
- * balance, which can be set or changed here.
+ * with the period to look at (one day, all, this month, this year Jul–Jun, or dates) and the khata's own
+ * opening balance, which can be set or changed here.
+ *
+ * One day reads like the paper day-book: that day's opening is the day before's closing, then the
+ * day's entries, then its closing — which is the next day's opening. ◀ ▶ step to the days that have entries.
  */
 import React, { useState } from "react";
 import { Pencil, Check, X, Loader2 } from "lucide-react";
@@ -13,15 +16,26 @@ import { Pencil, Check, X, Loader2 } from "lucide-react";
 const fmt = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString();
 const iso = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
-export type Period = { key: "all" | "month" | "year" | "dates"; from: string; to: string };
+export type Period = { key: "all" | "day" | "month" | "year" | "dates"; from: string; to: string };
 export const ALL: Period = { key: "all", from: "", to: "" };
 
 export function periodParams(p: Period): Record<string, string> {
   return p.key === "all" ? {} : { ...(p.from ? { from: p.from } : {}), ...(p.to ? { to: p.to } : {}) };
 }
 
-function presets(key: Period["key"]): Period {
+/** One day as a period. */
+export const dayPeriod = (d: string): Period => ({ key: "day", from: d, to: d });
+const dmy = (d: string) => d.split("-").reverse().join(".");
+const shiftDay = (d: string, n: number) => {
+  const x = new Date(`${d}T12:00:00`);
+  x.setDate(x.getDate() + n);
+  return iso(x);
+};
+
+function presets(key: Period["key"], lastDay?: string | null): Period {
   const now = new Date();
+  // a day: the khata's last day with entries, else today
+  if (key === "day") return dayPeriod(lastDay || iso(now));
   if (key === "month") return { key, from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
   if (key === "year") {
     const y = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
@@ -55,15 +69,26 @@ export default function BalanceFlow({
   const inAmt = truck ? balance.received : balance.debit;
   const outAmt = truck ? balance.paid : balance.credit;
   const closing = balance.closing;
+  const isDay = period.key === "day";
+  // "now" only when looking at everything; a period ends on its last day
+  const when = period.key === "all" ? "now" : `on ${dmy(period.to || period.from)}`;
   const closingLabel = truck
-    ? closing >= 0
-      ? "Balance now · اب بقایا"
-      : "Balance now (short) · اب بقایا (کمی)"
+    ? isDay
+      ? `Closing ${dmy(period.from)} · اختتامی بقایا`
+      : closing >= 0
+        ? `Balance ${when} · بقایا`
+        : `Balance ${when} (short) · بقایا (کمی)`
     : closing > 0
-      ? "Receivable now · لینا ہے"
+      ? `Receivable ${when} · لینا ہے`
       : closing < 0
-        ? "Payable now · دینا ہے"
+        ? `Payable ${when} · دینا ہے`
         : "Clear · صاف";
+  const openingLabel =
+    period.key === "all"
+      ? "Opening balance · ابتدائی"
+      : isDay
+        ? `Opening ${dmy(period.from)} · ابتدائی بقایا`
+        : "Balance before · پہلے کا";
 
   const startEdit = () => {
     const b = Number(balance.openingBalance || 0);
@@ -92,6 +117,7 @@ export default function BalanceFlow({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <div className="inline-flex flex-wrap max-w-full rounded-lg border border-[#CBD5E1] bg-white p-0.5">
           {([
+            ["day", "Day · دن"],
             ["all", "All · سب"],
             ["month", "This month · یہ مہینہ"],
             ["year", "This year · یہ سال"],
@@ -99,7 +125,7 @@ export default function BalanceFlow({
           ] as const).map(([k, l]) => (
             <button
               key={k}
-              onClick={() => onPeriod(presets(k))}
+              onClick={() => onPeriod(presets(k, balance.lastDay))}
               className={`rounded-md px-2.5 py-1 whitespace-nowrap ${period.key === k ? "bg-[#24539B] text-white font-semibold" : "text-[#4B5563] hover:bg-[#F4F6FA]"}`}
             >
               {l}
@@ -113,7 +139,31 @@ export default function BalanceFlow({
             <input type="date" className="border border-[#CBD5E1] rounded-md px-2 py-1" value={period.to} onChange={(e) => onPeriod({ ...period, to: e.target.value })} />
           </>
         )}
-        {period.key !== "all" && period.from && (
+        {isDay && (
+          <div className="inline-flex items-center gap-1">
+            <button
+              onClick={() => onPeriod(dayPeriod(balance.prevDay || shiftDay(period.from, -1)))}
+              title={balance.prevDay ? `Previous day with entries: ${dmy(balance.prevDay)}` : "The day before"}
+              className="rounded-md border border-[#CBD5E1] bg-white px-2 py-1 text-[#374151] hover:bg-[#F4F6FA]"
+            >
+              ◀
+            </button>
+            <input type="date" className="border border-[#CBD5E1] rounded-md px-2 py-1" value={period.from} onChange={(e) => e.target.value && onPeriod(dayPeriod(e.target.value))} />
+            <button
+              onClick={() => onPeriod(dayPeriod(balance.nextDay || shiftDay(period.from, 1)))}
+              title={balance.nextDay ? `Next day with entries: ${dmy(balance.nextDay)}` : "The day after"}
+              className="rounded-md border border-[#CBD5E1] bg-white px-2 py-1 text-[#374151] hover:bg-[#F4F6FA]"
+            >
+              ▶
+            </button>
+            {balance.lastDay && balance.lastDay !== period.from && (
+              <button onClick={() => onPeriod(dayPeriod(balance.lastDay))} className="text-[#24539B] hover:underline px-1">
+                Last day with entries ({dmy(balance.lastDay)})
+              </button>
+            )}
+          </div>
+        )}
+        {period.key !== "all" && !isDay && period.from && (
           <span className="text-[#9CA3AF]">{period.from.split("-").reverse().join(".")} – {(period.to || "").split("-").reverse().join(".")}</span>
         )}
       </div>
@@ -121,11 +171,15 @@ export default function BalanceFlow({
       <div className="rounded-xl border border-[#E3E8EF] bg-white grid grid-cols-2 xl:flex xl:items-stretch overflow-hidden">
         <div className={`${cell} xl:flex-1 bg-[#F8FAFC]`}>
           <div className={`${label} flex items-center gap-1`}>
-            <span className="truncate">{period.key === "all" ? "Opening balance · ابتدائی" : "Balance before · پہلے کا"}</span>
+            <span className="truncate">{openingLabel}</span>
             <button onClick={startEdit} title="Set / change the opening balance" className="ml-auto shrink-0 text-[#9CA3AF] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
           </div>
           <div className={`${num} text-[#111827]`}>{fmt(balance.opening)}</div>
-          {period.key !== "all" && balance.openingBalance ? <div className="text-[11px] text-[#9CA3AF] truncate">incl. opening {fmt(balance.openingBalance)}</div> : null}
+          {isDay ? (
+            <div className="text-[11px] text-[#9CA3AF] leading-snug">= closing of {dmy(shiftDay(period.from, -1))} · پچھلے دن کا بقایا</div>
+          ) : period.key !== "all" && balance.openingBalance ? (
+            <div className="text-[11px] text-[#9CA3AF] truncate">incl. opening {fmt(balance.openingBalance)}</div>
+          ) : null}
         </div>
         <div className={sym}>+</div>
         <div className={`${cell} xl:flex-1 border-l border-[#EEF1F5] xl:border-l-0`}>
@@ -141,13 +195,14 @@ export default function BalanceFlow({
         <div className={`${cell} xl:flex-1 border-t border-l xl:border-t-0 border-[#EEF1F5] ${closing < 0 ? "bg-[#FEF2F2]" : "bg-[#EAF0F8]"}`}>
           <div className={`${label} font-medium`}>{closingLabel}</div>
           <div className={`text-[19px] font-bold tabular-nums leading-tight mt-0.5 truncate ${closing < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`}>{truck ? fmt(closing) : fmt(Math.abs(closing))}</div>
+          {isDay && <div className="text-[11px] text-[#6B7280] leading-snug">= opening of {dmy(shiftDay(period.from, 1))} · اگلے دن کا ابتدائی</div>}
         </div>
       </div>
 
       <div className="text-[12px] text-[#6B7280]" dir="auto">
         {truck ? (
           <>
-            {period.key === "all" ? "Came in − went out · آیا − گیا" : "In these dates, came in − went out · اس مدت میں آیا − گیا"} = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
+            {period.key === "all" ? "Came in − went out · آیا − گیا" : isDay ? "This day, came in − went out · اس دن آیا − گیا" : "In these dates, came in − went out · اس مدت میں آیا − گیا"} = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
             {" "}· the truck's own profit (income − expense, without Shakhsi bardasht, Safi bachat or the owner's money) is in the boxes below · ٹرک کا اپنا منافع نیچے ہے · the opening balance is money from before, not profit
             {balance.driverCash && (
               <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12.5px] text-[#374151]">
