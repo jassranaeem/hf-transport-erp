@@ -23,6 +23,17 @@ import { getEntity } from "../src/lib/dataio/registry.ts";
 import { matchSheetToEntity } from "./dataio.ts";
 import { tripSpansForTruck, spanOf } from "./trip_close.ts";
 import type { ParseResult } from "../src/lib/dataio/truck-workbook.ts";
+import { SHAKHSI } from "../src/lib/khataKinds.ts";
+
+const SHARED_SHAKHSI_MSG =
+  "This truck is shared with a partner — record money taken for home in Partner P&L → Money taken for home, so it comes from that person's share · یہ ٹرک شراکت کا ہے، شخصی برداشت Partner P&L میں لکھیں";
+
+/** A khata a Partner P&L account reads (or one marked as a partnership truck). */
+async function sharedWithPartner(ledgerId: number): Promise<boolean> {
+  const r = ((await db.execute(sql`select (exists (select 1 from partnership_accounts where truck_ledger_id = ${ledgerId} and not is_deleted)
+      or exists (select 1 from truck_ledgers where id = ${ledgerId} and is_partnership)) s`)) as any).rows;
+  return !!r?.[0]?.s;
+}
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -736,7 +747,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     );
 
     res.json({
-      ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber },
+      ledger: { ...row.ledger, vehicleNumber: row.vehicleNumber, sharedWithPartner: await sharedWithPartner(id).catch(() => false) },
       partnerAgreement,
       entries: flagged,
       balance: {
@@ -880,6 +891,7 @@ router.post("/:id/entries", requireRole(WRITE), async (req: AuthRequest, res: Re
     const paid = Math.max(0, Math.round(Number(b.paid) || 0));
     const amount = received > 0 ? received : paid;
     const refKey = String(b.description || "").trim().toLowerCase();
+    if (b.category === SHAKHSI && (await sharedWithPartner(ledgerId))) return res.status(400).json({ error: SHARED_SHAKHSI_MSG });
 
     // a big payment from the truck's khata may need an approver first
     if (
@@ -968,6 +980,7 @@ router.put("/entries/:id", requireRole(WRITE), async (req: AuthRequest, res: Res
     const [old] = await db.select().from(schema.truckLedgerEntries).where(eq(schema.truckLedgerEntries.id, id)).limit(1);
     if (!old) return res.status(404).json({ error: "Entry not found" });
     const b = req.body || {};
+    if (b.category === SHAKHSI && old.category !== SHAKHSI && (await sharedWithPartner(old.ledgerId))) return res.status(400).json({ error: SHARED_SHAKHSI_MSG });
     const patch: Record<string, unknown> = { updatedAt: new Date(), updatedBy: req.user?.id };
     for (const k of ["method", "partyFrom", "partyTo", "description", "category", "sectionLabel", "routeFrom", "routeTo", "cargo", "reviewReason"]) {
       if (b[k] !== undefined) patch[k] = b[k] || null;

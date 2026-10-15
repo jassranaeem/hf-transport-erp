@@ -450,7 +450,7 @@ export const ENTITIES: EntitySpec[] = [
       { column: "Description", field: "description", type: "string" },
       { column: "Received", field: "received", type: "int", default: 0 },
       { column: "Paid", field: "paid", type: "int", default: 0 },
-      { column: "Category", field: "category", type: "string", default: "Other", note: "Freight, Diesel, TripCash, Tyre, Visa, Carnet, TomanFX, PartsBill, Garage, Salary, Battery, Insurance, MobilOil, Permit, OnlineTransfer, Capital, SafiBachat, Other" },
+      { column: "Category", field: "category", type: "string", default: "Other", note: "Freight, Diesel, TripCash, Tyre, Visa, Carnet, TomanFX, PartsBill, Garage, Salary, Battery, Insurance, MobilOil, Permit, OnlineTransfer, Capital, Shakhsi, SafiBachat, Other" },
       { column: "Section", field: "sectionLabel", type: "string" },
       { column: "Route From", field: "routeFrom", type: "string" },
       { column: "Route To", field: "routeTo", type: "string" },

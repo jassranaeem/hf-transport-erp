@@ -529,7 +529,7 @@ router.get("/agreements/:id/khata-period", requireRole(READ_ROLES), async (req: 
       from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
       where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
         and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp
-        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital')
+        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital', 'Shakhsi')
       group by 1 order by 1`);
     const revenue = lines.reduce((s, l) => s + Number(l.received), 0);
     const expenses = lines.filter((l) => Number(l.paid) > 0).map((l) => ({ type: l.category, amount: Number(l.paid) }));

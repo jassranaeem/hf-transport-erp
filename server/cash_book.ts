@@ -49,6 +49,7 @@ import { sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
 import { recompute as recomputeTruckLedger } from "./ledgers.ts";
 import { recompute as recomputePartyLedger } from "./parties.ts";
 import { partnershipLedgerForPlate } from "./partnership.ts";
+import { ALL_TRUCK_CATS, SHAKHSI } from "../src/lib/khataKinds.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -66,6 +67,10 @@ const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
   // a cash-count difference (shortage / excess) written by "Record the difference" — books: 5095
   count: { needsTarget: false },
 };
+
+// a truck shared with a partner: money for home is cut from one person's share, in Partner P&L
+export const SHARED_SHAKHSI =
+  "This truck is shared with a partner — record money taken for home in Partner P&L → Money taken for home, so it comes from that person's share · یہ ٹرک شراکت کا ہے، شخصی برداشت Partner P&L میں لکھیں";
 
 const workbookUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -115,12 +120,27 @@ function dayBounds(dateStr: string) {
 // else a truck is looked up) makes ledger resolution correct even while that vehicle-row
 // duplication still exists.
 async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
+  const found = await findManualLedger(vehicleId);
+  if (found.ledgerId) {
+    if (!found.ledgerVehicleId && !found.shared) await db.update(schema.truckLedgers).set({ vehicleId }).where(eq(schema.truckLedgers.id, found.ledgerId));
+    return found.ledgerId;
+  }
+  const veh = found.veh;
+  const [created] = await db
+    .insert(schema.truckLedgers)
+    .values({ vehicleId, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: userId })
+    .returning();
+  return created.id;
+}
+
+/** The khata a cash-book row for this truck goes to, without opening one (null = none yet). */
+async function findManualLedger(vehicleId: number) {
   const [veh] = await db.select().from(schema.vehicles).where(eq(schema.vehicles.id, vehicleId)).limit(1);
   if (!veh) throw new Error("Truck not found");
   const plate = veh.vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, "");
   // a truck shared with a partner keeps ONE khata — the one its partnership cycle reads
   const shared = await partnershipLedgerForPlate(veh.vehicleNumber);
-  if (shared) return shared;
+  if (shared) return { veh, plate, ledgerId: shared as number | null, ledgerVehicleId: null as number | null, shared: true };
   const [existing] = await db
     .select()
     .from(schema.truckLedgers)
@@ -132,15 +152,13 @@ async function resolveManualLedgerId(vehicleId: number, userId: number | undefin
       ),
     )
     .limit(1);
-  if (existing) {
-    if (!existing.vehicleId) await db.update(schema.truckLedgers).set({ vehicleId }).where(eq(schema.truckLedgers.id, existing.id));
-    return existing.id;
-  }
-  const [created] = await db
-    .insert(schema.truckLedgers)
-    .values({ vehicleId, registration: veh.vehicleNumber, title: veh.vehicleNumber, createdBy: userId })
-    .returning();
-  return created.id;
+  return { veh, plate, ledgerId: existing?.id ?? null, ledgerVehicleId: existing?.vehicleId ?? null, shared: false };
+}
+
+/** The category a truck row from the cash book carries: one of the khata's own, else none given. */
+function truckCategory(v: unknown): string | null {
+  const c = typeof v === "string" ? v.trim() : "";
+  return ALL_TRUCK_CATS.includes(c) ? c : null;
 }
 
 // Parties have the exact same "one sheet, one new row" import history as trucks (see
@@ -166,7 +184,7 @@ async function resolveCanonicalPartyId(partyId: number): Promise<number> {
 
 // ---- create / update / remove the linked truck-ledger or party-ledger entry that
 // mirrors a cash-book row, so the two stay in step with a single edit here. ----------
-async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) {
+async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, category?: string | null) {
   // removing a link is handled by the caller (unlinkDerivedEntry), which still has the
   // OLD linkType/derivedEntryId to soft-delete the right row; nothing to do here for that case.
   if (!row.linkType) return;
@@ -192,6 +210,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
           paid: row.direction === "Out" ? row.amount : 0,
           direction: row.direction,
           description,
+          ...(category ? { category } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.truckLedgerEntries.id, row.derivedEntryId));
@@ -208,7 +227,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined) 
           description,
           received: row.direction === "In" ? row.amount : 0,
           paid: row.direction === "Out" ? row.amount : 0,
-          category: "Other",
+          category: category || "Other",
           direction: row.direction,
           sectionLabel: "Manual",
           createdBy: userId,
@@ -312,6 +331,51 @@ async function unlinkDerivedEntry(oldLinkType: string | null, derivedEntryId: nu
   }
 }
 
+/**
+ * A truck picked in the cash book: the khata the entry will go to, where it stands, what came in
+ * and went out by kind, the last few rows, and whether it is shared with a partner or on lease.
+ */
+router.get("/truck/:vehicleId(\\d+)", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const vehicleId = parseInt(req.params.vehicleId);
+    const found = await findManualLedger(vehicleId);
+    const id = found.ledgerId;
+    const [led] = id ? await db.select().from(schema.truckLedgers).where(eq(schema.truckLedgers.id, id)).limit(1) : [null];
+    const rowsOf = async (q: any) => ((await db.execute(q)) as any).rows as any[];
+    const byCategory = id
+      ? (await rowsOf(sql`select coalesce(nullif(category, ''), 'Other') category, coalesce(sum(received), 0)::bigint received, coalesce(sum(paid), 0)::bigint paid, count(*)::int entries
+          from truck_ledger_entries where ledger_id = ${id} and not is_deleted and coalesce(method, '') <> 'Opening' group by 1`)).map((r) => ({ ...r, received: Number(r.received), paid: Number(r.paid) }))
+      : [];
+    const [bal] = id ? await rowsOf(sql`select coalesce(sum(received - paid), 0)::bigint b, max(to_char(entry_date, 'YYYY-MM-DD')) last_day from truck_ledger_entries where ledger_id = ${id} and not is_deleted`) : [null];
+    const recent = id
+      ? await rowsOf(sql`select id, to_char(entry_date, 'YYYY-MM-DD') as day, description, category, received, paid from truck_ledger_entries
+          where ledger_id = ${id} and not is_deleted and coalesce(method, '') <> 'Opening' order by entry_date desc nulls last, id desc limit 5`)
+      : [];
+    // the same truck's other khatas (old imported sheets) — shown so nobody looks for its history in the wrong one
+    const others = await rowsOf(sql`select l.id, l.title, l.source_sheet, l.closing_balance from truck_ledgers l
+        where not l.is_deleted and regexp_replace(upper(l.registration), '[^A-Z0-9]', '', 'g') = ${found.plate} ${id ? sql`and l.id <> ${id}` : sql``}
+        and exists (select 1 from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted) order by l.id limit 10`);
+    const [lease] = await rowsOf(sql`select a.id, a.agreement_number, a.current_balance, a.status, p.name partner_name from partner_agreements a left join partners p on p.id = a.partner_id
+        where a.vehicle_id = ${vehicleId} and not a.is_deleted order by (a.status = 'Settled'), a.id desc limit 1`).catch(() => [null]);
+    res.json({
+      vehicleId,
+      registration: found.veh.vehicleNumber,
+      ledgerId: id,
+      title: led?.title || null,
+      driverName: led?.driverName || null,
+      sharedWithPartner: found.shared || !!led?.isPartnership,
+      balance: Number(bal?.b || 0),
+      lastDay: bal?.last_day || null,
+      byCategory,
+      recent: recent.map((r) => ({ ...r, received: Number(r.received), paid: Number(r.paid) })),
+      otherKhatas: others.map((o) => ({ id: o.id, title: o.title, sheet: o.source_sheet, balance: Number(o.closing_balance || 0) })),
+      lease: lease ? { id: lease.id, number: lease.agreement_number, balance: Number(lease.current_balance || 0), status: lease.status, partner: lease.partner_name } : null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   try {
     // one row per truck (not per legacy Excel ledger) — see resolveManualLedgerId for why.
@@ -386,17 +450,19 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const partyDerivedIds = entries.filter((e) => e.linkType === "party" && e.derivedEntryId).map((e) => e.derivedEntryId!);
     const [truckTargets, partyTargets] = await Promise.all([
       truckDerivedIds.length
-        ? db.select({ id: schema.truckLedgerEntries.id, ledgerId: schema.truckLedgerEntries.ledgerId }).from(schema.truckLedgerEntries).where(inArray(schema.truckLedgerEntries.id, truckDerivedIds))
+        ? db.select({ id: schema.truckLedgerEntries.id, ledgerId: schema.truckLedgerEntries.ledgerId, category: schema.truckLedgerEntries.category }).from(schema.truckLedgerEntries).where(inArray(schema.truckLedgerEntries.id, truckDerivedIds))
         : Promise.resolve([]),
       partyDerivedIds.length
         ? db.select({ id: schema.partyLedgerEntries.id, partyId: schema.partyLedgerEntries.partyId }).from(schema.partyLedgerEntries).where(inArray(schema.partyLedgerEntries.id, partyDerivedIds))
         : Promise.resolve([]),
     ]);
     const truckLedgerById = new Map(truckTargets.map((t) => [t.id, t.ledgerId]));
+    const truckCatById = new Map(truckTargets.map((t: any) => [t.id, t.category as string | null]));
     const partyIdById = new Map(partyTargets.map((t) => [t.id, t.partyId]));
     const entriesWithTargets = entries.map((e) => ({
       ...e,
       resolvedLedgerId: e.linkType === "truck" && e.derivedEntryId ? truckLedgerById.get(e.derivedEntryId) ?? null : null,
+      truckCategory: e.linkType === "truck" && e.derivedEntryId ? truckCatById.get(e.derivedEntryId) ?? null : null,
       resolvedPartyId: e.linkType === "party" && e.derivedEntryId ? partyIdById.get(e.derivedEntryId) ?? null : null,
     }));
 
@@ -439,6 +505,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
       return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
     }
+    const linkCategory = patch.linkType === "truck" ? truckCategory(req.body?.linkCategory) : null;
+    if (linkCategory === SHAKHSI && (await findManualLedger(patch.linkTargetId as number)).shared) return res.status(400).json({ error: SHARED_SHAKHSI });
     if (
       patch.direction === "Out" &&
       (await holdForApproval(req, res, {
@@ -452,7 +520,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     )
       return;
     const [row] = await db.insert(T).values({ ...patch, createdBy: req.user?.id } as any).returning();
-    await syncLink(row, req.user?.id);
+    await syncLink(row, req.user?.id, linkCategory);
     const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
     await audit(req, "CREATE", row.id, null, fresh);
     res.json(fresh);
@@ -472,6 +540,8 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
     if (effectiveLinkType && LINK_TYPES[effectiveLinkType]?.needsTarget && !effectiveTargetId) {
       return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
     }
+    const linkCategory = effectiveLinkType === "truck" ? truckCategory(req.body?.linkCategory) : null;
+    if (linkCategory === SHAKHSI && (await findManualLedger(effectiveTargetId as number)).shared) return res.status(400).json({ error: SHARED_SHAKHSI });
 
     const linkChanged =
       ("linkType" in patch && patch.linkType !== old.linkType) || ("linkTargetId" in patch && patch.linkTargetId !== old.linkTargetId);
@@ -485,7 +555,7 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
       .set({ ...patch, updatedAt: new Date(), updatedBy: req.user?.id })
       .where(eq(T.id, id))
       .returning();
-    await syncLink(row, req.user?.id);
+    await syncLink(row, req.user?.id, linkCategory);
     const [fresh] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     await audit(req, "UPDATE", id, old, fresh);
     res.json(fresh);

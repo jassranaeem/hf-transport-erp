@@ -12,8 +12,10 @@ import {
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
 import { PageHeader, Btn, Card, KpiStrip, SidePanel, Empty } from "../ui/kit.tsx";
+import KhataKindPicker, { KhataBuckets, DEFAULT_KIND, KhataKindValue } from "./KhataKindPicker.tsx";
+import { ALL_TRUCK_CATS, CAT_LABEL as KIND_CAT_LABEL, bucketTotals } from "../../lib/khataKinds.ts";
 
-const CATS = ["Freight","Diesel","TripCash","Tyre","Visa","Carnet","TomanFX","PartsBill","Garage","Salary","Battery","Insurance","MobilOil","Permit","OnlineTransfer","Capital","SafiBachat","Other"];
+const CATS = ALL_TRUCK_CATS;
 
 interface LedgerRow {
   id: number;
@@ -54,7 +56,7 @@ interface Entry {
   reviewReason: string | null;
 }
 interface LedgerDetail {
-  ledger: LedgerRow & { sourceSheet: string | null; openingBalance: number };
+  ledger: LedgerRow & { sourceSheet: string | null; openingBalance: number; sharedWithPartner?: boolean };
   partnerAgreement: any | null;
   entries: Entry[];
   pnl: { totalReceived: number; totalPaid: number; netProfit: number; byCategory: Array<{ category: string; received: number; paid: number; entries: number }> };
@@ -67,8 +69,9 @@ const CAT_COLORS: Record<string, string> = {
   TripCash: "bg-sky-100 text-sky-800", Tyre: "bg-slate-200 text-slate-700",
   TomanFX: "bg-purple-100 text-purple-800", Capital: "bg-indigo-100 text-indigo-800",
   SafiBachat: "bg-teal-100 text-teal-800", OnlineTransfer: "bg-blue-100 text-blue-800",
+  Shakhsi: "bg-violet-100 text-violet-800",
 };
-const CAT_LABEL: Record<string, string> = { TripCash: "Trip cash", TomanFX: "Toman FX", PartsBill: "Parts bill", MobilOil: "Mobil oil", OnlineTransfer: "Online transfer", SafiBachat: "Net savings" };
+const CAT_LABEL: Record<string, string> = KIND_CAT_LABEL;
 const catLabel = (c: string) => CAT_LABEL[c] || c;
 const catClass = (c: string) => CAT_COLORS[c] || "bg-slate-100 text-slate-600";
 
@@ -97,7 +100,8 @@ export default function TruckLedgers({
   const [editingDriver, setEditingDriver] = useState(false);
   const [driverForm, setDriverForm] = useState({ driverName: "", driverPhone: "" });
   const [savingDriver, setSavingDriver] = useState(false);
-  const [form, setForm] = useState<any>({ entryDate: "", description: "", received: "", paid: "", category: "Other", method: "" });
+  const BLANK_ENTRY = { entryDate: "", description: "", amount: "", method: "", kv: DEFAULT_KIND as KhataKindValue };
+  const [form, setForm] = useState<any>(BLANK_ENTRY);
   const [showImport, setShowImport] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
@@ -313,19 +317,26 @@ export default function TruckLedgers({
   const addEntry = async () => {
     if (!selId) return;
     setDupWarn(null);
+    const amt = Math.round(Number(form.amount) || 0);
+    const kv: KhataKindValue = form.kv;
+    // a Safi bachat line can be a plain marker (the hisaab closed here, nothing taken out)
+    if (!amt && kv.kind !== "safi") { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     try {
       const created = await enterpriseFetch(`/api/ledgers/${selId}/entries`, {
         method: "POST",
         body: JSON.stringify({
-          ...form,
-          received: Number(form.received) || 0,
-          paid: Number(form.paid) || 0,
+          entryDate: form.entryDate,
+          description: form.description,
+          method: form.method,
+          category: kv.category,
+          received: kv.direction === "In" ? amt : 0,
+          paid: kv.direction === "Out" ? amt : 0,
         }),
       });
       if (created?.pendingApproval) {
         showFeedback("success", created.message);
         setShowAdd(false);
-        setForm({ entryDate: "", description: "", received: "", paid: "", category: "Other", method: "" });
+        setForm(BLANK_ENTRY);
         return;
       }
       if (created?.duplicateWarning) {
@@ -334,7 +345,7 @@ export default function TruckLedgers({
       } else {
         showFeedback("success", "Entry added");
         setShowAdd(false);
-        setForm({ entryDate: "", description: "", received: "", paid: "", category: "Other", method: "" });
+        setForm(BLANK_ENTRY);
       }
       loadDetail(selId);
       loadList();
@@ -652,6 +663,11 @@ export default function TruckLedgers({
                   }}
                 />
 
+                <KhataBuckets
+                  t={bucketTotals(detail.pnl.byCategory)}
+                  onPick={(k) => setCatFilter(k === "shakhsi" ? "Shakhsi" : k === "safi" ? "SafiBachat" : k === "capital" ? "Capital" : "")}
+                />
+
                 {detail.partnerAgreement && (
                   <div className="rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2.5 text-[12.5px] text-indigo-900">
                     <div className="font-semibold flex items-center gap-1.5"><Handshake className="w-3.5 h-3.5" /> Partnership {detail.partnerAgreement.agreementNumber}</div>
@@ -665,21 +681,24 @@ export default function TruckLedgers({
 
                 {showAdd && (
                   <div className="rounded-xl border border-[#C9D7EC] bg-[#F7F9FD] p-4">
-                    <div className="text-[13px] font-semibold text-[#1F2937] mb-3">New entry · نیا اندراج</div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="text-[13px] font-semibold text-[#1F2937] mb-3">New entry · نیا اندراج — {detail.ledger.registration}</div>
+                    <KhataKindPicker
+                      value={form.kv}
+                      onChange={(kv) => setForm({ ...form, kv })}
+                      isPartnership={!!detail.ledger.sharedWithPartner}
+                      onOpenPartnerPnl={onNavigate ? () => onNavigate("finance", "partner_pnl", { ledgerId: detail.ledger.id }) : undefined}
+                    />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
                       <label className={lbl}>Date · تاریخ<input type="date" value={form.entryDate} onChange={(e) => setForm({ ...form, entryDate: e.target.value })} className={inp} /></label>
-                      <label className={lbl}>Category · قسم
-                        <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={inp}>
-                          {CATS.map((c) => <option key={c} value={c}>{catLabel(c)}</option>)}
-                        </select>
+                      <label className={lbl}>
+                        {form.kv.direction === "In" ? "Amount in · آیا" : "Amount out · گیا"}
+                        <input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d.]/g, "") })} className={`${inp} font-semibold tabular-nums`} placeholder={form.kv.kind === "safi" ? "0 = just close the hisaab" : "0"} />
                       </label>
-                      <label className={lbl}>Received (in) · آیا<input inputMode="decimal" value={form.received} onChange={(e) => setForm({ ...form, received: e.target.value })} className={inp} placeholder="0" /></label>
-                      <label className={lbl}>Paid (out) · گیا<input inputMode="decimal" value={form.paid} onChange={(e) => setForm({ ...form, paid: e.target.value })} className={inp} placeholder="0" /></label>
-                      <label className={`${lbl} col-span-2 md:col-span-3`}>Description · تفصیل<input dir="auto" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inp} /></label>
-                      <label className={lbl}>Method · طریقہ<input placeholder="Cash / Online…" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className={inp} /></label>
+                      <label className={`${lbl} col-span-2`}>Method · طریقہ<input placeholder="Cash / Online…" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className={inp} /></label>
+                      <label className={`${lbl} col-span-2 md:col-span-4`}>Description · تفصیل<input dir="auto" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inp} /></label>
                     </div>
                     <div className="flex gap-2 mt-3">
-                      <Btn kind="primary" onClick={addEntry} icon={<CheckCircle />}>Save entry</Btn>
+                      <Btn kind="primary" onClick={addEntry} disabled={form.kv.kind === "shakhsi" && !!detail.ledger.sharedWithPartner} icon={<CheckCircle />}>Save entry</Btn>
                       <Btn onClick={() => setShowAdd(false)}>Cancel</Btn>
                     </div>
                   </div>

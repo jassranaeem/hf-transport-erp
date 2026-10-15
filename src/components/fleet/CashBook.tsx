@@ -16,11 +16,13 @@ import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, Arrow
 import { PageHeader, Btn, Card, KpiStrip, SidePanel, Empty } from "../ui/kit.tsx";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import { CashCountPanel, CashSummary } from "./CashCount.tsx";
+import KhataKindPicker, { KhataBuckets, KhataKindValue } from "./KhataKindPicker.tsx";
+import { kindOf, bucketTotals, catLabel, INCOME_CATS, EXPENSE_CATS, KhataKind } from "../../lib/khataKinds.ts";
 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "" };
+const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
 interface LinkOptions { trucks: { id: number; registration: string }[]; parties: { id: number; name: string }[] }
 
 export default function CashBook({
@@ -85,7 +87,7 @@ export default function CashBook({
 
   const startEdit = (r: any) => {
     setEditId(r.id);
-    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "" });
+    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || "" });
   };
   const saveEdit = async () => {
     if (!editId) return;
@@ -242,7 +244,7 @@ export default function CashBook({
       )}
 
       {showAdd && (
-        <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" linkOptions={linkOptions} title={`New entry for ${date} · نیا اندراج`} />
+        <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" linkOptions={linkOptions} onNavigate={onNavigate} title={`New entry for ${date} · نیا اندراج`} />
       )}
 
       {data && (
@@ -336,7 +338,7 @@ export default function CashBook({
                           title="Open this entry in its ledger · اس اندراج کو اس کے کھاتے میں کھولیں"
                           className="block text-[11px] text-[#24539B] hover:underline"
                         >
-                          ↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""} · open →
+                          ↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}{r.truckCategory && r.truckCategory !== "Other" ? ` · ${catLabel(r.truckCategory)}` : ""} · open →
                         </button>
                       ) : r.linkType ? (
                         <div className="text-[11px] text-[#24539B]">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}</div>
@@ -353,7 +355,7 @@ export default function CashBook({
                   {editId === r.id && (
                     <tr className="bg-[#F4F7FC]">
                       <td colSpan={7} className="px-4 pb-4 pt-1">
-                        <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} />
+                        <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} onNavigate={onNavigate} />
                         <div className="mt-3">
                           {/* a receipt here also shows on the khata / party / trip row this entry wrote, and theirs here */}
                           <AttachmentPanel entityType="cash_transaction" entityId={r.id} title="Receipts for this entry · رسیدیں" />
@@ -380,10 +382,39 @@ export default function CashBook({
   );
 }
 
-function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions, title }: {
+function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions, title, onNavigate }: {
   value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions; title?: string;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
+  // a truck picked: its khata's detail, and the same "what is this money" choice as Truck Ledger
+  const truckId = value.linkType === "truck" && value.linkTargetId ? Number(value.linkTargetId) : null;
+  const [truck, setTruck] = useState<any>(null);
+  const [truckErr, setTruckErr] = useState("");
+  useEffect(() => {
+    setTruck(null);
+    setTruckErr("");
+    if (!truckId) return;
+    let live = true;
+    enterpriseFetch(`/api/cash-book/truck/${truckId}`)
+      .then((r) => live && setTruck(r))
+      .catch((e) => live && setTruckErr(e.message));
+    return () => {
+      live = false;
+    };
+  }, [truckId]);
+  const kv: KhataKindValue = {
+    kind: kindOf(value.linkCategory || "Other", value.direction === "In" ? 1 : 0, value.direction === "Out" ? 1 : 0),
+    category: value.linkCategory || "Other",
+    direction: value.direction === "In" ? "In" : "Out",
+  };
+  // In / Out flipped by hand: keep the kind when it still fits, else plain "Other"
+  const setDirection = (d: "In" | "Out") => {
+    if (!truckId || d === value.direction) return set("direction", d);
+    const k: KhataKind = kv.kind;
+    const fits = k === "shakhsi" || k === "safi" || k === "capital" || (d === "In" ? INCOME_CATS : EXPENSE_CATS).includes(kv.category);
+    onChange({ ...value, direction: d, linkCategory: fits ? value.linkCategory : "Other" });
+  };
   // foreign money: $1,100 × 284 → PKR 312,400, with the rate written into the description
   const [fx, setFx] = useState<{ open: boolean; code: string; amount: string; rate: string; source: string }>({ open: false, code: "USD", amount: "", rate: "", source: "" });
   // choose a currency → today's rate comes by itself (yours if you typed one for today, else the internet's)
@@ -418,7 +449,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
               <button
                 key={v}
                 type="button"
-                onClick={() => set("direction", v)}
+                onClick={() => setDirection(v)}
                 className={`rounded-md py-1.5 text-[12.5px] ${value.direction === v ? (v === "In" ? "bg-[#166534] text-white font-semibold" : "bg-[#B91C1C] text-white font-semibold") : "text-[#4B5563]"}`}
                 style={value.direction === v ? { backgroundColor: v === "In" ? "#166534" : "#B91C1C", color: "#fff" } : undefined}
               >
@@ -455,7 +486,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
           <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className={inp} />
         </label>
         <label className={`${lbl} col-span-2`}>Also add to · بھی شامل کریں
-          <select value={value.linkType} onChange={(e) => onChange({ ...value, linkType: e.target.value, linkTargetId: "" })} className={inp}>
+          <select value={value.linkType} onChange={(e) => onChange({ ...value, linkType: e.target.value, linkTargetId: "", linkCategory: "" })} className={inp}>
             <option value="">Just Cash Book · صرف کیش بک</option>
             <option value="truck">Truck Ledger · ٹرک کھاتہ</option>
             <option value="party">Party Ledger · پارٹی کھاتہ</option>
@@ -471,6 +502,25 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
             </select>
           </label>
         )}
+        {truckId && (
+          <div className="col-span-2 md:col-span-4 space-y-3">
+            {truckErr ? (
+              <div className="text-[12px] text-[#B91C1C]">{truckErr}</div>
+            ) : !truck ? (
+              <div className="text-[12px] text-[#6B7280] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Opening the truck's khata…</div>
+            ) : (
+              <TruckSnapshot t={truck} onOpen={onNavigate && truck.ledgerId ? () => onNavigate("khata", "truck_ledgers", { ledgerId: truck.ledgerId }) : undefined} />
+            )}
+            <div className="rounded-lg border border-[#E3E8EF] bg-white p-3">
+              <KhataKindPicker
+                value={kv}
+                onChange={(n) => onChange({ ...value, linkCategory: n.category, direction: n.direction })}
+                isPartnership={!!truck?.sharedWithPartner}
+                onOpenPartnerPnl={onNavigate && truck?.ledgerId ? () => onNavigate("finance", "partner_pnl", { ledgerId: truck.ledgerId }) : undefined}
+              />
+            </div>
+          </div>
+        )}
         {value.linkType === "party" && (
           <label className={`${lbl} col-span-2`}>Which party · کونسی پارٹی
             <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className={inp}>
@@ -481,10 +531,78 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         )}
       </div>
       <div className="flex items-center gap-2 mt-3">
-        <Btn kind="primary" onClick={onSubmit} disabled={saving} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>{submitLabel}</Btn>
+        <Btn kind="primary" onClick={onSubmit} disabled={saving || (kv.kind === "shakhsi" && !!truckId && !!truck?.sharedWithPartner)} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>{submitLabel}</Btn>
         <Btn onClick={onCancel} icon={<X />}>Cancel</Btn>
       </div>
     </div>
   );
 }
 
+/** The picked truck at a glance: its khata balance, the five totals, the last rows. */
+function TruckSnapshot({ t, onOpen }: { t: any; onOpen?: () => void }) {
+  const pkr = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString();
+  return (
+    <div className="rounded-lg border border-[#C9D7EC] bg-white">
+      <div className="px-3 py-2.5 flex flex-wrap items-start gap-x-4 gap-y-1 border-b border-[#EEF1F5]">
+        <div className="flex-1 min-w-[180px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[15px] font-semibold text-[#111827]">{t.registration}</span>
+            {t.sharedWithPartner && <span className="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[10.5px] font-semibold">Partnership · شراکت</span>}
+            {t.lease && t.lease.status !== "Settled" && (
+              <span className="rounded-full bg-[#FEF3C7] text-[#92400E] px-2 py-0.5 text-[10.5px] font-semibold" dir="auto">
+                Lease {t.lease.number}{t.lease.partner ? ` · ${t.lease.partner}` : ""} · left {pkr(t.lease.balance)}
+              </span>
+            )}
+          </div>
+          <div className="text-[11.5px] text-[#6B7280]" dir="auto">
+            {t.driverName ? `Driver: ${t.driverName}` : "Driver not set"}
+            {t.lastDay ? ` · last entry ${t.lastDay.split("-").reverse().join(".")}` : ""}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[11px] text-[#6B7280]">Khata balance · کھاتہ بیلنس</div>
+          <div className={`text-[16px] font-semibold tabular-nums ${t.balance < 0 ? "text-[#B91C1C]" : "text-[#111827]"}`}>{pkr(t.balance)}</div>
+          {onOpen && <button type="button" onClick={onOpen} className="text-[11px] text-[#24539B] hover:underline">Open the khata →</button>}
+        </div>
+      </div>
+      <div className="p-3 space-y-2.5">
+        {t.ledgerId ? (
+          <KhataBuckets t={bucketTotals(t.byCategory)} />
+        ) : (
+          <div className="text-[12px] text-[#6B7280]">This truck has no khata of its own yet — one opens with this entry · پہلا اندراج کھاتہ کھول دے گا</div>
+        )}
+        {t.recent?.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11.5px]">
+              <thead>
+                <tr className="text-[#6B7280]">
+                  <th className="text-left font-medium py-1 pr-2">Last entries</th>
+                  <th className="text-left font-medium py-1 pr-2">Kind</th>
+                  <th className="text-right font-medium py-1 pr-2">In</th>
+                  <th className="text-right font-medium py-1">Out</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.recent.map((r: any) => (
+                  <tr key={r.id} className="border-t border-[#F1F4F9]">
+                    <td className="py-1 pr-2 max-w-[260px] truncate" dir="auto" title={r.description || ""}>
+                      <span className="text-[#9CA3AF] tabular-nums">{r.day ? r.day.split("-").reverse().join(".") : "—"}</span> {r.description || "—"}
+                    </td>
+                    <td className="py-1 pr-2 whitespace-nowrap text-[#4B5563]">{catLabel(r.category || "Other")}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums text-[#166534]">{r.received ? r.received.toLocaleString() : ""}</td>
+                    <td className="py-1 text-right tabular-nums text-[#B91C1C]">{r.paid ? r.paid.toLocaleString() : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {t.otherKhatas?.length > 0 && (
+          <div className="text-[11px] text-[#6B7280]" dir="auto">
+            Older khata sheets of this truck (imported): {t.otherKhatas.map((o: any) => `${o.sheet || o.title} (${pkr(o.balance)})`).join(", ")}. This entry goes to the khata above.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

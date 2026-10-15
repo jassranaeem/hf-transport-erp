@@ -147,8 +147,8 @@ export default function BalanceFlow({
       <div className="text-[12px] text-[#6B7280]" dir="auto">
         {truck ? (
           <>
-            {period.key === "all" ? "Profit · منافع" : "Profit in these dates · اس مدت کا منافع"} = received − spent = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
-            {" "}· the opening balance is money from before — it is not profit · ابتدائی بیلنس منافع نہیں
+            {period.key === "all" ? "Came in − went out · آیا − گیا" : "In these dates, came in − went out · اس مدت میں آیا − گیا"} = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
+            {" "}· the truck's own profit (income − expense, without Shakhsi bardasht, Safi bachat or the owner's money) is in the boxes below · ٹرک کا اپنا منافع نیچے ہے · the opening balance is money from before, not profit
             {balance.driverCash && (
               <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12.5px] text-[#374151]">
                 Driver's cash · ڈرائیور کی نقد: given <b>{fmt(balance.driverCash.given)}</b> − spent out of it <b>{fmt(balance.driverCash.spent)}</b>

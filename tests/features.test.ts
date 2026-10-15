@@ -11,6 +11,7 @@ import { nextDue } from "../server/recurring.ts";
 import { depreciationSchedule } from "../server/business_misc.ts";
 import { waNumber } from "../src/lib/share.ts";
 import { installmentSchedule } from "../server/partnerships.ts";
+import { bucketTotals, kindOf } from "../src/lib/khataKinds.ts";
 
 let failures = 0;
 function ok(name: string, cond: boolean, extra?: unknown) {
@@ -128,6 +129,20 @@ console.log("lease-to-own instalments");
   ok("the 31st falls on the month's last day", q.rows[1].due === "2026-02-28" && q.rows[2].due === "2026-03-31");
   ok("ahead of the plan", q.overdue === 0 && q.ahead === 200000 && q.paidCount === 2);
   ok("no plan → no schedule", installmentSchedule({ opening: 500000, recovered: 0, amount: null, day: null, start: null }, "2026-10-10") === null);
+}
+
+console.log("truck khata: what the money is");
+{
+  // 500,000 kiraya, 130,000 diesel, 60,000 taken for home, 200,000 safi bachat taken out
+  const t = bucketTotals([
+    { category: "Freight", received: 500000, paid: 0 },
+    { category: "Diesel", received: 0, paid: 130000 },
+    { category: "Shakhsi", received: 0, paid: 60000 },
+    { category: "SafiBachat", received: 0, paid: 200000 },
+  ]);
+  ok("the truck's profit leaves out money for home and safi bachat", t.income === 500000 && t.expense === 130000 && t.profit === 370000, t);
+  ok("shakhsi and safi bachat are counted apart", t.shakhsi === 60000 && t.safi === 200000, t);
+  ok("a row's kind comes from its category", kindOf("Shakhsi", 0, 5) === "shakhsi" && kindOf("SafiBachat", 0, 0) === "safi" && kindOf("Freight", 9, 0) === "income" && kindOf("Freight", 0, 9) === "expense" && kindOf("Capital", 9, 0) === "capital");
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);

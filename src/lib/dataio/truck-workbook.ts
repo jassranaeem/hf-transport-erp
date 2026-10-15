@@ -16,7 +16,7 @@ import { repairXlsxBuffer } from "./xlsx-repair.ts";
 export type LedgerCategory =
   | "Freight" | "Diesel" | "TripCash" | "Tyre" | "Visa" | "Carnet" | "TomanFX"
   | "PartsBill" | "Garage" | "Salary" | "Battery" | "Insurance" | "MobilOil"
-  | "Permit" | "OnlineTransfer" | "Capital" | "SafiBachat" | "Other";
+  | "Permit" | "OnlineTransfer" | "Capital" | "Shakhsi" | "SafiBachat" | "Other";
 
 export interface ParsedEntry {
   srNo: number | null;
