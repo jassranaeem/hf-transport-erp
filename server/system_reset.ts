@@ -46,35 +46,41 @@ async function listPublicTables(): Promise<string[]> {
   return (rows as any[]).map((r) => r.table_name as string);
 }
 
-/** Dump every row of every (non-backups) table into one JSON snapshot. */
-async function snapshotDatabase(): Promise<{ tables: Record<string, any[]>; sizeBytes: number; tableCount: number }> {
-  const all = await listPublicTables();
-  const tables: Record<string, any[]> = {};
-  for (const t of all) {
-    if (t === "backups") continue; // never snapshot the backups table into itself
-    const { rows } = await db.execute(sql.raw(`select * from "${t}"`));
-    tables[t] = rows as any[];
-  }
-  const json = JSON.stringify(tables);
-  return { tables, sizeBytes: Buffer.byteLength(json, "utf8"), tableCount: Object.keys(tables).length };
-}
+// never copied into a snapshot: the backups themselves, and the request log (not business data)
+const NOT_SNAPSHOTTED = new Set(["backups", "api_logs"]);
+const SAFE_NAME = /^[a-z_][a-z0-9_]*$/;
 
+/**
+ * Take a snapshot: { [table]: row[] } for every table, stored in backups.data_json.
+ *
+ * Built INSIDE Postgres (jsonb_agg of each table), never in the app's memory: reading every row
+ * into Node and JSON-stringifying it ran the hosted server (512 MB) out of memory, and it went
+ * down mid-request (the "HTTP 502" on Backup now). to_jsonb also writes files (bytea) as "\x…"
+ * text, which a restore can read back; a Node Buffer turned into JSON could not be restored.
+ */
 async function saveBackup(kind: "manual" | "pre-reset", userId?: number) {
-  const snap = await snapshotDatabase();
+  const tables = (await listPublicTables()).filter((t) => !NOT_SNAPSHOTTED.has(t) && SAFE_NAME.test(t));
   const fileName = `${kind === "pre-reset" ? "pre-reset" : "manual"}-backup-${Date.now()}.json`;
+  // jsonb_build_object takes at most 100 arguments: 40 tables per object, joined with ||
+  const parts: string[] = [];
+  for (let i = 0; i < tables.length; i += 40) {
+    const pairs = tables.slice(i, i + 40).map((t) => `'${t}', (select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) from "${t}" x)`);
+    parts.push(`jsonb_build_object(${pairs.join(", ")})`);
+  }
+  const snapshot = sql.raw(parts.length ? parts.join(" || ") : `'{}'::jsonb`);
+  const { rows } = await db.execute(sql`
+    insert into backups (file_name, file_size, status, verified, data_json, kind, created_by)
+    values (${fileName}, 0, 'SUCCESS', true, ${snapshot}, ${kind}, ${userId ?? null})
+    returning id`);
+  const id = Number((rows as any[])[0].id);
+  // the size it takes in the database (compressed)
+  await db.execute(sql`update backups set file_size = pg_column_size(data_json) where id = ${id}`);
   const [row] = await db
-    .insert(schema.backups)
-    .values({
-      fileName,
-      fileSize: snap.sizeBytes,
-      status: "SUCCESS",
-      verified: true,
-      dataJson: snap.tables,
-      kind,
-      createdBy: userId,
-    })
-    .returning({ id: schema.backups.id, fileName: schema.backups.fileName, fileSize: schema.backups.fileSize, createdAt: schema.backups.createdAt, kind: schema.backups.kind });
-  await logAudit({ action: "CREATE", tableName: "backups", recordId: row.id, newValues: { fileName, tableCount: snap.tableCount, kind }, performedBy: userId });
+    .select({ id: schema.backups.id, fileName: schema.backups.fileName, fileSize: schema.backups.fileSize, createdAt: schema.backups.createdAt, kind: schema.backups.kind })
+    .from(schema.backups)
+    .where(eq(schema.backups.id, id))
+    .limit(1);
+  await logAudit({ action: "CREATE", tableName: "backups", recordId: row.id, newValues: { fileName, tableCount: tables.length, kind }, performedBy: userId });
   return row;
 }
 
@@ -119,19 +125,25 @@ router.post("/backups/:id(\\d+)/restore", requireRole(["Super Admin"]), async (r
     return res.status(400).json({ error: 'Type "RESTORE BACKUP" exactly to confirm - this replaces current data.' });
   }
   try {
-    const [b] = await db.select().from(schema.backups).where(eq(schema.backups.id, id)).limit(1);
+    // only the names of the tables it holds — the rows stay in the database (see saveBackup)
+    const [b] = await db
+      .select({ id: schema.backups.id, hasData: sql<boolean>`(${schema.backups.dataJson} is not null)` })
+      .from(schema.backups)
+      .where(eq(schema.backups.id, id))
+      .limit(1);
     if (!b) return res.status(404).json({ error: "Backup not found" });
-    if (!b.dataJson) {
+    if (!b.hasData) {
       return res.status(400).json({ error: "This backup has no restorable data (an old simulated entry from before real backups existed)." });
     }
-    const snapshot = b.dataJson as Record<string, any[]>;
+    const { rows: keyRows } = await db.execute(sql`select jsonb_object_keys(data_json) k from backups where id = ${id}`);
+    const snapshotTables = (keyRows as any[]).map((r) => String(r.k)).filter((t) => SAFE_NAME.test(t));
     // Only restore tables that still exist today (a snapshot from before a
     // schema change might name a table that's since been dropped/renamed).
     const { rows: existing } = await db.execute(sql`
       select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'
     `);
     const existingSet = new Set((existing as any[]).map((r) => r.table_name as string));
-    const tablesInSnapshot = Object.keys(snapshot).filter((t) => t !== "backups" && existingSet.has(t));
+    const tablesInSnapshot = snapshotTables.filter((t) => !NOT_SNAPSHOTTED.has(t) && existingSet.has(t));
 
     // One transaction: defer FK checks for the session (table owner/superuser
     // only) so tables can be reloaded in any order, then let Postgres's own
@@ -141,12 +153,10 @@ router.post("/backups/:id(\\d+)/restore", requireRole(["Super Admin"]), async (r
       await tx.execute(sql`SET LOCAL session_replication_role = replica`);
       await tx.execute(sql.raw(`TRUNCATE TABLE ${tablesInSnapshot.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`));
       for (const t of tablesInSnapshot) {
-        const rowsForTable = snapshot[t];
-        if (!rowsForTable || rowsForTable.length === 0) continue;
         const tableIdent = sql.raw(`"${t}"`);
         await tx.execute(sql`
           insert into ${tableIdent}
-          select * from json_populate_recordset(NULL::${tableIdent}, ${JSON.stringify(rowsForTable)}::json)
+          select * from jsonb_populate_recordset(NULL::${tableIdent}, (select data_json -> ${t} from backups where id = ${id}))
         `);
         // json_populate_recordset doesn't advance serial sequences - fix each
         // table's "id" sequence so the next insert doesn't collide.

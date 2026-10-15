@@ -506,7 +506,22 @@ router.get("/logs/:type", requireAuth, requireRole(["Admin", "Super Admin"]), as
 // ---------------------------------------------------------
 router.get("/backups", requireAuth, requireRole(["Admin", "Super Admin"]), async (req: AuthRequest, res: Response) => {
   try {
-    const list = await db.select().from(schema.backups).orderBy(desc(schema.backups.createdAt)).limit(30);
+    // never the snapshot itself (data_json): 30 of them would not fit in the server's memory
+    const list = await db
+      .select({
+        id: schema.backups.id,
+        fileName: schema.backups.fileName,
+        fileSize: schema.backups.fileSize,
+        status: schema.backups.status,
+        verified: schema.backups.verified,
+        error: schema.backups.error,
+        kind: schema.backups.kind,
+        createdAt: schema.backups.createdAt,
+        createdBy: schema.backups.createdBy,
+      })
+      .from(schema.backups)
+      .orderBy(desc(schema.backups.createdAt))
+      .limit(30);
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
