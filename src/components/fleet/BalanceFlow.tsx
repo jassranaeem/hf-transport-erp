@@ -206,6 +206,12 @@ export default function BalanceFlow({
           <>
             {period.key === "all" ? "Came in − went out · آیا − گیا" : isDay ? "This day, came in − went out · اس دن آیا − گیا" : "In these dates, came in − went out · اس مدت میں آیا − گیا"} = <b className={balance.profit < 0 ? "text-red-600" : "text-emerald-700"}>{fmt(balance.profit)}</b>
             {" "}· the truck's own profit (income − expense, without Shakhsi bardasht, Safi bachat or the owner's money) is in the boxes below · ٹرک کا اپنا منافع نیچے ہے · the opening balance is money from before, not profit
+            {closing < 0 && (
+              <div className="mt-1.5 rounded-lg bg-[#FEF2F2] border border-[#FECACA] px-3 py-2 text-[12.5px] text-[#7F1D1D]">
+                Red is not an error: so far more went out of this khata than came in (the balance is short). It turns normal when this truck's income — its freight / kiraya — is entered, or if the money was not for this truck, move that entry (for home money use Personal &amp; Household). ·
+                ریڈ کا مطلب غلطی نہیں: اب تک اس کھاتے میں آمدن سے زیادہ گیا ہے۔ اس ٹرک کا کرایہ لکھنے پر ٹھیک ہو جاتا ہے۔
+              </div>
+            )}
             {balance.driverCash && (
               <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12.5px] text-[#374151]">
                 Driver's cash · ڈرائیور کی نقد: given <b>{fmt(balance.driverCash.given)}</b> − spent out of it <b>{fmt(balance.driverCash.spent)}</b>
