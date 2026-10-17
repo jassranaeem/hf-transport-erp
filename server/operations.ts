@@ -7,6 +7,36 @@ import { SocketServer } from "../src/sockets/socket.ts";
 import { LoggerService } from "../src/logger/logger.ts";
 import { applyLatestGpsToTrip } from "./trip_progress.ts";
 
+/**
+ * What a failed truck save means, in words: the database's reason (a duplicate number, a missing
+ * field) instead of the query text that drizzle puts in the message. A number already in the list
+ * says whether that truck is there or was deleted earlier.
+ */
+async function vehicleSaveError(err: any, number?: string, selfId?: number): Promise<string> {
+  const c = err?.cause;
+  if (c?.code === "23505") {
+    const name = String(c?.constraint || "");
+    if (name.includes("vehicle_number") && number) {
+      const [dup] = await db
+        .select({ id: schema.vehicles.id, isDeleted: schema.vehicles.isDeleted })
+        .from(schema.vehicles)
+        .where(eq(schema.vehicles.vehicleNumber, number))
+        .limit(1)
+        .catch(() => []);
+      if (dup && dup.id !== selfId)
+        return dup.isDeleted
+          ? `"${number}" was added before and then deleted — it is still saved under that number, so it cannot be added again. Ask to have it brought back. · یہ نمبر پہلے لکھ کر حذف ہو چکا ہے`
+          : `"${number}" is already in the truck list — open it from the list instead of adding it again. · یہ ٹرک فہرست میں پہلے سے موجود ہے`;
+      return `The truck number "${number}" is already used. · یہ نمبر پہلے سے استعمال میں ہے`;
+    }
+    if (name.includes("gps_device_imei")) return "This GPS device (IMEI) is already fitted to another truck. · یہ GPS ڈیوائس کسی اور ٹرک پر لگی ہے";
+    return String(c?.detail || "That value is already used by another record. · یہ قدر پہلے سے موجود ہے");
+  }
+  if (c?.code === "23502") return `"${c?.column || "a field"}" is required. · ${c?.column || "ایک خانہ"} ضروری ہے`;
+  if (c?.code === "22P02" || c?.code === "22003") return "A number or date was not valid — check the fields. · کوئی نمبر یا تاریخ درست نہیں";
+  return String(c?.detail || c?.message || err?.message || "Could not save the truck");
+}
+
 const router = Router();
 
 // ---------------------------------------------------------
@@ -142,7 +172,7 @@ router.post("/vehicles", requireAuth, requirePermission("vehicles", "create"), a
     });
     res.json(created);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err?.cause?.code === "23505" ? 409 : 500).json({ error: await vehicleSaveError(err, req.body?.vehicleNumber) });
   }
 });
 
@@ -178,7 +208,7 @@ router.put("/vehicles/:id", requireAuth, requirePermission("vehicles", "update")
     await audit(req, "UPDATE", "vehicles", id, old, updated);
     res.json(updated);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err?.cause?.code === "23505" ? 409 : 500).json({ error: await vehicleSaveError(err, req.body?.vehicleNumber, parseInt(req.params.id)) });
   }
 });
 
