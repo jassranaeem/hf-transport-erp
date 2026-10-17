@@ -744,10 +744,11 @@ router.post("/ask", requireRole(READ), async (req: AuthRequest, res: Response) =
     const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-4).map((h: any) => `Q: ${String(h.q || "").slice(0, 400)}\nA: ${String(h.a || "").slice(0, 800)}`).join("\n\n");
     const today = todayPk();
     const fy = Number(today.slice(5, 7)) >= 7 ? Number(today.slice(0, 4)) : Number(today.slice(0, 4)) - 1;
+    const booksStartText = (await db.execute(sql`select to_char(books_start, 'YYYY-MM-DD') d from books_settings where id = 1`).then((r: any) => r.rows?.[0]?.d).catch(() => null)) || "2025-07-01";
     const plan = await aiJson({
       feature: "ask-plan",
       userId: req.user?.id,
-      system: `You help the owner of HFK Enterprises (a truck transport company in Quetta) get answers from the company's books. Today is ${today}; the financial year runs 1 July – 30 June (this year: ${fy}-07-01 to ${fy + 1}-06-30); the books start 2025-07-01.
+      system: `You help the owner of HFK Enterprises (a truck transport company in Quetta) get answers from the company's books. Today is ${today}; the financial year runs 1 July – 30 June (this year: ${fy}-07-01 to ${fy + 1}-06-30); the books start ${booksStartText}.
 Pick the data you need (at most 4 lookups) from these tools:
 ${Object.entries(TOOLS).map(([k, t]) => `- ${k}(${t.args}): ${t.about}`).join("\n")}
 Reply with JSON only: {"calls":[{"tool":"…","args":{…}}]}. Use [] only if the question is not about HFK's money or business.`,

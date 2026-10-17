@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpenCheck, RefreshCw, Loader2, X, CheckCircle2, AlertTriangle, Settings2, ExternalLink } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
+import BooksStart from "./BooksStart.tsx";
 
 type Feedback = (type: "success" | "error", message: string) => void;
 type Nav = (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number; date?: string }) => void;
@@ -34,6 +35,7 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
   const [rebuilding, setRebuilding] = useState(false);
   const [lines, setLines] = useState<{ code: string; name: string; list: any[] | null } | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [changingStart, setChangingStart] = useState(false);
 
   const loadStatus = useCallback(() => enterpriseFetch("/api/books/status").then(setStatus).catch(() => {}), []);
   const loadTb = useCallback(() => {
@@ -97,11 +99,18 @@ export default function Books({ showFeedback, onNavigate }: { showFeedback: Feed
 
       {status && (
         <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] px-3 py-2 text-[12px] text-[#374151] flex flex-wrap gap-x-5 gap-y-1">
-          <span>Books start · کتاب کا آغاز: <b>{status.booksStart ? dmy(status.booksStart) : "—"}</b> (with opening balances)</span>
+          <span>
+            Books start · کتاب کا آغاز: <b>{status.booksStart ? dmy(status.booksStart) : "—"}</b> (with opening balances){" "}
+            <button onClick={() => setChangingStart((v) => !v)} className="text-[#24539B] hover:underline font-medium">Change · بدلیں</button>
+          </span>
           <span>Last built · آخری بار: <b>{status.lastRebuildAt ? new Date(status.lastRebuildAt).toLocaleString("en-GB") : "never"}</b></span>
           <span>Entries · انٹریاں: <b>{(status.autoEntries || 0).toLocaleString()}</b></span>
           <span className={status.stale ? "text-[#92400E]" : "text-[#166534]"}>{status.stale ? "Something changed — rebuilds by itself within 10 min, or press Rebuild" : "Up to date ✓"}</span>
         </div>
+      )}
+
+      {changingStart && status?.booksStart && (
+        <BooksStart current={status.booksStart} onChanged={() => { loadStatus(); loadTb(); }} onClose={() => setChangingStart(false)} showFeedback={showFeedback} onNavigate={onNavigate as any} />
       )}
 
       <div className="flex flex-wrap items-end gap-2 text-xs">

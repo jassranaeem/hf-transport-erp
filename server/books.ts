@@ -515,6 +515,81 @@ router.get("/status", requireRole(READ), async (_req: AuthRequest, res: Response
   }
 });
 
+// ---------------------------------------------------------------- the books' first day
+// Moving it is a decision about the company's accounts, so it is only ever done by an administrator,
+// from the screen, after the effects are shown, with the confirmation typed. Nothing is deleted:
+// the engine's own entries are rebuilt from the same source rows, and moving it back restores them.
+const START_ROLES = ["Super Admin", "Admin"];
+const START_CONFIRM = "CHANGE BOOKS START";
+
+/** A financial year starts on 1 July — and the books cannot start in the future. */
+const isFyStart = (d: unknown): d is string => {
+  if (typeof d !== "string" || !/^\d{4}-07-01$/.test(d)) return false;
+  const now = new Date();
+  const thisFy = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  return Number(d.slice(0, 4)) <= thisFy && Number(d.slice(0, 4)) >= 2020;
+};
+
+/** What moving the first day to `date` would do to the books, worked out without changing anything. */
+async function startEffects(date: string) {
+  const D = sql`${date}::timestamp`;
+  const [cash] = await rows(sql`select coalesce(sum(case when direction = 'In' then amount else -amount end), 0)::bigint b, count(*)::int n from cash_transactions where not is_deleted and entry_date < ${D}`);
+  const [par] = await rows(sql`select count(*)::int n, coalesce(sum(b), 0)::bigint net from (
+      select x.party_id, sum(x.b) b from (
+        select e.party_id, e.debit - e.credit b from party_ledger_entries e where not e.is_deleted and e.entry_date < ${D}
+        union all select p.id, p.opening_balance from parties p where not p.is_deleted and p.opening_balance <> 0) x
+      group by x.party_id having sum(x.b) <> 0) y`);
+  const banks = await rows(sql`select id, bank_name, account_number, opening_balance::bigint opening from bank_accounts where not is_deleted and opening_balance <> 0 order by id`);
+  const [tle] = await rows(sql`select count(*) filter (where entry_date < ${D})::int before, count(*) filter (where entry_date >= ${D})::int after
+      from truck_ledger_entries where not is_deleted and coalesce(method, '') <> 'Opening' and (received > 0 or paid > 0)`);
+  const [docs] = await rows(sql`select
+      (select count(*) from invoices where not is_deleted and invoice_date < ${D})::int invoices,
+      (select count(*) from bills where not is_deleted and bill_date < ${D})::int bills,
+      (select count(*) from payments where not is_deleted and payment_date < ${D})::int payments,
+      (select count(*) from journal_entries where not is_auto and not is_deleted and entry_date < ${D})::int manual_journals`);
+  return {
+    cash: { net: Number(cash.b), rows: cash.n },
+    parties: { count: par.n, net: Number(par.net) },
+    banks: banks.map((b) => ({ id: b.id, name: `${b.bank_name} ${b.account_number || ""}`.trim(), opening: Number(b.opening) })),
+    truckRows: { leftOut: tle.before, kept: tle.after },
+    documentsBefore: docs,
+  };
+}
+
+router.get("/start-preview", requireRole(START_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureSetup();
+    const date = String(req.query.date || "");
+    const [s] = await rows(sql`select to_char(books_start, 'YYYY-MM-DD') d, to_char(locked_through, 'YYYY-MM-DD') l from books_settings where id = 1`);
+    const problems: string[] = [];
+    if (!isFyStart(date)) problems.push("The books start on 1 July (the first day of a financial year) · کتاب یکم جولائی سے شروع ہوتی ہے");
+    if (s.l && isFyStart(date) && date <= s.l) problems.push(`The books are closed through ${s.l.split("-").reverse().join(".")} — open them first (Statements → lock) · کتاب بند ہے`);
+    res.json({ current: s.d, proposed: date, problems, effects: isFyStart(date) ? await startEffects(date) : null, confirmPhrase: START_CONFIRM });
+  } catch (e: any) {
+    res.status(500).json({ error: e.cause?.message || e.message });
+  }
+});
+
+router.put("/start", requireRole(START_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureSetup();
+    const date = String(req.body?.date || "");
+    if (req.body?.confirmText !== START_CONFIRM) return res.status(400).json({ error: `Type "${START_CONFIRM}" exactly to confirm · تصدیق کے لیے یہ لفظ لکھیں` });
+    if (!isFyStart(date)) return res.status(400).json({ error: "The books start on 1 July (the first day of a financial year) · کتاب یکم جولائی سے شروع ہوتی ہے" });
+    const [s] = await rows(sql`select to_char(books_start, 'YYYY-MM-DD') d, to_char(locked_through, 'YYYY-MM-DD') l from books_settings where id = 1`);
+    if (s.l && date <= s.l) return res.status(400).json({ error: `The books are closed through ${s.l.split("-").reverse().join(".")} — open them first · کتاب بند ہے` });
+    if (s.d === date) return res.json({ ok: true, booksStart: date, unchanged: true });
+    const effects = await startEffects(date);
+    await db.execute(sql`update books_settings set books_start = ${date}::timestamp, updated_at = now() where id = 1`);
+    await ensureFiscalYears();
+    const rebuilt = await rebuildBooks("books start changed", req.user?.id);
+    await logAudit({ action: "UPDATE", tableName: "books_settings", recordId: 1, oldValues: { booksStart: s.d }, newValues: { booksStart: date, effects }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+    res.json({ ok: true, booksStart: date, previous: s.d, effects, rebuilt });
+  } catch (e: any) {
+    res.status(500).json({ error: e.cause?.message || e.message });
+  }
+});
+
 router.post("/rebuild", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const r = await rebuildBooks("manual", req.user?.id);
