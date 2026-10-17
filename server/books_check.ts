@@ -643,14 +643,17 @@ export const CHECKS: Check[] = [
     why: "These accounts hold money the system could not place with certainty — truck expenses with no category, ledger entries with no payment method, cash book entries not linked, truck capital items, Toman, bank not yet matched, opening equity. The Balance Sheet is only final once they are cleared.",
     fix: "Open Books · کتاب and click the account to see its entries; give the khata rows a category / the entries a method or link (or set the account for a category in 'Which account'). The accountant splits opening equity.",
     run: async () => {
-      const list = await rows(sql`select a.code, a.name, coalesce(sum(l.debit - l.credit), 0)::bigint bal, count(l.id)::int n
-        from accounts a join journal_lines l on l.account_id = a.id and not l.is_deleted
-        join journal_entries j on j.id = l.journal_entry_id and not j.is_deleted
-        where a.code = any(${`{${REVIEW_CODES.join(",")}}`}::text[])
-        group by a.code, a.name having coalesce(sum(l.debit - l.credit), 0) <> 0 order by a.code`);
+      // "This is correct" is kept for THIS balance: if the account's balance changes later, it comes back to be looked at again
+      const list = await rows(sql`select * from (
+          select a.code, a.name, coalesce(sum(l.debit - l.credit), 0)::bigint bal, count(l.id)::int n
+          from accounts a join journal_lines l on l.account_id = a.id and not l.is_deleted
+          join journal_entries j on j.id = l.journal_entry_id and not j.is_deleted
+          where a.code = any(${`{${REVIEW_CODES.join(",")}}`}::text[])
+          group by a.code, a.name having coalesce(sum(l.debit - l.credit), 0) <> 0) x
+        where ${notDismissed("BOOKS_REVIEW", sql`'acc:' || x.code || ':' || x.bal`)} order by x.code`);
       return {
         total: list.length,
-        items: list.map((r) => ({ key: `acc:${r.code}`, date: null, title: `${r.code} · ${r.name}`, detail: `${r.n.toLocaleString()} lines`, amount: num(r.bal), link: { wb: "accounting", sheet: "books" } })),
+        items: list.map((r) => ({ key: `acc:${r.code}:${r.bal}`, date: null, title: `${r.code} · ${r.name}`, detail: `${r.n.toLocaleString()} lines`, amount: num(r.bal), link: { wb: "accounting", sheet: "books" } })),
       };
     },
   },
