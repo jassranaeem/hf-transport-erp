@@ -4,6 +4,14 @@ import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { LoggerService } from "../logger/logger.ts";
 import { IS_PROD, corsOrigins } from "../config/env.ts";
+import { randomBytes } from "crypto";
+
+/**
+ * The server calling its own API (the AI Accountant posts an approved draft through the very same
+ * Cash Book / khata routes a person uses). Such a call carries this per-process secret so it is not
+ * counted against the rate limit; it still needs the person's own login like any other request.
+ */
+export const INTERNAL_CALL_TOKEN = randomBytes(24).toString("hex");
 
 /**
  * Request IDs middleware
@@ -78,7 +86,9 @@ export const globalRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many requests. Please slow down." },
   skip: (req) =>
-    req.path.startsWith("/tracking/ingest") || req.path.startsWith("/tracking/traccar"),
+    req.path.startsWith("/tracking/ingest") ||
+    req.path.startsWith("/tracking/traccar") ||
+    req.headers["x-internal-call"] === INTERNAL_CALL_TOKEN,
 });
 
 export const authRateLimiter = rateLimit({

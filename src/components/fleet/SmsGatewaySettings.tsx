@@ -154,16 +154,16 @@ export default function SmsGatewaySettings({
   return (
     <div className="space-y-4 max-w-3xl">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <MessageSquare className="w-4 h-4" /> SMS Gateway <span className="text-[#9CA3AF] font-normal text-sm">· ایس ایم ایس گیٹ وے</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <MessageSquare className="w-5 h-5 text-[#24539B]" /> SMS Gateway <span className="text-[#9CA3AF] font-normal text-sm">· ایس ایم ایس گیٹ وے</span>
         </h2>
-        <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F0FAF4]">
+        <button onClick={load} className="flex items-center gap-1.5 text-xs border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 bg-white hover:bg-[#F2F5FA]">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
       </div>
 
       {/* what auto-sends */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <h3 className="text-sm font-semibold">What sends automatically</h3>
         <p className="text-[12px] text-[#6B7280]">
           Once a sender is connected below, these go out on their own — the system picks the driver's number,
@@ -171,7 +171,7 @@ export default function SmsGatewaySettings({
         </p>
         <label className="flex items-center gap-2 text-[13px]">
           <input type="checkbox" checked={cfg.notifyDrivers} onChange={(e) => set({ notifyDrivers: e.target.checked })} />
-          <span>Text the assigned <b>driver</b> on every truck-khata <b>credit / debit</b> entry</span>
+          <span>Text the assigned <b>driver</b> on every truck-ledger <b>credit / debit</b> entry</span>
         </label>
         <label className="flex items-center gap-2 text-[13px]">
           <input type="checkbox" checked={cfg.notifyInvoices} onChange={(e) => set({ notifyInvoices: e.target.checked })} />
@@ -183,7 +183,7 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* recommendation */}
-      <div className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] p-3 text-[12px] text-[#1E40AF] space-y-1">
+      <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 text-[12px] text-[#173563] space-y-1">
         <div className="font-semibold flex items-center gap-1.5"><Info className="w-3.5 h-3.5" /> Connect a sender (one time)</div>
         <p><b>Easiest, no signup:</b> put a spare SIM in any Android phone, install the free <b>SMS Gate</b> app — it shows a username + password. Pick provider = <i>SMS Gate</i>, paste them, Enable, Save. Done — SMS go out on that SIM.</p>
         <p><b>Company-name sender (HFK Transport uses this):</b> pick <i>SendPK</i>. The API key is already set in the server's <code className="font-mono">.env.local</code> — just fill in the approved Sender ID, Template ID and the template's JSON variable shape below, then Enable + Save.</p>
@@ -191,11 +191,11 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* form */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
           Enable SMS
-          <span className={`text-[10px] rounded-full px-2 py-0.5 ${cfg.enabled ? "bg-[#DCFCE7] text-[#15803D]" : "bg-[#F3F4F6] text-[#6B7280]"}`}>
+          <span className={`text-[10px] rounded-full px-2 py-0.5 ${cfg.enabled ? "bg-[#E6ECF6] text-[#1E4480]" : "bg-[#F3F4F6] text-[#6B7280]"}`}>
             {cfg.enabled ? "ON" : "OFF"}
           </span>
         </label>
@@ -245,7 +245,7 @@ export default function SmsGatewaySettings({
 
         {cfg.provider === "sendpk" && (
           <div className="space-y-3">
-            <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-2.5 text-[12px] text-[#92400E]">
+            <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2.5 text-[12px] text-[#374151]">
               <b>API key:</b> set once in the server's <code className="font-mono">.env.local</code> as{" "}
               <code className="font-mono">SMS_GATEWAY_KEY</code> — never entered here, never sent to the browser.
             </div>
@@ -300,14 +300,14 @@ export default function SmsGatewaySettings({
         </label>
 
         <div className="flex items-center gap-2 pt-1">
-          <button onClick={save} disabled={saving} className="flex items-center gap-1.5 bg-[#16A34A] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-60">
+          <button onClick={save} disabled={saving} className="flex items-center gap-1.5 bg-[#24539B] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
           </button>
         </div>
       </div>
 
       {/* test */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <h3 className="text-sm font-semibold">Send a test SMS</h3>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -317,7 +317,7 @@ export default function SmsGatewaySettings({
             className="border border-[#E5E7EB] rounded px-2 py-1.5 text-sm w-48"
             dir="ltr"
           />
-          <button onClick={sendTest} disabled={testing} className="flex items-center gap-1.5 border border-[#16A34A] text-[#15803D] text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60">
+          <button onClick={sendTest} disabled={testing} className="flex items-center gap-1.5 border border-[#24539B] text-[#1E4480] text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60">
             {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send test
           </button>
         </div>
@@ -334,7 +334,7 @@ export default function SmsGatewaySettings({
           </label>
         )}
         {testResult && (
-          <div className={`text-[12px] rounded-lg border p-2 ${testResult.status === "sent" ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]" : "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]"}`}>
+          <div className={`text-[12px] rounded-lg border p-2 ${testResult.status === "sent" ? "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]" : "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]"}`}>
             <div className="font-semibold flex items-center gap-1.5">
               {testResult.status === "sent" ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
               {testResult.status}
@@ -346,30 +346,30 @@ export default function SmsGatewaySettings({
       </div>
 
       {/* recent log */}
-      <div className="rounded-xl border border-[#E5E7EB] bg-white overflow-hidden">
-        <div className="px-3 py-2 text-xs font-bold bg-[#F3F7F4]">Recent SMS (last 10)</div>
-        <table className="w-full text-xs">
-          <thead className="bg-[#F9FAFB] text-[#6B7280]">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+        <div className="px-3 py-2 text-[13px] font-semibold text-[#1F2937] bg-white border-b border-[#EEF1F5]">Recent SMS (last 10)</div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
             <tr>
-              <th className="text-left px-2 py-1.5">When</th>
-              <th className="text-left px-2 py-1.5">To</th>
-              <th className="text-left px-2 py-1.5">Status</th>
-              <th className="text-left px-2 py-1.5">Body</th>
+              <th className="text-left px-3 py-2">When</th>
+              <th className="text-left px-3 py-2">To</th>
+              <th className="text-left px-3 py-2">Status</th>
+              <th className="text-left px-3 py-2">Body</th>
             </tr>
           </thead>
           <tbody>
             {logs.map((l) => (
               <tr key={l.id} className="border-t border-[#F3F4F6]">
-                <td className="px-2 py-1.5 whitespace-nowrap text-[#6B7280]">{new Date(l.createdAt).toLocaleString()}</td>
-                <td className="px-2 py-1.5 font-mono" dir="ltr">{l.toPhone}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-3 py-2 whitespace-nowrap text-[#6B7280]">{new Date(l.createdAt).toLocaleString()}</td>
+                <td className="px-3 py-2 font-mono" dir="ltr">{l.toPhone}</td>
+                <td className="px-3 py-2">
                   <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
-                    l.status === "sent" ? "bg-[#DCFCE7] text-[#15803D]" :
-                    l.status === "failed" ? "bg-[#FEE2E2] text-[#B91C1C]" :
+                    l.status === "sent" ? "bg-[#E6ECF6] text-[#1E4480]" :
+                    l.status === "failed" ? "bg-[#FFE0E0] text-[#B00005]" :
                     "bg-[#F3F4F6] text-[#6B7280]"
                   }`}>{l.status}</span>
                 </td>
-                <td className="px-2 py-1.5 max-w-[280px] truncate" dir="auto" title={l.body}>{l.body}</td>
+                <td className="px-3 py-2 max-w-[280px] truncate" dir="auto" title={l.body}>{l.body}</td>
               </tr>
             ))}
             {logs.length === 0 && (

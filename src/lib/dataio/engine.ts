@@ -281,7 +281,8 @@ export async function buildExportWorkbook(
   const wb = new ExcelJS.Workbook();
   wb.creator = "HF Transport ERP";
   wb.created = new Date();
-  const ws = wb.addWorksheet(entity.label.slice(0, 28) || "Export");
+  // Excel forbids  * ? : \ / [ ]  in a sheet name ("Vehicles / Fleet" made every export of that table fail)
+  const ws = wb.addWorksheet(entity.label.replace(/[*?:\/\[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 28) || "Export");
 
   const cols = [
     { header: "id", key: "id", width: 8 },
@@ -654,6 +655,16 @@ export interface ListResult {
   total: number;
 }
 
+const isDefaultOrder = (o: ListOpts) => !o.sort || (o.sort === "id" && o.dir !== "asc");
+
+/** The column that says when a record happened (entry / invoice / bill … date), if any. */
+function recordDateField(entity: EntitySpec, table: any): string | null {
+  const dates = entity.fields.filter((f) => (f.type === "date" || f.type === "datetime") && table[f.field]);
+  const skip = /due|expir|birth|valid|next|start|end|close|deleted|created|updated|joining|last/i;
+  const pick = dates.find((f) => /^(entry|transaction|invoice|bill|payment|expense|trip|quotation|issue|txn|record|service|attendance)?date$/i.test(f.field)) || dates.find((f) => !skip.test(f.field));
+  return pick ? pick.field : null;
+}
+
 export async function fetchPage(entity: EntitySpec, opts: ListOpts = {}): Promise<ListResult> {
   const table: any = entity.table;
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 2000);
@@ -693,11 +704,16 @@ export async function fetchPage(entity: EntitySpec, opts: ListOpts = {}): Promis
 
   const whereExpr = conds.length ? and(...conds) : undefined;
 
+  // default order (no sort, or the plain "newest id first"): newest DATE on top — imported
+  // records were not created in date order, so id alone put 2025 rows above 2026 ones
+  const dateField = isDefaultOrder(opts) ? recordDateField(entity, table) : null;
   const sortField = opts.sort && table[opts.sort] ? table[opts.sort] : table.id;
-  const orderExpr = opts.dir === "asc" ? asc(sortField) : desc(sortField);
+  const orderExpr: any[] = dateField
+    ? [sql`${table[dateField]} desc nulls last`, desc(table.id)]
+    : [opts.dir === "asc" ? asc(sortField) : desc(sortField)];
 
   const [rows, totalRow] = await Promise.all([
-    db.select().from(table).where(whereExpr).orderBy(orderExpr).limit(limit).offset(offset),
+    db.select().from(table).where(whereExpr).orderBy(...orderExpr).limit(limit).offset(offset),
     db.select({ n: sql<number>`count(*)::int` }).from(table).where(whereExpr),
   ]);
 
