@@ -103,16 +103,16 @@ const TONE: Record<string, string> = { good: "text-[#166534]", bad: "text-[#B91C
 /** Key figures in one card, split by thin dividers (not a row of separate boxes). */
 export function KpiStrip({ items }: { items: Kpi[] }) {
   return (
-    <div className="bg-white border border-[#E3E8EF] rounded-xl grid grid-cols-2 md:flex md:divide-x divide-[#EEF1F5] overflow-hidden">
+    <div className="bg-white border border-[#E3E8EF] rounded-xl grid grid-cols-2 md:flex md:flex-wrap md:divide-x divide-[#EEF1F5] overflow-hidden">
       {items.map((k, i) => {
         const body = (
           <>
-            <div className="text-[11.5px] text-[#6B7280] truncate">{k.label}</div>
-            <div className={cx("text-[19px] font-semibold tabular-nums leading-tight mt-0.5 truncate", k.tone ? TONE[k.tone] : "text-[#111827]")}>{k.value}</div>
-            {k.sub && <div className="text-[11px] text-[#9CA3AF] truncate mt-0.5">{k.sub}</div>}
+            <div className="text-[11.5px] text-[#6B7280] leading-snug">{k.label}</div>
+            <div className={cx("text-[19px] font-semibold tabular-nums leading-tight mt-0.5 whitespace-nowrap", k.tone ? TONE[k.tone] : "text-[#111827]")}>{k.value}</div>
+            {k.sub && <div className="text-[11px] text-[#9CA3AF] leading-snug mt-0.5">{k.sub}</div>}
           </>
         );
-        const cls = cx("flex-1 min-w-0 px-4 py-3 text-left", i % 2 === 1 && "border-l border-[#EEF1F5] md:border-l-0", i > 1 && "border-t border-[#EEF1F5] md:border-t-0");
+        const cls = cx("flex-1 px-4 py-3 text-left", i % 2 === 1 && "border-l border-[#EEF1F5] md:border-l-0", i > 1 && "border-t border-[#EEF1F5] md:border-t-0");
         return k.onClick ? (
           <button key={i} onClick={k.onClick} className={cx(cls, "hover:bg-[#F8FAFC]")}>{body}</button>
         ) : (

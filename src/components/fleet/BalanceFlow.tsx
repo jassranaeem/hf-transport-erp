@@ -108,10 +108,10 @@ export default function BalanceFlow({
   };
 
   // one strip: Opening + In − Out = Now (the operators show once there is room for them)
-  const cell = "px-4 py-3 min-w-0";
-  const sym = "hidden xl:flex items-center justify-center w-6 text-base font-semibold text-[#9CA3AF]";
-  const label = "text-[11.5px] text-[#6B7280] truncate";
-  const num = "text-[17px] font-semibold tabular-nums leading-tight mt-0.5 truncate";
+  const cell = "px-3.5 py-3";
+  const sym = "hidden @4xl:flex items-center justify-center w-6 text-base font-semibold text-[#9CA3AF]";
+  const label = "text-[11.5px] text-[#6B7280] leading-snug";
+  const num = "text-[17px] font-semibold tabular-nums leading-tight mt-0.5 whitespace-nowrap";
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -168,35 +168,37 @@ export default function BalanceFlow({
         )}
       </div>
 
-      <div className="rounded-xl border border-[#E3E8EF] bg-white grid grid-cols-2 xl:flex xl:items-stretch overflow-hidden">
-        <div className={`${cell} xl:flex-1 bg-[#F8FAFC]`}>
+      <div className="@container">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white grid grid-cols-2 @4xl:flex @4xl:items-stretch overflow-hidden">
+        <div className={`${cell} @4xl:flex-1 bg-[#F8FAFC]`}>
           <div className={`${label} flex items-center gap-1`}>
-            <span className="truncate">{openingLabel}</span>
+            <span>{openingLabel}</span>
             <button onClick={startEdit} title="Set / change the opening balance" className="ml-auto shrink-0 text-[#9CA3AF] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
           </div>
           <div className={`${num} text-[#111827]`}>{fmt(balance.opening)}</div>
           {isDay ? (
             <div className="text-[11px] text-[#9CA3AF] leading-snug">= closing of {dmy(shiftDay(period.from, -1))} · پچھلے دن کا بقایا</div>
           ) : period.key !== "all" && balance.openingBalance ? (
-            <div className="text-[11px] text-[#9CA3AF] truncate">incl. opening {fmt(balance.openingBalance)}</div>
+            <div className="text-[11px] text-[#9CA3AF] leading-snug">incl. opening {fmt(balance.openingBalance)}</div>
           ) : null}
         </div>
         <div className={sym}>+</div>
-        <div className={`${cell} xl:flex-1 border-l border-[#EEF1F5] xl:border-l-0`}>
+        <div className={`${cell} @4xl:flex-1 border-l border-[#EEF1F5] @4xl:border-l-0`}>
           <div className={label}>{truck ? "Received · آیا" : "We gave · دیا (نام)"}</div>
           <div className={`${num} text-[#166534]`}>{fmt(inAmt)}</div>
         </div>
         <div className={sym}>−</div>
-        <div className={`${cell} xl:flex-1 border-t xl:border-t-0 border-[#EEF1F5]`}>
+        <div className={`${cell} @4xl:flex-1 border-t @4xl:border-t-0 border-[#EEF1F5]`}>
           <div className={label}>{truck ? "Paid / spent · خرچ" : "We received · ملا (جمع)"}</div>
           <div className={`${num} text-[#B91C1C]`}>{fmt(outAmt)}</div>
         </div>
         <div className={sym}>=</div>
-        <div className={`${cell} xl:flex-1 border-t border-l xl:border-t-0 border-[#EEF1F5] ${closing < 0 ? "bg-[#FEF2F2]" : "bg-[#EAF0F8]"}`}>
+        <div className={`${cell} @4xl:flex-1 border-t border-l @4xl:border-t-0 border-[#EEF1F5] ${closing < 0 ? "bg-[#FEF2F2]" : "bg-[#EAF0F8]"}`}>
           <div className={`${label} font-medium`}>{closingLabel}</div>
-          <div className={`text-[19px] font-bold tabular-nums leading-tight mt-0.5 truncate ${closing < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`}>{truck ? fmt(closing) : fmt(Math.abs(closing))}</div>
+          <div className={`text-[19px] font-bold tabular-nums leading-tight mt-0.5 whitespace-nowrap ${closing < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`}>{truck ? fmt(closing) : fmt(Math.abs(closing))}</div>
           {isDay && <div className="text-[11px] text-[#6B7280] leading-snug">= opening of {dmy(shiftDay(period.from, 1))} · اگلے دن کا ابتدائی</div>}
         </div>
+      </div>
       </div>
 
       <div className="text-[12px] text-[#6B7280]" dir="auto">
