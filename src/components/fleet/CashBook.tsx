@@ -23,7 +23,13 @@ const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString(
 const today = () => new Date().toISOString().slice(0, 10);
 
 const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
-interface LinkOptions { trucks: { id: number; registration: string }[]; parties: { id: number; name: string }[] }
+interface LinkOptions {
+  trucks: { id: number; registration: string }[];
+  parties: { id: number; name: string }[];
+  loading?: boolean; // the truck / party list is being fetched
+  error?: string; // why it could not be (shown, with a Try again)
+  reload?: () => void;
+}
 
 export default function CashBook({
   showFeedback,
@@ -38,7 +44,7 @@ export default function CashBook({
   useEffect(() => {
     if (focusDate) setDate(focusDate);
   }, [focusDate]);
-  const [linkOptions, setLinkOptions] = useState<LinkOptions>({ trucks: [], parties: [] });
+  const [links, setLinks] = useState<LinkOptions>({ trucks: [], parties: [], loading: true });
   const [data, setData] = useState<any>(null);
   const [countVersion, setCountVersion] = useState(0); // re-read the count when the day's entries change
   const [newestFirst, toggleNewest] = useNewestFirst();
@@ -66,8 +72,27 @@ export default function CashBook({
   }, [date, showFeedback]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    enterpriseFetch("/api/cash-book/link-options").then(setLinkOptions).catch(() => {});
+    loadLinks();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the trucks and parties to pick from — asked for again if the server was asleep or the request failed
+  // (it used to be asked once, and a failure left the list empty with no word of why)
+  const loadLinks = useCallback(async () => {
+    setLinks((l) => ({ ...l, loading: true, error: undefined }));
+    let err = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await enterpriseFetch("/api/cash-book/link-options");
+        setLinks({ trucks: r.trucks || [], parties: r.parties || [] });
+        return;
+      } catch (e: any) {
+        err = e?.message || "Could not load the list";
+        if (attempt < 2) await new Promise((res) => setTimeout(res, 3000));
+      }
+    }
+    setLinks((l) => ({ ...l, loading: false, error: err }));
   }, []);
+  const linkOptions: LinkOptions = { ...links, reload: loadLinks };
 
   const add = async () => {
     if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
@@ -497,9 +522,17 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         {value.linkType === "truck" && (
           <label className={`${lbl} col-span-2`}>Which truck · کونسا ٹرک
             <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className={inp}>
-              <option value="">— choose —</option>
+              <option value="">{linkOptions.loading ? "Loading the trucks…" : linkOptions.trucks.length ? "— choose —" : "— no trucks —"}</option>
               {linkOptions.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration}</option>)}
             </select>
+            {linkOptions.error ? (
+              <span className="text-[11.5px] font-normal text-[#B91C1C]" dir="auto">
+                The truck list could not be loaded: {linkOptions.error}{" "}
+                <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+              </span>
+            ) : !linkOptions.loading && linkOptions.trucks.length === 0 ? (
+              <span className="text-[11.5px] font-normal text-[#92400E]" dir="auto">No trucks are saved yet — add them in Fleet → Vehicles · ابھی کوئی ٹرک محفوظ نہیں</span>
+            ) : null}
           </label>
         )}
         {truckId && (
@@ -524,9 +557,15 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         {value.linkType === "party" && (
           <label className={`${lbl} col-span-2`}>Which party · کونسی پارٹی
             <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className={inp}>
-              <option value="">— choose —</option>
+              <option value="">{linkOptions.loading ? "Loading the parties…" : linkOptions.parties.length ? "— choose —" : "— no parties —"}</option>
               {linkOptions.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {linkOptions.error && (
+              <span className="text-[11.5px] font-normal text-[#B91C1C]" dir="auto">
+                The party list could not be loaded: {linkOptions.error}{" "}
+                <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+              </span>
+            )}
           </label>
         )}
       </div>
