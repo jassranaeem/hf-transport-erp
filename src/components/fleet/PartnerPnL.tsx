@@ -41,6 +41,8 @@ const EVENT_TYPES = [
   { kind: "debt", label: "Old debt (qarz) · پرانا قرضہ" },
   { kind: "repayment", label: "Debt paid back · قرضہ واپسی" },
   { kind: "payout", label: "Share paid out in cash · حصہ ادا" },
+  { kind: "jama", label: "Shakhsi jama · شخصی جمع (his own money put in)" },
+  { kind: "qarzdari", label: "Shakhsi qarzdari · شخصی قرضداری (his personal debt)" },
 ];
 const LEFT_OUT_WHY: Record<string, string> = {
   carry: "Carried from the previous page · پچھلے صفحے سے منتقل",
@@ -641,7 +643,7 @@ function Side({ title, role, s, onOpen }: { title: string; role: string; s: any;
         )}
       </div>
       <div className={`text-sm font-bold mt-1 ${bad ? "text-[#B91C1C]" : good ? "text-[#047857]" : ""}`} dir="auto">
-        {bad ? `Owes ${PKR(-s.net)} · قرضدار ہے` : good ? `${PKR(s.net)} is his in the pool · جمع ہے` : "Clear · حساب برابر"}
+        {bad ? `Owes ${PKR(-s.net)} · قرضدار ہے` : good ? `${PKR(s.net)} is his${s.jama || s.qarzdari ? "" : " in the pool"} · جمع ہے` : "Clear · حساب برابر"}
       </div>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-2 text-[11px] tabular-nums text-[#4B5563]">
         <span>Share of profit · منافع کا حصہ</span><span className="text-right">{PKR(s.share)}</span>
@@ -649,6 +651,8 @@ function Side({ title, role, s, onOpen }: { title: string; role: string; s: any;
         {s.paidOut ? (<><span>Paid out · ادا</span><span className="text-right">{minus(s.paidOut)}</span></>) : null}
         {s.debt > 0 ? (<><span>Old debt left · باقی قرضہ</span><span className="text-right">{minus(s.debt)}</span></>) : null}
         {s.debt < 0 ? (<><span>Paid back · جمع کرایا</span><span className="text-right">+{PKR(-s.debt)}</span></>) : null}
+        {s.jama ? (<><span>Shakhsi jama · شخصی جمع</span><span className="text-right">+{PKR(s.jama)}</span></>) : null}
+        {s.qarzdari ? (<><span>Shakhsi qarzdari · شخصی قرضداری</span><span className="text-right">{minus(s.qarzdari)}</span></>) : null}
       </div>
     </div>
   );
@@ -728,6 +732,13 @@ function AddEntry({ d, busy, act }: { d: any; busy: boolean; act: (fn: () => Pro
           <input id="ppl-match" type="checkbox" checked={matchOther} onChange={(e) => setMatchOther(e.target.checked)} />
           Write the same amount for {whoNow === "partner" ? d.hfkName : d.partnerName} too, so the 50/50 stays level (paper method) · برابر رقم دوسرے شریک کے نام بھی
         </label>
+      )}
+      {(kind === "jama" || kind === "qarzdari") && (
+        <div className="rounded-lg border border-[#E3E8EF] bg-[#F7F9FD] px-3 py-2 text-[11px] text-[#374151]" dir="auto">
+          {kind === "jama"
+            ? "His own money kept with the company: it adds to what he is owed, but is not part of the joint profit pool and is not split 50/50. · اس کا اپنا جمع کرایا ہوا پیسہ — مشترکہ منافع میں شامل نہیں، برابر تقسیم نہیں ہوتا۔"
+            : "A personal debt of his: it is taken off what he is owed, outside the joint pool and not split 50/50. · اس کا ذاتی قرضہ — اس کی رقم میں سے کٹتا ہے، مشترکہ جمع میں شامل نہیں۔"}
+        </div>
       )}
       {whoNow === "partner" && (kind === "shakhsi" || kind === "payout") && partnerOwes && (
         <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]" dir="auto">
@@ -1506,6 +1517,10 @@ function NewPartnership({
     openingDate: today(),
     openingDebt: "",
     debtNote: "",
+    openingJama: "",
+    jamaNote: "",
+    openingQarzdari: "",
+    qarzdariNote: "",
   });
   const [truckQ, setTruckQ] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1670,6 +1685,22 @@ function NewPartnership({
         <label className="flex flex-col gap-1">
           <span className="text-[#6B7280]">What the debt is for · قرضہ کس بات کا</span>
           <input id="ppl-new-debt-note" value={f.debtNote} onChange={set("debtNote")} dir="auto" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">7. Partner's Shakhsi jama · شخصی جمع</span>
+          <input id="ppl-new-jama" inputMode="numeric" value={f.openingJama} onChange={set("openingJama")} placeholder="his own money kept — empty if none" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">What the jama is for · جمع کس بات کی</span>
+          <input id="ppl-new-jama-note" value={f.jamaNote} onChange={set("jamaNote")} dir="auto" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">8. Partner's Shakhsi qarzdari · شخصی قرضداری</span>
+          <input id="ppl-new-qarzdari" inputMode="numeric" value={f.openingQarzdari} onChange={set("openingQarzdari")} placeholder="his personal debt — empty if none" className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[#6B7280]">What the qarzdari is for · قرضداری کس بات کی</span>
+          <input id="ppl-new-qarzdari-note" value={f.qarzdariNote} onChange={set("qarzdariNote")} dir="auto" className={inp} />
         </label>
       </div>
 

@@ -289,10 +289,10 @@ export async function rebuildBooks(reason = "manual", userId?: number) {
             case
               when lbl like 'Opening joint pool%' then '3900'
               when lbl like 'Safi bachat%' or lbl like 'Loss split%' then '5900'
-              when lbl like 'Old qarz%' and method = 'Adjustment' then '3900'
+              when (lbl like 'Old qarz%' or lbl like 'Shakhsi jama%' or lbl like 'Shakhsi qarzdari%') and method = 'Adjustment' then '3900'
               else ${methodCode(sql`e.method`)} end via
           from e
-          where (role = 'partner' and not (method = 'Adjustment' and lbl like 'Shakhsi%'))
+          where (role = 'partner' and not (method = 'Adjustment' and lbl like 'Shakhsi bardasht%'))
              or (role = 'hfk' and lbl like 'Shakhsi%' and coalesce(method, '') <> 'Adjustment'))
         select 'pship:' || id, entry_date, left(descr, 300), acc, d, c, veh, tl, party_id, null::int from k
         union all

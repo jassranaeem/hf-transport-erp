@@ -15,6 +15,9 @@
  *     stays level.
  *  5. A partner's old قرضہ is debited to him; his profit share (credit) then cuts it down on
  *     its own, and anything he takes for home adds to it.
+ *  6. شخصی جمع (a person's own money put in) is credited to him, شخصی قرضداری (a personal debt)
+ *     debited to him — either side. Both stay outside the joint pool: they raise / lower what that
+ *     person is owed (net) and show on their own lines.
  *
  * Every rupee lives in the two party ledgers (tagged refNo "PSHIP-<id>"), so each side's money
  * is in its own ledger and shows up in Party Ledgers / Dues like any other entry.
@@ -29,7 +32,7 @@
  *   GET    /api/partnership/:id               open cycle + balances + history + closed cycles
  *   POST   /api/partnership/:id/close         close the open cycle
  *   POST   /api/partnership/:id/undo-close    reopen the last closed cycle
- *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout
+ *   POST   /api/partnership/:id/event         shakhsi | debt | repayment | payout | jama | qarzdari
  *   PUT    /api/partnership/:id                edit: partner / HFK ledger (entries move along), %, note
  *   DELETE /api/partnership/:id                delete the partnership and its party-ledger entries
  *   GET    /api/partnership/deleted            deleted partnerships (restore / set up again)
@@ -61,6 +64,9 @@ export const KIND = {
   debt: "Old qarz · پرانا قرضہ",
   repayment: "Qarz returned · قرضہ واپسی",
   payout: "Share paid out · حصہ ادا",
+  // a person's own money kept with the company (jama) / owed to it (qarzdari): apart from the joint pool and from old qarz
+  jama: "Shakhsi jama · شخصی جمع",
+  qarzdari: "Shakhsi qarzdari · شخصی قرضداری",
 } as const;
 type Kind = keyof typeof KIND;
 const kindOf = (label: string | null): Kind | null => (Object.entries(KIND).find(([, v]) => v === label)?.[0] as Kind) || null;
@@ -324,7 +330,7 @@ async function balances(accountId: number, partnerPartyId: number, hfkPartyId: n
     .groupBy(schema.partyLedgerEntries.partyId, schema.partyLedgerEntries.sectionLabel);
 
   const side = (partyId: number) => {
-    const s = { share: 0, withdrawn: 0, paidOut: 0, debt: 0 };
+    const s = { share: 0, withdrawn: 0, paidOut: 0, debt: 0, jama: 0, qarzdari: 0 };
     for (const r of rows.filter((x) => x.partyId === partyId)) {
       const k = kindOf(r.label);
       const d = Number(r.debit || 0);
@@ -333,10 +339,12 @@ async function balances(accountId: number, partnerPartyId: number, hfkPartyId: n
       else if (k === "shakhsi") s.withdrawn += d - c;
       else if (k === "payout") s.paidOut += d - c;
       else if (k === "debt" || k === "repayment") s.debt += d - c;
+      else if (k === "jama") s.jama += c - d;
+      else if (k === "qarzdari") s.qarzdari += d - c;
     }
-    // what is left for this side in the joint pool, and after his old qarz is set against it
+    // what is left for this side in the joint pool, and after his old qarz and personal jama / qarzdari are set against it
     const inPool = s.share - s.withdrawn - s.paidOut;
-    return { ...s, inPool, net: inPool - s.debt };
+    return { ...s, inPool, net: inPool - s.debt + s.jama - s.qarzdari };
   };
   const partner = side(partnerPartyId);
   const hfk = side(hfkPartyId);
@@ -750,6 +758,15 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     if (debt > 0) {
       await post({ accountId: acc.id, partyId: partnerPartyId, kind: "debt", date: dayOf(b.debtDate || b.openingDate), description: `${led.registration}: old qarz · پرانا قرضہ${b.debtNote ? ` — ${String(b.debtNote).trim()}` : ""}`, debit: debt, userId: req.user?.id });
     }
+    // the partner's own money already with the company (jama) / owed to it (qarzdari) on the day this starts
+    const jama = whole(b.openingJama);
+    if (jama > 0) {
+      await post({ accountId: acc.id, partyId: partnerPartyId, kind: "jama", date: dayOf(b.openingDate), description: `${led.registration}: Shakhsi jama · شخصی جمع${b.jamaNote ? ` — ${String(b.jamaNote).trim()}` : ""}`, credit: jama, userId: req.user?.id });
+    }
+    const qarzdari = whole(b.openingQarzdari);
+    if (qarzdari > 0) {
+      await post({ accountId: acc.id, partyId: partnerPartyId, kind: "qarzdari", date: dayOf(b.openingDate), description: `${led.registration}: Shakhsi qarzdari · شخصی قرضداری${b.qarzdariNote ? ` — ${String(b.qarzdariNote).trim()}` : ""}`, debit: qarzdari, userId: req.user?.id });
+    }
     await recomputeParty(partnerPartyId);
     await recomputeParty(hfkPartyId);
     await audit(req, "CREATE", "partnership_accounts", acc.id, null, acc);
@@ -966,7 +983,7 @@ router.post("/:id/event", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const a = full.acc;
     const b = req.body || {};
     const kind = String(b.kind) as Kind;
-    if (!["shakhsi", "debt", "repayment", "payout"].includes(kind)) return res.status(400).json({ error: "Unknown entry type" });
+    if (!["shakhsi", "debt", "repayment", "payout", "jama", "qarzdari"].includes(kind)) return res.status(400).json({ error: "Unknown entry type" });
     const amount = whole(b.amount);
     if (amount <= 0) return res.status(400).json({ error: "Enter the amount · رقم لکھیں" });
     const who = b.who === "hfk" ? "hfk" : "partner";
@@ -981,8 +998,9 @@ router.post("/:id/event", requireRole(WRITE), async (req: AuthRequest, res: Resp
     const before = await balances(a.id, a.partnerPartyId, a.hfkPartyId);
     const e = await post({
       accountId: a.id, partyId, kind, date, method, userId: req.user?.id, description: desc,
-      debit: kind === "repayment" ? 0 : amount,
-      credit: kind === "repayment" ? amount : 0,
+      // repayment and jama are written on the credit side (jama); the rest on the debit side (naam)
+      debit: kind === "repayment" || kind === "jama" ? 0 : amount,
+      credit: kind === "repayment" || kind === "jama" ? amount : 0,
     });
     let matched = null;
     // paper method: when one partner takes money for home, the same amount is written for the other
