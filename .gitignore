@@ -18,3 +18,8 @@ backups/*
 uploads/**
 !uploads/.gitkeep
 !uploads/*/.gitkeep
+
+# audit output (contains descriptions from the books) - never commit
+audit-out/
+audit-live/
+audit-local/

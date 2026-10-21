@@ -6,6 +6,7 @@ import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { createBalancedJournalEntry } from "./finance_engine.ts";
 import { Resource, Action } from "../src/lib/rbac.ts";
+import { gpsDistanceKm } from "./gps_distance.ts";
 
 const router = Router();
 
@@ -1208,11 +1209,17 @@ router.get("/integrity-audit", requireAuth, async (req: AuthRequest, res: Respon
         const rate = num(f.rate) || (f.total && litres ? f.total / litres : 0);
         const flags: Flag[] = [];
 
-        // leg = distance from this fill's odometer to the NEXT fill's odometer
+        // leg = distance from this fill's odometer to the NEXT fill's odometer.
+        // odometer is a required field on every fuel row, so a truck no one has entered a real
+        // reading for stores 0 there — that's "unknown", not "hasn't moved". Treating it as real
+        // made every such fill look like "0 km since the last one, so all of it is over-draw".
         const next = i + 1 < fills.length ? fills[i + 1] : null;
         let legKm: number | null = null;
-        if (next && next.odometer != null && f.odometer != null) {
+        if (next && next.odometer && f.odometer) {
           legKm = next.odometer - f.odometer;
+        } else if (next) {
+          // no usable odometer — fall back to the truck's own GPS trail between the two fills
+          legKm = await gpsDistanceKm(vehicleId, new Date(f.date), new Date(next.date));
         }
         let legKmpl: number | null = null;
         let expectedLitresForLeg: number | null = null;
@@ -1242,8 +1249,8 @@ router.get("/integrity-audit", requireAuth, async (req: AuthRequest, res: Respon
           flags.push({ code: "TANK_OVER_CAPACITY", severity: "High", detail: `Single fill of ${litres} L exceeds the ${TANK} L tank capacity.` });
         }
 
-        // odometer rollback / implausible jump vs previous fill
-        if (prev && prev.odometer != null && f.odometer != null) {
+        // odometer rollback / implausible jump vs previous fill (same "0 = unknown" guard as above)
+        if (prev && prev.odometer && f.odometer) {
           const d = f.odometer - prev.odometer;
           const hrs = Math.abs(new Date(f.date).getTime() - new Date(prev.date).getTime()) / HOUR;
           if (d < 0) {

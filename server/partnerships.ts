@@ -2,6 +2,11 @@
  * Partnerships — company-owned trucks run by outside partners on a
  * lease-to-own basis.
  *
+ * How HFK does it: a driver takes a truck at an agreed price (an advance if he pays one, else 0).
+ * The truck stays 100% the company's. He runs it on the routes; after each trip the earnings
+ * less the trip's expenses go to pay off the price — each such payment is one "qist". When the
+ * price is fully paid he becomes a 50% partner in the truck (Partner P&L takes over from there).
+ *
  *   agreedPrice        the full price the partner will pay for the truck
  *   advancePaid        upfront down-payment
  *   openingBalance     agreedPrice - advancePaid
@@ -11,6 +16,11 @@
  * earnings (gross - expenses) flow to the company against the balance
  * (companySharePercent, default 100 = all net to the company) until the
  * balance reaches zero, then the agreement auto-settles.
+ *
+ * Instalments (qist): the agreement can carry a plan — an amount, on a day of each month, from a
+ * date. The balance comes down two ways: an instalment the partner pays (cash / bank), and a
+ * settlement of the truck's earnings. Both count against the plan, oldest instalment first, so
+ * the schedule shows which instalments are paid, part-paid, overdue or still to come.
  *
  * The settlement engine also cross-checks the partner's declared revenue
  * against (a) GPS trip history × route rates and (b) fuel drawn × expected
@@ -23,6 +33,9 @@ import { db, schema } from "../src/db/index.ts";
 import { and, eq, gte, lte, desc, asc, sql, ne, inArray } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
+import { selfApi } from "./self_api.ts";
+import { resolveManualLedgerId } from "./cash_book.ts";
+import { recalcLeaseBalance as recalcBalance } from "./lease_sync.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -31,6 +44,51 @@ const READ_ROLES = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Op
 const WRITE_ROLES = ["Super Admin", "Admin", "Finance Manager", "Operations Manager"];
 
 const EXPECTED_KMPL = 3.5; // loaded long-haul truck
+const rowsOf = async (q: any) => ((await db.execute(q)) as any).rows as any[];
+const isDay = (v: any) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+
+export interface ScheduleRow { no: number; due: string; amount: number; paid: number; status: "paid" | "part" | "overdue" | "upcoming" }
+
+/**
+ * The instalment plan as a schedule. What has been recovered so far (instalments paid + truck
+ * earnings settled) fills the instalments oldest first.
+ */
+export function installmentSchedule(a: { opening: number; recovered: number; amount: number | null; day: number | null; start: string | null }, today: string) {
+  if (!a.amount || a.amount <= 0 || !a.start || a.opening <= 0) return null;
+  const [sy, sm, sd] = a.start.split("-").map(Number);
+  const day = a.day && a.day >= 1 && a.day <= 31 ? a.day : sd;
+  const dueOf = (i: number) => {
+    // the first due date is the plan's day on or after the start date
+    const m0 = sm - 1 + (day < sd ? 1 : 0) + i;
+    const last = new Date(Date.UTC(sy, m0 + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(sy, m0, Math.min(day, last))).toISOString().slice(0, 10);
+  };
+  const n = Math.min(600, Math.ceil(a.opening / a.amount));
+  let left = Math.max(0, a.recovered);
+  const rows: ScheduleRow[] = [];
+  for (let i = 0; i < n; i++) {
+    const amount = Math.min(a.amount, a.opening - i * a.amount);
+    const paid = Math.min(amount, left);
+    left -= paid;
+    const due = dueOf(i);
+    rows.push({ no: i + 1, due, amount, paid, status: paid >= amount ? "paid" : due <= today ? (paid > 0 ? "part" : "overdue") : paid > 0 ? "part" : "upcoming" });
+  }
+  const dueByToday = rows.filter((r) => r.due <= today).reduce((t, r) => t + r.amount, 0);
+  const next = rows.find((r) => r.paid < r.amount) || null;
+  return {
+    rows,
+    count: n,
+    paidCount: rows.filter((r) => r.status === "paid").length,
+    overdueCount: rows.filter((r) => r.due <= today && r.paid < r.amount).length,
+    dueByToday,
+    overdue: Math.max(0, dueByToday - a.recovered), // behind the plan by this much
+    ahead: Math.max(0, a.recovered - dueByToday), // ahead of the plan by this much
+    next: next ? { no: next.no, due: next.due, amount: next.amount - next.paid } : null,
+    lastDue: rows.length ? rows[rows.length - 1].due : null,
+  };
+}
+
 const num = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
 async function audit(req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", table: string, id: number, oldV: any, newV: any) {
@@ -228,6 +286,39 @@ router.put("/partners/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, r
 // ===========================================================================
 // AGREEMENTS
 // ===========================================================================
+// ===========================================================================
+// THE TRUCK LEDGER OF A LEASE: what he still has to pay is its opening balance (a minus: the truck
+// starts owing that much), the cash he pays comes into it as "Qist received", and money he takes for
+// home goes out of it — so the minus of the khata is what is still to pay.
+// ===========================================================================
+
+/** The truck's khata the lease screen reads; if the truck has none and `create`, the app's own is made. */
+async function agreementKhata(ag: { id: number; vehicleId: number }, userId: number | undefined, create: boolean): Promise<number | null> {
+  const [k] = await rowsOf(sql`select l.id from truck_ledgers l where not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${ag.id})
+    order by (l.partner_agreement_id = ${ag.id}) desc nulls last, (select count(*) from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted) desc limit 1`);
+  let id: number | null = k?.id ?? null;
+  if (!id && create) id = await resolveManualLedgerId(ag.vehicleId, userId);
+  if (id && create) await db.execute(sql`update truck_ledgers set partner_agreement_id = ${ag.id} where id = ${id} and partner_agreement_id is null`);
+  return id;
+}
+
+/** What the khata holds as its opening balance (its "Opening" row): + money it held, − what it owed. */
+async function khataOpeningOf(ledgerId: number): Promise<number> {
+  const [r] = await rowsOf(sql`select coalesce(sum(received - paid), 0)::bigint v from truck_ledger_entries where ledger_id = ${ledgerId} and not is_deleted and method = 'Opening'`);
+  return Number(r?.v || 0);
+}
+
+/** Write the truck ledger's opening balance as "still to pay at the start" (a minus). Returns what it was and is. */
+async function putKhataOpening(req: AuthRequest, ag: { id: number; vehicleId: number; openingBalance: number; startDay: string }) {
+  const ledgerId = await agreementKhata(ag, req.user?.id, true);
+  if (!ledgerId) throw new Error("The truck has no khata");
+  const target = -Math.max(0, ag.openingBalance);
+  const previous = await khataOpeningOf(ledgerId);
+  if (previous === target) return { ledgerId, previous, now: target, changed: false };
+  await selfApi(req, "PUT", `/api/ledgers/${ledgerId}/opening`, { amount: target, date: ag.startDay });
+  return { ledgerId, previous, now: target, changed: true };
+}
+
 router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res: Response) => {
   try {
     const list = await db
@@ -241,8 +332,18 @@ router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res
       .leftJoin(schema.vehicles, eq(schema.partnerAgreements.vehicleId, schema.vehicles.id))
       .where(eq(schema.partnerAgreements.isDeleted, false))
       .orderBy(desc(schema.partnerAgreements.createdAt));
+    const today = pkToday();
     res.json(
-      list.map((r) => ({
+      list.map((r) => {
+        const sch = installmentSchedule(
+          { opening: r.agreement.openingBalance, recovered: r.agreement.openingBalance - r.agreement.currentBalance, amount: r.agreement.installmentAmount, day: r.agreement.installmentDay, start: r.agreement.installmentStart },
+          today,
+        );
+        return { ...row(r), plan: sch ? { count: sch.count, paidCount: sch.paidCount, overdueCount: sch.overdueCount, overdue: sch.overdue, ahead: sch.ahead, next: sch.next, lastDue: sch.lastDue } : null };
+      }),
+    );
+    function row(r: (typeof list)[number]) {
+      return {
         ...r.agreement,
         partnerName: r.partnerName,
         vehicleNumber: r.vehicleNumber,
@@ -251,8 +352,8 @@ router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res
           r.agreement.openingBalance > 0
             ? Math.round(((r.agreement.openingBalance - r.agreement.currentBalance) / r.agreement.openingBalance) * 100)
             : 100,
-      }))
-    );
+      };
+    }
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -286,6 +387,9 @@ router.post("/agreements", requireRole(WRITE_ROLES), async (req: AuthRequest, re
         companySharePercent: companySharePercent != null ? Math.round(num(companySharePercent)) : 100,
         expenseRatioBenchmark: expenseRatioBenchmark != null ? Math.round(num(expenseRatioBenchmark)) : 55,
         startDate: startDate ? new Date(startDate) : new Date(),
+        installmentAmount: Math.round(num(req.body.installmentAmount)) || null,
+        installmentDay: req.body.installmentDay ? Math.min(31, Math.max(1, Math.round(num(req.body.installmentDay)))) : null,
+        installmentStart: isDay(req.body.installmentStart) ? req.body.installmentStart : null,
         status: opening <= 0 ? "Settled" : "Active",
         notes,
         createdBy: req.user?.id,
@@ -299,7 +403,35 @@ router.post("/agreements", requireRole(WRITE_ROLES), async (req: AuthRequest, re
       .where(eq(schema.vehicles.id, Number(vehicleId)));
 
     await audit(req, "CREATE", "partner_agreements", created.id, null, created);
-    res.status(201).json(created);
+    // what he still has to pay is the truck ledger's opening balance (a new agreement: nothing is overwritten
+    // unless the khata already has an opening balance of another amount — then it is left for the user to decide)
+    let khataOpening: any = null;
+    try {
+      const lid = await agreementKhata(created, req.user?.id, true);
+      if (lid && opening > 0) {
+        if ((await khataOpeningOf(lid)) === 0) {
+          khataOpening = await putKhataOpening(req, { id: created.id, vehicleId: created.vehicleId, openingBalance: opening, startDay: created.startDate.toISOString().slice(0, 10) });
+        } else khataOpening = { ledgerId: lid, changed: false, note: "The truck ledger already has an opening balance — left as it is" };
+      }
+    } catch (e: any) {
+      khataOpening = { error: e.message };
+    }
+    res.status(201).json({ ...created, khataOpening });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Put "still to pay at the start" into the truck ledger as its opening balance (for an agreement made before this). */
+router.post("/agreements/:id/khata-opening", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (req.body?.confirm !== true) return res.status(400).json({ error: "Confirm to change the truck ledger's opening balance · تصدیق کریں" });
+    const [ag] = await rowsOf(sql`select id, vehicle_id, opening_balance, to_char(start_date, 'YYYY-MM-DD') start_day from partner_agreements where id = ${id} and not is_deleted`);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const r = await putKhataOpening(req, { id: ag.id, vehicleId: ag.vehicle_id, openingBalance: Number(ag.opening_balance), startDay: ag.start_day });
+    await audit(req, "UPDATE", "partner_agreements", id, { khataOpening: r.previous }, { khataOpening: r.now, ledgerId: r.ledgerId });
+    res.json({ ok: true, ...r });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -328,6 +460,51 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
       .orderBy(asc(schema.partnerSettlements.createdAt));
 
+    const installments = await rowsOf(sql`select i.id, to_char(i.pay_date, 'YYYY-MM-DD') pay_day, i.amount, i.method, i.reference, i.notes, i.cash_transaction_id, u.name by_name
+      from partner_installments i left join users u on u.id = i.created_by where i.agreement_id = ${id} and not i.is_deleted order by i.pay_date, i.id`);
+    const totalInstallments = installments.reduce((s, x) => s + Number(x.amount), 0);
+    const schedule = installmentSchedule(
+      { opening: ag.agreement.openingBalance, recovered: ag.agreement.openingBalance - ag.agreement.currentBalance, amount: ag.agreement.installmentAmount, day: ag.agreement.installmentDay, start: ag.agreement.installmentStart },
+      pkToday(),
+    );
+
+    // every payment toward the truck's price, oldest first, with what is left after each (the qist list)
+    const pay: Array<{ key: string; kind: "trip" | "cash"; date: string | null; label: string; detail: string; amount: number; settlementId?: number; installmentId?: number; flags?: string[] }> = [
+      ...settlements.map((x) => ({
+        key: `s${x.id}`,
+        kind: "trip" as const,
+        date: (x.periodTo || x.createdAt)?.toISOString?.().slice(0, 10) ?? null,
+        label: `Trip earnings · ${x.settlementNumber}`,
+        detail: `earned ${x.grossRevenue.toLocaleString()} − expenses ${x.totalExpenses.toLocaleString()} = ${x.netEarnings.toLocaleString()}${x.notes ? ` · ${x.notes}` : ""}`,
+        amount: x.amountToCompany,
+        settlementId: x.id,
+        flags: (x.flags as string[]) || [],
+      })),
+      ...installments.map((x) => ({
+        key: `i${x.id}`,
+        kind: "cash" as const,
+        date: x.pay_day as string,
+        label: `Paid by him · ${x.method}`,
+        detail: [x.reference, x.notes, x.cash_transaction_id ? "in Cash Book" : ""].filter(Boolean).join(" · "),
+        amount: Number(x.amount),
+        installmentId: x.id as number,
+      })),
+    ].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.key.localeCompare(b.key));
+    let left = ag.agreement.openingBalance;
+    const payments = pay.map((x, i) => {
+      left = Math.max(0, left - x.amount);
+      return { no: i + 1, ...x, balanceAfter: left };
+    });
+
+    // the truck's khata(s), and whether the 50/50 partnership has begun
+    const khatas = await rowsOf(sql`select l.id, l.registration, l.partner_agreement_id, (select count(*) from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted)::int n
+      from truck_ledgers l where not l.is_deleted and (l.vehicle_id = ${ag.agreement.vehicleId} or l.partner_agreement_id = ${id})
+      order by (l.partner_agreement_id = ${id}) desc nulls last, n desc`);
+    const [pship] = khatas.length
+      ? await rowsOf(sql`select pa.id, pa.truck_ledger_id, pa.partner_percent, p.name partner_name from partnership_accounts pa left join parties p on p.id = pa.partner_party_id
+          where not pa.is_deleted and pa.truck_ledger_id = any(${`{${khatas.map((k) => k.id).join(",")}}`}::int[]) limit 1`)
+      : [];
+
     const totalDeclaredRevenue = settlements.reduce((s, x) => s + x.grossRevenue, 0);
     const totalExpenses = settlements.reduce((s, x) => s + x.totalExpenses, 0);
     const totalNet = settlements.reduce((s, x) => s + x.netEarnings, 0);
@@ -349,7 +526,23 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
         vehicleNumber: ag.vehicleNumber,
       },
       settlements,
+      installments,
+      schedule,
+      payments,
+      khataLedgerId: khatas[0]?.id ?? null,
+      // the truck ledger: its opening balance should be minus what was to pay at the start
+      khata: khatas[0]
+        ? await (async () => {
+            const [k] = await rowsOf(sql`select coalesce(sum(received - paid), 0)::bigint balance,
+                coalesce(sum(received - paid) filter (where method = 'Opening'), 0)::bigint opening
+              from truck_ledger_entries where ledger_id = ${khatas[0].id} and not is_deleted`);
+            return { ledgerId: khatas[0].id as number, registration: khatas[0].registration as string, opening: Number(k.opening), balance: Number(k.balance), target: -ag.agreement.openingBalance };
+          })()
+        : null,
+      partnership: pship ? { id: pship.id, ledgerId: pship.truck_ledger_id, percent: pship.partner_percent, partnerName: pship.partner_name } : null,
       totals: {
+        installments: installments.length,
+        totalInstallments,
         settlements: settlements.length,
         totalDeclaredRevenue,
         totalExpenses,
@@ -359,7 +552,7 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
         outstanding: ag.agreement.currentBalance,
         recoveryPercent:
           ag.agreement.openingBalance > 0
-            ? Math.round((totalRecovered / ag.agreement.openingBalance) * 100)
+            ? Math.round(((ag.agreement.openingBalance - ag.agreement.currentBalance) / ag.agreement.openingBalance) * 100)
             : 100,
         totalExpectedRevenue,
         estimatedPartnerSkimToDate: totalSkim,
@@ -367,6 +560,37 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
           totalExpectedRevenue > 0 ? Math.round(((totalExpectedRevenue - totalDeclaredRevenue) / totalExpectedRevenue) * 100) : 0,
       },
     });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * What the truck's khata says between two dates — kiraya received, and each kind of expense —
+ * to fill in a trip's earnings. Default: from the day after the last settlement to today.
+ */
+router.get("/agreements/:id/khata-period", requireRole(READ_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const [last] = await rowsOf(sql`select to_char(max(period_to) + interval '1 day', 'YYYY-MM-DD') d from partner_settlements where agreement_id = ${id} and not is_deleted`);
+    const from = isDay(req.query.from) ? (req.query.from as string) : last?.d || ag.startDate.toISOString().slice(0, 10);
+    const to = isDay(req.query.to) ? (req.query.to as string) : pkToday();
+    const lines = await rowsOf(sql`select coalesce(nullif(e.category, ''), 'Other') category, sum(e.received)::bigint received, sum(e.paid)::bigint paid, count(*)::int n
+      from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+      where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
+        and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp
+        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital', 'Shakhsi', 'Qist')
+      group by 1 order by 1`);
+    // money he took for home (شخصی برداشت): not a truck cost, but it did not pay for the truck either
+    const [home] = await rowsOf(sql`select coalesce(sum(e.paid - e.received), 0)::bigint v
+      from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+      where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
+        and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp and e.category = 'Shakhsi'`);
+    const revenue = lines.reduce((s, l) => s + Number(l.received), 0);
+    const expenses = lines.filter((l) => Number(l.paid) > 0).map((l) => ({ type: l.category, amount: Number(l.paid) }));
+    res.json({ from, to, revenue, expenses, totalExpenses: expenses.reduce((s, e) => s + e.amount, 0), takenForHome: Math.max(0, Number(home?.v || 0)), entries: lines.reduce((s, l) => s + l.n, 0), byCategory: lines });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -436,7 +660,9 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
       ? expenses.map((e: any) => ({ type: e.type || "Misc", amount: Math.round(num(e.amount)), note: e.note || "" }))
       : [];
     const totalExpenses = expList.reduce((s, e) => s + e.amount, 0);
-    const netEarnings = gross - totalExpenses;
+    // money he took for home did not pay for the truck: it comes off the net (and is not counted as an expense)
+    const takenForHome = Math.max(0, Math.round(num(req.body.takenForHome)));
+    const netEarnings = gross - totalExpenses - takenForHome;
 
     const share = ag.companySharePercent ?? 100;
     // all (or share%) of the POSITIVE net goes to the company, capped at the balance
@@ -472,6 +698,7 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
         grossRevenue: gross,
         declaredExpenses: expList,
         totalExpenses,
+        takenForHome,
         netEarnings,
         amountToCompany,
         partnerRetained,
@@ -514,6 +741,329 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
       agreement: { id, balanceBefore, balanceAfter, status: newStatus },
       analysis,
     });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===========================================================================
+// EDIT / DELETE — partners, agreements, and taking back a settlement
+// ===========================================================================
+router.delete("/partners/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partners).where(eq(schema.partners.id, id)).limit(1);
+    if (!old) return res.status(404).json({ error: "Partner not found" });
+    const [agr] = await db
+      .select({ id: schema.partnerAgreements.id })
+      .from(schema.partnerAgreements)
+      .where(and(eq(schema.partnerAgreements.partnerId, id), eq(schema.partnerAgreements.isDeleted, false)))
+      .limit(1);
+    if (agr) return res.status(400).json({ error: "This partner has an agreement — delete the agreement first · پہلے معاہدہ حذف کریں" });
+    await db.update(schema.partners).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partners.id, id));
+    await audit(req, "DELETE", "partners", id, old, null);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Edit an agreement's terms; the outstanding balance is worked out again from its settlements. */
+router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const n = (v: any, d: number) => (v === undefined || v === "" ? d : Math.max(0, Math.round(Number(v) || 0)));
+    const agreedPrice = n(b.agreedPrice, old.agreedPrice);
+    const advancePaid = n(b.advancePaid, old.advancePaid);
+    // the opening balance is re-worked only when the price or the advance is changed (an imported
+    // agreement keeps the balance it came with when only its plan or notes are edited)
+    const moneyChanged = agreedPrice !== old.agreedPrice || advancePaid !== old.advancePaid;
+    const openingBalance = moneyChanged ? Math.max(0, agreedPrice - advancePaid) : old.openingBalance;
+    const [rec] = await rowsOf(sql`select
+        (select coalesce(sum(amount_to_company), 0) from partner_settlements where agreement_id = ${id} and not is_deleted)::int
+      + (select coalesce(sum(amount), 0) from partner_installments where agreement_id = ${id} and not is_deleted)::int s`);
+    const currentBalance = Math.max(0, openingBalance - Number(rec?.s || 0));
+    const plan = {
+      installmentAmount: b.installmentAmount === undefined ? old.installmentAmount : b.installmentAmount === "" || b.installmentAmount == null ? null : Math.max(0, Math.round(Number(b.installmentAmount) || 0)) || null,
+      installmentDay: b.installmentDay === undefined ? old.installmentDay : b.installmentDay === "" || b.installmentDay == null ? null : Math.min(31, Math.max(1, Math.round(Number(b.installmentDay) || 1))),
+      installmentStart: b.installmentStart === undefined ? old.installmentStart : isDay(b.installmentStart) ? b.installmentStart : null,
+    };
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({
+        partnerId: b.partnerId ? Number(b.partnerId) : old.partnerId,
+        vehicleId: b.vehicleId ? Number(b.vehicleId) : old.vehicleId,
+        agreedPrice,
+        advancePaid,
+        openingBalance,
+        currentBalance,
+        companySharePercent: Math.min(100, n(b.companySharePercent, old.companySharePercent)),
+        expenseRatioBenchmark: Math.min(100, n(b.expenseRatioBenchmark, old.expenseRatioBenchmark)),
+        startDate: b.startDate ? new Date(b.startDate) : old.startDate,
+        ...plan,
+        // the document was authorised for the old terms: a changed term needs it authorised again
+        ...(old.authorizedAt &&
+        (moneyChanged ||
+          (b.partnerId && Number(b.partnerId) !== old.partnerId) ||
+          (b.vehicleId && Number(b.vehicleId) !== old.vehicleId) ||
+          Math.min(100, n(b.companySharePercent, old.companySharePercent)) !== old.companySharePercent)
+          ? { authorizedAt: null, authorizedByName: null, authorizedByTitle: null, authorizedByUser: null }
+          : {}),
+        notes: b.notes !== undefined ? String(b.notes || "") || null : old.notes,
+        status: currentBalance <= 0 ? "Settled" : old.status === "Settled" ? "Active" : old.status,
+        closeDate: currentBalance <= 0 ? old.closeDate || new Date() : null,
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    await audit(req, "UPDATE", "partner_agreements", id, old, updated);
+    // the truck ledger's opening balance followed the old price − advance: it follows the new one
+    if (moneyChanged) {
+      try {
+        const lid = await agreementKhata(updated, req.user?.id, false);
+        if (lid && (await khataOpeningOf(lid)) === -old.openingBalance && old.openingBalance !== 0)
+          await putKhataOpening(req, { id, vehicleId: updated.vehicleId, openingBalance: openingBalance, startDay: updated.startDate.toISOString().slice(0, 10) });
+      } catch {
+        /* the agreement is saved; the truck ledger can be set from the lease screen */
+      }
+    }
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===========================================================================
+// THE AGREEMENT AS A DOCUMENT — to print, sign and authorise
+// ===========================================================================
+const AUTHORISERS = ["Super Admin", "Admin"];
+
+/** Everything the printed agreement shows: both parties, the truck, the money, the extra details. */
+router.get("/agreements/:id/document", requireRole(READ_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [a] = await rowsOf(sql`select a.*, to_char(a.start_date, 'YYYY-MM-DD') start_day, to_char(a.authorized_at + interval '5 hours', 'YYYY-MM-DD') authorized_day,
+        p.name partner_name, p.cnic partner_cnic, p.phone partner_phone, p.address partner_address,
+        v.vehicle_number, v.registration_number, v.engine_number, v.chassis_number, v.truck_brand, v.model, v.year, v.vehicle_type
+      from partner_agreements a left join partners p on p.id = a.partner_id left join vehicles v on v.id = a.vehicle_id
+      where a.id = ${id} and not a.is_deleted`);
+    if (!a) return res.status(404).json({ error: "Agreement not found" });
+    const [company] = await rowsOf(sql`select legal_name, trade_name, tagline, address_lines, city, country, phones, email, ntn, strn, logo_data_url from company_profile where id = 1`).catch(() => [null]);
+    res.json({ agreement: a, company: company || {}, canAuthorise: AUTHORISERS.includes(req.user?.role || ""), me: { name: req.user?.name || "", role: req.user?.role || "" } });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The document's extra details. Changing them after authorisation needs it authorised again. */
+router.put("/agreements/:id/document", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const str = (v: any, max = 200) => (v == null ? "" : String(v).trim().slice(0, max));
+    const person = (v: any) => ({ name: str(v?.name), cnic: str(v?.cnic, 20), phone: str(v?.phone, 30), address: str(v?.address) });
+    const doc = {
+      fatherName: str(b.fatherName),
+      place: str(b.place) || "Quetta",
+      partnershipPercent: Math.min(99, Math.max(1, Math.round(Number(b.partnershipPercent) || 50))),
+      witnesses: (Array.isArray(b.witnesses) ? b.witnesses : []).slice(0, 2).map(person),
+      guarantor: person(b.guarantor),
+      signatoryName: str(b.signatoryName),
+      signatoryTitle: str(b.signatoryTitle),
+      clauses: Array.isArray(b.clauses) ? b.clauses.slice(0, 30).map((c: any) => ({ en: str(c?.en, 1500), ur: str(c?.ur, 1500) })).filter((c: any) => c.en || c.ur) : null,
+    };
+    const changed = JSON.stringify(doc) !== JSON.stringify(old.doc || {});
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({
+        doc,
+        ...(changed && old.authorizedAt ? { authorizedAt: null, authorizedByName: null, authorizedByTitle: null, authorizedByUser: null } : {}),
+        updatedAt: new Date(),
+        updatedBy: req.user?.id,
+      })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    // the driver's own details live on the partner
+    if (b.partner && typeof b.partner === "object") {
+      await db
+        .update(schema.partners)
+        .set({ cnic: str(b.partner.cnic, 20) || null, phone: str(b.partner.phone, 30) || null, address: str(b.partner.address) || null, updatedAt: new Date() })
+        .where(eq(schema.partners.id, old.partnerId));
+    }
+    await audit(req, "UPDATE", "partner_agreements", id, { doc: old.doc }, { doc });
+    res.json({ ok: true, authorisationCleared: changed && !!old.authorizedAt, agreement: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Authorise the agreement for the company — only an administrator. */
+router.post("/agreements/:id/authorize", requireRole(AUTHORISERS), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const name = String(req.body?.name || req.user?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Write the name of the person authorising · نام لکھیں" });
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({ authorizedByName: name.slice(0, 120), authorizedByTitle: String(req.body?.title || "").trim().slice(0, 120) || null, authorizedAt: new Date(), authorizedByUser: req.user?.id, updatedAt: new Date() })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    await audit(req, "UPDATE", "partner_agreements", id, { authorizedAt: old.authorizedAt }, { authorizedAt: updated.authorizedAt, authorizedByName: updated.authorizedByName, authorizedByTitle: updated.authorizedByTitle });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/agreements/:id/unauthorize", requireRole(AUTHORISERS), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [updated] = await db
+      .update(schema.partnerAgreements)
+      .set({ authorizedByName: null, authorizedByTitle: null, authorizedAt: null, authorizedByUser: null, updatedAt: new Date() })
+      .where(eq(schema.partnerAgreements.id, id))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Agreement not found" });
+    await audit(req, "UPDATE", "partner_agreements", id, { authorised: true }, { authorised: false });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * An instalment received from the partner. Cash can also be written into the Daily Cash Book
+ * (money In) in the same step, so the drawer's balance is right.
+ */
+router.post("/agreements/:id/installments", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [ag] = await db
+      .select({ a: schema.partnerAgreements, partnerName: schema.partners.name, vehicleNumber: schema.vehicles.vehicleNumber })
+      .from(schema.partnerAgreements)
+      .leftJoin(schema.partners, eq(schema.partnerAgreements.partnerId, schema.partners.id))
+      .leftJoin(schema.vehicles, eq(schema.partnerAgreements.vehicleId, schema.vehicles.id))
+      .where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false)))
+      .limit(1);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const b = req.body || {};
+    const amount = Math.round(Number(b.amount) || 0);
+    if (!(amount > 0)) return res.status(400).json({ error: "Enter the amount received · رقم درج کریں" });
+    if (amount > ag.a.currentBalance)
+      return res.status(400).json({ error: `Only PKR ${ag.a.currentBalance.toLocaleString()} is still owed on this truck · باقی رقم سے زیادہ نہیں ہو سکتا` });
+    const day = isDay(b.date) ? b.date : pkToday();
+    const method = ["Cash", "Online", "Cheque", "Bank Transfer"].includes(b.method) ? b.method : "Cash";
+    let cashId: number | null = null;
+    let khataEntryId: number | null = null;
+    const what = `Qist / instalment — ${ag.vehicleNumber || ""} (${ag.a.agreementNumber})${b.reference ? ` · ${b.reference}` : ""}`;
+    if (b.toCashBook && method === "Cash") {
+      // the Cash Book entry is linked to the truck: its khata row ("Qist received") comes from it, and goes with it
+      const c = await selfApi(req, "POST", "/api/cash-book", {
+        entryDate: `${day}T12:00:00`,
+        direction: "In",
+        amount,
+        person: ag.partnerName || "Partner",
+        description: what,
+        linkType: "truck",
+        linkTargetId: ag.a.vehicleId,
+        linkCategory: "Qist",
+      });
+      cashId = c?.id ?? null;
+      khataEntryId = c?.derivedEntryId ?? null;
+    } else {
+      // not through the Cash Book (bank, cheque, or cash left out of it): written straight into the truck ledger
+      const lid = await agreementKhata({ id, vehicleId: ag.a.vehicleId }, req.user?.id, true);
+      if (lid) {
+        const e = await selfApi(req, "POST", `/api/ledgers/${lid}/entries`, { entryDate: day, description: `${what} · ${method}`, received: amount, category: "Qist", method });
+        khataEntryId = e?.id ?? null;
+      }
+    }
+    // a Qist typed in the Cash Book already made its instalment (lease_sync.ts): add this screen's details to it
+    const [madeByCash] = cashId ? await rowsOf(sql`select id from partner_installments where cash_transaction_id = ${cashId} and agreement_id = ${id} and not is_deleted limit 1`) : [];
+    const [inst] = madeByCash
+      ? await rowsOf(sql`update partner_installments set method = ${method}, reference = ${b.reference || null}, notes = ${b.notes || null} where id = ${madeByCash.id} returning *`)
+      : await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, khata_entry_id, created_by)
+      values (${id}, ${`${day}T12:00:00`}::timestamp, ${amount}, ${method}, ${b.reference || null}, ${b.notes || null}, ${cashId}, ${khataEntryId}, ${req.user?.id ?? null}) returning *`);
+    const bal = await recalcBalance(id, req.user?.id);
+    await audit(req, "CREATE", "partner_installments", inst.id, null, inst);
+    res.status(201).json({ installment: inst, currentBalance: bal?.currentBalance, cashBookEntry: cashId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Take an instalment back (typed by mistake). Its Cash Book entry, if it made one, goes too. */
+router.delete("/agreements/:id/installments/:iid", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [inst] = await rowsOf(sql`update partner_installments set is_deleted = true where id = ${parseInt(req.params.iid)} and agreement_id = ${id} and not is_deleted returning *`);
+    if (!inst) return res.status(404).json({ error: "Instalment not found" });
+    let cashNote: string | null = null;
+    if (inst.cash_transaction_id) {
+      // the Cash Book entry takes its truck-ledger row with it
+      await selfApi(req, "DELETE", `/api/cash-book/${inst.cash_transaction_id}`).catch((e: any) => {
+        cashNote = `Its Cash Book entry could not be removed (${e.message}) — delete it there`;
+      });
+    } else if (inst.khata_entry_id) {
+      await selfApi(req, "DELETE", `/api/ledgers/entries/${inst.khata_entry_id}`).catch((e: any) => {
+        cashNote = `Its truck-ledger row could not be removed (${e.message}) — delete it there`;
+      });
+    }
+    const bal = await recalcBalance(id, req.user?.id);
+    await audit(req, "DELETE", "partner_installments", inst.id, inst, null);
+    res.json({ ok: true, currentBalance: bal?.currentBalance, warning: cashNote });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Delete an agreement made by mistake, with its settlements. */
+router.delete("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [old] = await db.select().from(schema.partnerAgreements).where(and(eq(schema.partnerAgreements.id, id), eq(schema.partnerAgreements.isDeleted, false))).limit(1);
+    if (!old) return res.status(404).json({ error: "Agreement not found" });
+    const gone = await db
+      .update(schema.partnerSettlements)
+      .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
+      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
+      .returning({ id: schema.partnerSettlements.id });
+    await db.update(schema.partnerAgreements).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partnerAgreements.id, id));
+    // a khata pointing at this agreement no longer does
+    await db.update(schema.truckLedgers).set({ partnerAgreementId: null }).where(eq(schema.truckLedgers.partnerAgreementId, id));
+    await audit(req, "DELETE", "partner_agreements", id, { ...old, settlementsRemoved: gone.length }, null);
+    res.json({ ok: true, settlementsRemoved: gone.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Take back the latest settlement of an agreement (balances run in order, so only the last). */
+router.delete("/agreements/:id/settlements/:sid", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const sid = parseInt(req.params.sid);
+    const [last] = await db
+      .select()
+      .from(schema.partnerSettlements)
+      .where(and(eq(schema.partnerSettlements.agreementId, id), eq(schema.partnerSettlements.isDeleted, false)))
+      .orderBy(desc(schema.partnerSettlements.id))
+      .limit(1);
+    if (!last) return res.status(404).json({ error: "No settlement to take back" });
+    if (last.id !== sid) return res.status(400).json({ error: "Only the latest settlement can be taken back — take back the newer ones first · پہلے بعد والی واپس لیں" });
+    await db.update(schema.partnerSettlements).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.partnerSettlements.id, sid));
+    // worked out again from everything that is left (an instalment may have been paid since)
+    const bal = await recalcBalance(id, req.user?.id);
+    await audit(req, "DELETE", "partner_settlements", sid, last, null);
+    res.json({ ok: true, currentBalance: bal?.currentBalance ?? last.balanceBefore });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

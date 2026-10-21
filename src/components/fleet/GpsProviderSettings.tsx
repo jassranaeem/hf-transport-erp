@@ -83,21 +83,21 @@ export default function GpsProviderSettings({
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <h2 className="text-base font-bold flex items-center gap-2">
-        <Satellite className="w-4 h-4" /> GPS Provider <span className="text-[#9CA3AF] font-normal text-sm">· جی پی ایس فراہم کنندہ</span>
+      <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+        <Satellite className="w-5 h-5 text-[#24539B]" /> GPS Provider <span className="text-[#9CA3AF] font-normal text-sm">· جی پی ایس فراہم کنندہ</span>
       </h2>
 
-      <div className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] p-3 text-[12px] text-[#1E40AF] space-y-1">
+      <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] p-3 text-[12px] text-[#173563] space-y-1">
         <div className="font-semibold flex items-center gap-1.5"><Info className="w-3.5 h-3.5" /> Eagle Tracker (GPSWOX)</div>
         <p>Panel URL is <b>https://eagletracker.com.pk</b>. Use the same email + password you sign in with there. After Save + "Sync now", positions/speed/history flow into the Live GPS Map automatically (refreshed every minute).</p>
         <p className="text-[11px]">Trucks are matched to devices by number (e.g. device "Les-1384" → vehicle "LES 1384"). If a device doesn't match, rename it in the Eagle panel or link it under Live Map → devices.</p>
       </div>
 
-      <div className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-3">
+      <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
           Enable live pull
-          <span className={`text-[10px] rounded-full px-2 py-0.5 ${cfg.enabled ? "bg-[#DCFCE7] text-[#15803D]" : "bg-[#F3F4F6] text-[#6B7280]"}`}>
+          <span className={`text-[10px] rounded-full px-2 py-0.5 ${cfg.enabled ? "bg-[#E6ECF6] text-[#1E4480]" : "bg-[#F3F4F6] text-[#6B7280]"}`}>
             {cfg.enabled ? "ON" : "OFF"}
           </span>
         </label>
@@ -116,17 +116,17 @@ export default function GpsProviderSettings({
           </label>
         </div>
         <div className="flex items-center gap-2 pt-1">
-          <button onClick={save} disabled={saving} className="flex items-center gap-1.5 bg-[#16A34A] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-60">
+          <button onClick={save} disabled={saving} className="flex items-center gap-1.5 bg-[#24539B] text-white text-sm font-semibold rounded-lg px-4 py-2 disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
           </button>
-          <button onClick={syncNow} disabled={syncing} className="flex items-center gap-1.5 border border-[#16A34A] text-[#15803D] text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60">
+          <button onClick={syncNow} disabled={syncing} className="flex items-center gap-1.5 border border-[#24539B] text-[#1E4480] text-sm font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60">
             {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Sync now
           </button>
         </div>
       </div>
 
       {lastSync && (
-        <div className={`rounded-xl border p-3 text-[12px] ${lastSync.error ? "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]"}`}>
+        <div className={`rounded-xl border p-3 text-[12px] ${lastSync.error ? "border-[#FFC2C3] bg-[#FFF1F1] text-[#B00005]" : "border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480]"}`}>
           <div className="font-semibold flex items-center gap-1.5">
             {lastSync.error ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle className="w-3.5 h-3.5" />}
             Last sync · {new Date(lastSync.at).toLocaleString()}
