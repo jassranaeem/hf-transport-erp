@@ -35,6 +35,7 @@ import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { selfApi } from "./self_api.ts";
 import { resolveManualLedgerId } from "./cash_book.ts";
+import { recalcLeaseBalance as recalcBalance } from "./lease_sync.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -88,26 +89,6 @@ export function installmentSchedule(a: { opening: number; recovered: number; amo
   };
 }
 
-/** Balance = opening − truck earnings settled − instalments paid. Also opens / closes the agreement. */
-async function recalcBalance(id: number, userId?: number) {
-  const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
-  if (!ag) return null;
-  const [t] = await rowsOf(sql`select
-      (select coalesce(sum(amount_to_company), 0) from partner_settlements where agreement_id = ${id} and not is_deleted)::int settled,
-      (select coalesce(sum(amount), 0) from partner_installments where agreement_id = ${id} and not is_deleted)::int paid`);
-  const currentBalance = Math.max(0, ag.openingBalance - Number(t.settled) - Number(t.paid));
-  await db
-    .update(schema.partnerAgreements)
-    .set({
-      currentBalance,
-      status: currentBalance <= 0 ? "Settled" : ag.status === "Settled" ? "Active" : ag.status,
-      closeDate: currentBalance <= 0 ? ag.closeDate || new Date() : null,
-      updatedAt: new Date(),
-      updatedBy: userId,
-    })
-    .where(eq(schema.partnerAgreements.id, id));
-  return { currentBalance, settled: Number(t.settled), paid: Number(t.paid) };
-}
 const num = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
 async function audit(req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", table: string, id: number, oldV: any, newV: any) {
@@ -1005,7 +986,11 @@ router.post("/agreements/:id/installments", requireRole(WRITE_ROLES), async (req
         khataEntryId = e?.id ?? null;
       }
     }
-    const [inst] = await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, khata_entry_id, created_by)
+    // a Qist typed in the Cash Book already made its instalment (lease_sync.ts): add this screen's details to it
+    const [madeByCash] = cashId ? await rowsOf(sql`select id from partner_installments where cash_transaction_id = ${cashId} and agreement_id = ${id} and not is_deleted limit 1`) : [];
+    const [inst] = madeByCash
+      ? await rowsOf(sql`update partner_installments set method = ${method}, reference = ${b.reference || null}, notes = ${b.notes || null} where id = ${madeByCash.id} returning *`)
+      : await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, khata_entry_id, created_by)
       values (${id}, ${`${day}T12:00:00`}::timestamp, ${amount}, ${method}, ${b.reference || null}, ${b.notes || null}, ${cashId}, ${khataEntryId}, ${req.user?.id ?? null}) returning *`);
     const bal = await recalcBalance(id, req.user?.id);
     await audit(req, "CREATE", "partner_installments", inst.id, null, inst);

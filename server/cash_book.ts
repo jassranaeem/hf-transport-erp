@@ -50,6 +50,7 @@ import { recompute as recomputeTruckLedger, sharedWithPartner } from "./ledgers.
 import { recompute as recomputePartyLedger } from "./parties.ts";
 import { partnershipLedgerForPlate } from "./partnership.ts";
 import { ALL_TRUCK_CATS, SHAKHSI } from "../src/lib/khataKinds.ts";
+import { syncLeaseFromCash, leaseRoomForCash, alsoInFor } from "./lease_sync.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -465,11 +466,13 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
       truckCategory: e.linkType === "truck" && e.derivedEntryId ? truckCatById.get(e.derivedEntryId) ?? null : null,
       resolvedPartyId: e.linkType === "party" && e.derivedEntryId ? partyIdById.get(e.derivedEntryId) ?? null : null,
     }));
+    // where else a truck / party entry shows: the lease the truck is being paid off on, the partnership it is in
+    const alsoIn = await alsoInFor(entriesWithTargets as any).catch(() => new Map<number, string[]>());
 
     res.json({
       date: dateStr,
       openingBalance,
-      entries: entriesWithTargets,
+      entries: entriesWithTargets.map((e) => ({ ...e, alsoIn: alsoIn.get(e.id) || [] })),
       totalIn,
       totalOut,
       closingBalance: openingBalance + totalIn - totalOut,
@@ -496,6 +499,16 @@ export async function createCashEntry(body: Record<string, unknown>, userId: num
   return fresh;
 }
 
+/** A "Qist received" is money in, and on a lease truck it cannot be more than he still owes. Returns the problem, or null. */
+async function qistCheck(category: string | null, direction: string, vehicleId: number, amount: number, cashId: number | null): Promise<string | null> {
+  if (category !== "Qist") return null;
+  if (direction !== "In") return "A Qist received is money coming in · قسط وصول رقم آنے کی ہے";
+  const lease = await leaseRoomForCash(vehicleId, cashId);
+  if (lease && amount > lease.room)
+    return `Only PKR ${lease.room.toLocaleString()} is still owed on this truck's lease (${lease.number}) · باقی رقم سے زیادہ نہیں ہو سکتی`;
+  return null;
+}
+
 router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     const patch = coerce(req.body || {});
@@ -507,6 +520,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     }
     const linkCategory = patch.linkType === "truck" ? truckCategory(req.body?.linkCategory) : null;
     if (linkCategory === SHAKHSI && (await findManualLedger(patch.linkTargetId as number)).shared) return res.status(400).json({ error: SHARED_SHAKHSI });
+    const qistProblem = await qistCheck(linkCategory, patch.direction as string, patch.linkTargetId as number, Number(patch.amount), null);
+    if (qistProblem) return res.status(400).json({ error: qistProblem });
     if (
       patch.direction === "Out" &&
       (await holdForApproval(req, res, {
@@ -523,7 +538,9 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     await syncLink(row, req.user?.id, linkCategory);
     const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
     await audit(req, "CREATE", row.id, null, fresh);
-    res.json(fresh);
+    // a Qist received on a lease truck also counts toward what he still has to pay
+    const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
+    res.json({ ...fresh, lease });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }
@@ -542,6 +559,18 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
     }
     const linkCategory = effectiveLinkType === "truck" ? truckCategory(req.body?.linkCategory) : null;
     if (linkCategory === SHAKHSI && (await findManualLedger(effectiveTargetId as number)).shared) return res.status(400).json({ error: SHARED_SHAKHSI });
+    {
+      const dir = ("direction" in patch ? patch.direction : old.direction) as string;
+      const amt = "amount" in patch ? Number(patch.amount) : old.amount;
+      // the category the truck row will have: the one chosen, else the one it already has
+      let cat = linkCategory;
+      if (!cat && effectiveLinkType === "truck" && old.derivedEntryId) {
+        const [e] = ((await db.execute(sql`select category from truck_ledger_entries where id = ${old.derivedEntryId}`)) as any).rows as any[];
+        cat = e?.category || null;
+      }
+      const qistProblem = await qistCheck(cat, dir, effectiveTargetId as number, amt, id);
+      if (qistProblem) return res.status(400).json({ error: qistProblem });
+    }
 
     const linkChanged =
       ("linkType" in patch && patch.linkType !== old.linkType) || ("linkTargetId" in patch && patch.linkTargetId !== old.linkTargetId);
@@ -558,7 +587,8 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
     await syncLink(row, req.user?.id, linkCategory);
     const [fresh] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     await audit(req, "UPDATE", id, old, fresh);
-    res.json(fresh);
+    const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
+    res.json({ ...fresh, lease });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }
@@ -923,6 +953,7 @@ router.delete("/day", requireRole(WRITE), async (req: AuthRequest, res: Response
     for (const old of rows) {
       await db.update(T).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(T.id, old.id));
       await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+      await syncLeaseFromCash({ ...old, isDeleted: true }, req.user?.id).catch(() => null);
       await audit(req, "DELETE", old.id, old, null);
     }
     res.json({ message: `${rows.length} entries of ${dateStr} deleted`, deleted: rows.length });
@@ -941,6 +972,7 @@ router.delete("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Re
       .set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id })
       .where(eq(T.id, id));
     await unlinkDerivedEntry(old.linkType, old.derivedEntryId);
+    await syncLeaseFromCash({ ...old, isDeleted: true }, req.user?.id).catch(() => null); // the lease instalment it made goes too
     await audit(req, "DELETE", id, old, null);
     res.json({ message: "Entry deleted" });
   } catch (e: any) {

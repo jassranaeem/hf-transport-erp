@@ -42,9 +42,12 @@ export default function KhataKindPicker({
   onChange,
   isPartnership,
   onOpenPartnerPnl,
+  showQist,
 }: {
   value: KhataKindValue;
   onChange: (v: KhataKindValue) => void;
+  /** "Qist received" only makes sense on a truck being paid off on a lease */
+  showQist?: boolean;
   /** a truck shared with a partner: money for home goes through Partner P&L, from that person's share */
   isPartnership?: boolean;
   onOpenPartnerPnl?: () => void;
@@ -58,7 +61,7 @@ export default function KhataKindPicker({
       <div className={lbl}>
         What is this money? · یہ رقم کیا ہے؟
         <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="What is this money?">
-          {KHATA_KINDS.map((k) => {
+          {KHATA_KINDS.filter((k) => k.kind !== "qist" || showQist || value.kind === "qist").map((k) => {
             const on = value.kind === k.kind;
             const blocked = k.kind === "shakhsi" && isPartnership;
             return (

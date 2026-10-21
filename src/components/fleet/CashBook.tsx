@@ -99,7 +99,7 @@ export default function CashBook({
     setSaving(true);
     try {
       const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...form, entryDate: `${date}T${new Date().toTimeString().slice(0, 8)}` }) });
-      showFeedback("success", r?.pendingApproval ? r.message : "Saved · محفوظ ہو گیا");
+      showFeedback("success", r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا");
       setForm(BLANK);
       setShowAdd(false);
       load();
@@ -118,8 +118,8 @@ export default function CashBook({
     if (!editId) return;
     setSaving(true);
     try {
-      await enterpriseFetch(`/api/cash-book/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
-      showFeedback("success", "Updated · درست ہو گیا");
+      const r = await enterpriseFetch(`/api/cash-book/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
+      showFeedback("success", r?.lease ? `Updated · the lease ${r.lease.number} now has ${PKR(r.lease.balance)} still to pay · درست` : "Updated · درست ہو گیا");
       setEditId(null);
       load();
     } catch (e: any) {
@@ -368,6 +368,9 @@ export default function CashBook({
                       ) : r.linkType ? (
                         <div className="text-[11px] text-[#24539B]">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}</div>
                       ) : null}
+                      {r.alsoIn?.length > 0 && (
+                        <div className="text-[11px] text-[#92400E]" title="This entry also shows in these modules · یہ اندراج ان میں بھی نظر آتا ہے">also in: {r.alsoIn.join(" · ")}</div>
+                      )}
                     </td>
                     <td className="px-3 py-2 max-w-[280px] truncate text-[#374151] align-top" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
                     <td className={`px-3 py-2 text-right tabular-nums font-semibold align-top ${r.direction === "In" ? "text-[#166534]" : "text-[#B91C1C]"}`}>{PKR(r.amount)}</td>
@@ -549,6 +552,7 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
                 value={kv}
                 onChange={(n) => onChange({ ...value, linkCategory: n.category, direction: n.direction })}
                 isPartnership={!!truck?.sharedWithPartner}
+                showQist={truck?.lease?.status === "Active"}
                 onOpenPartnerPnl={onNavigate && truck?.ledgerId ? () => onNavigate("finance", "partner_pnl", { ledgerId: truck.ledgerId }) : undefined}
               />
             </div>
@@ -605,6 +609,17 @@ function TruckSnapshot({ t, onOpen }: { t: any; onOpen?: () => void }) {
         </div>
       </div>
       <div className="p-3 space-y-2.5">
+        {t.lease && t.lease.status === "Active" && (
+          <div className="rounded-lg border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-[12px] text-[#92400E]" dir="auto">
+            This truck is being paid off on a lease ({t.lease.number}{t.lease.partner ? ` · ${t.lease.partner}` : ""}): <b>{pkr(t.lease.balance)}</b> still to pay. Choose <b>Qist received</b> for cash he brings — it counts toward the lease and shows in Partners. Kiraya, kharcha and Shakhsi bardasht show in its truck ledger and in the lease's trip qist. ·
+            لیز پر چلنے والا ٹرک — اس کی نقد قسط «قسط وصول» چنیں، شراکت دار میں بھی نظر آئے گی
+          </div>
+        )}
+        {t.sharedWithPartner && !(t.lease && t.lease.status === "Active") && (
+          <div className="rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 py-2 text-[12px] text-[#3730A3]" dir="auto">
+            This truck has a partnership: its income and expenses written here show in <b>Partner P&amp;L</b>'s open cycle. Money taken for home is written in Partner P&amp;L itself. · اس ٹرک کی شراکت ہے — آمدن اور خرچہ Partner P&amp;L میں نظر آئیں گے
+          </div>
+        )}
         {t.ledgerId ? (
           <KhataBuckets t={bucketTotals(t.byCategory)} />
         ) : (
