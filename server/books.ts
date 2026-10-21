@@ -109,6 +109,7 @@ const DEFAULT_RULES: Array<{ source: string; category: string; side: "in" | "out
   { source: "truck", category: "Visa", side: "any", code: "5008" },
   { source: "truck", category: "TomanFX", side: "any", code: "1070" },
   { source: "truck", category: "Capital", side: "any", code: "1500" },
+  { source: "truck", category: "Qist", side: "any", code: "1500", note: "lease instalment received — the truck's price being paid, not income" },
   { source: "truck", category: "Shakhsi", side: "any", code: "3100", note: "money taken from the truck for home (shakhsi bardasht)" },
   { source: "truck", category: "OnlineTransfer", side: "out", code: "5098", note: "paid online — purpose not written" },
   { source: "truck", category: "Other", side: "in", code: "4098" },

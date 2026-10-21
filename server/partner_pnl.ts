@@ -27,8 +27,8 @@ const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Operatio
 const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
 
 // categories that are NOT operating income / cost
-const REVENUE_EXCLUDE = new Set(["Capital", "SafiBachat", "Shakhsi"]);
-const COST_EXCLUDE = new Set(["Capital", "SafiBachat", "Shakhsi", "OnlineTransfer"]);
+const REVENUE_EXCLUDE = new Set(["Capital", "SafiBachat", "Shakhsi", "Qist"]);
+const COST_EXCLUDE = new Set(["Capital", "SafiBachat", "Shakhsi", "Qist", "OnlineTransfer"]);
 
 router.get("/vehicles", requireRole(READ), async (_req: AuthRequest, res: Response) => {
   // partnership trucks from agreements + any khata flagged isPartnership

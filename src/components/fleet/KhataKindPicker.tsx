@@ -29,6 +29,7 @@ const TONE: Record<KhataKind, string> = {
   shakhsi: "#7C3AED",
   safi: "#0F766E",
   capital: "#4338CA",
+  qist: "#B45309",
 };
 
 const EITHER_LABEL: Partial<Record<KhataKind, { Out: string; In: string }>> = {
@@ -134,7 +135,7 @@ export function KhataBuckets({
   t,
   onPick,
 }: {
-  t: { income: number; expense: number; profit: number; shakhsi: number; safi: number; capitalIn: number; capitalOut: number };
+  t: { income: number; expense: number; profit: number; shakhsi: number; safi: number; capitalIn: number; capitalOut: number; qist?: number };
   onPick?: (kind: KhataKind | "profit") => void;
 }) {
   const pkr = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n)).toLocaleString();
@@ -145,6 +146,7 @@ export function KhataBuckets({
     { key: "shakhsi", en: "Shakhsi bardasht", ur: "شخصی برداشت", v: t.shakhsi, color: TONE.shakhsi, show: true },
     { key: "safi", en: "Safi bachat", ur: "صافی بچت", v: t.safi, color: TONE.safi, show: true },
     { key: "capital", en: "Owner's money (net in)", ur: "سرمایہ", v: t.capitalIn - t.capitalOut, color: TONE.capital, show: !!(t.capitalIn || t.capitalOut) },
+    { key: "qist", en: "Qist received (lease)", ur: "قسط وصول", v: t.qist || 0, color: TONE.qist, show: !!t.qist },
   ];
   return (
     <div className="flex flex-wrap gap-px rounded-lg border border-[#E3E8EF] bg-[#E3E8EF] overflow-hidden">

@@ -2001,7 +2001,8 @@ export const partnerSettlements = pgTable("partner_settlements", {
   grossRevenue: integer("gross_revenue").notNull(), // revenue the partner declares
   declaredExpenses: jsonb("declared_expenses"), // [{ type, amount, note }]
   totalExpenses: integer("total_expenses").notNull().default(0),
-  netEarnings: integer("net_earnings").notNull(), // grossRevenue - totalExpenses
+  netEarnings: integer("net_earnings").notNull(), // grossRevenue - totalExpenses - takenForHome
+  takenForHome: integer("taken_for_home").notNull().default(0), // شخصی برداشت in the period: did not pay for the truck
   amountToCompany: integer("amount_to_company").notNull(), // applied to currentBalance
   partnerRetained: integer("partner_retained").notNull().default(0), // net kept by partner (0 while share = 100)
   balanceBefore: integer("balance_before").notNull(),

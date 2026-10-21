@@ -28,10 +28,16 @@ import { SHAKHSI } from "../src/lib/khataKinds.ts";
 const SHARED_SHAKHSI_MSG =
   "This truck is shared with a partner — record money taken for home in Partner P&L → Money taken for home, so it comes from that person's share · یہ ٹرک شراکت کا ہے، شخصی برداشت Partner P&L میں لکھیں";
 
-/** A khata a Partner P&L account reads (or one marked as a partnership truck). */
-async function sharedWithPartner(ledgerId: number): Promise<boolean> {
+/**
+ * A khata a Partner P&L account reads (or one marked as a partnership truck). A truck still being paid
+ * for by a lease partner (an active agreement) is the company's, not shared yet: his money for home is
+ * taken off what he pays toward the truck, not written in Partner P&L.
+ */
+export async function sharedWithPartner(ledgerId: number): Promise<boolean> {
   const r = ((await db.execute(sql`select (exists (select 1 from partnership_accounts where truck_ledger_id = ${ledgerId} and not is_deleted)
-      or exists (select 1 from truck_ledgers where id = ${ledgerId} and is_partnership)) s`)) as any).rows;
+      or (exists (select 1 from truck_ledgers where id = ${ledgerId} and is_partnership)
+          and not exists (select 1 from partner_agreements a join truck_ledgers l on l.partner_agreement_id = a.id
+                          where l.id = ${ledgerId} and not a.is_deleted and a.status = 'Active'))) s`)) as any).rows;
   return !!r?.[0]?.s;
 }
 

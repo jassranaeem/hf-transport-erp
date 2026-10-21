@@ -34,6 +34,7 @@ import { and, eq, gte, lte, desc, asc, sql, ne, inArray } from "drizzle-orm";
 import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { selfApi } from "./self_api.ts";
+import { resolveManualLedgerId } from "./cash_book.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -304,6 +305,39 @@ router.put("/partners/:id", requireRole(WRITE_ROLES), async (req: AuthRequest, r
 // ===========================================================================
 // AGREEMENTS
 // ===========================================================================
+// ===========================================================================
+// THE TRUCK LEDGER OF A LEASE: what he still has to pay is its opening balance (a minus: the truck
+// starts owing that much), the cash he pays comes into it as "Qist received", and money he takes for
+// home goes out of it — so the minus of the khata is what is still to pay.
+// ===========================================================================
+
+/** The truck's khata the lease screen reads; if the truck has none and `create`, the app's own is made. */
+async function agreementKhata(ag: { id: number; vehicleId: number }, userId: number | undefined, create: boolean): Promise<number | null> {
+  const [k] = await rowsOf(sql`select l.id from truck_ledgers l where not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${ag.id})
+    order by (l.partner_agreement_id = ${ag.id}) desc nulls last, (select count(*) from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted) desc limit 1`);
+  let id: number | null = k?.id ?? null;
+  if (!id && create) id = await resolveManualLedgerId(ag.vehicleId, userId);
+  if (id && create) await db.execute(sql`update truck_ledgers set partner_agreement_id = ${ag.id} where id = ${id} and partner_agreement_id is null`);
+  return id;
+}
+
+/** What the khata holds as its opening balance (its "Opening" row): + money it held, − what it owed. */
+async function khataOpeningOf(ledgerId: number): Promise<number> {
+  const [r] = await rowsOf(sql`select coalesce(sum(received - paid), 0)::bigint v from truck_ledger_entries where ledger_id = ${ledgerId} and not is_deleted and method = 'Opening'`);
+  return Number(r?.v || 0);
+}
+
+/** Write the truck ledger's opening balance as "still to pay at the start" (a minus). Returns what it was and is. */
+async function putKhataOpening(req: AuthRequest, ag: { id: number; vehicleId: number; openingBalance: number; startDay: string }) {
+  const ledgerId = await agreementKhata(ag, req.user?.id, true);
+  if (!ledgerId) throw new Error("The truck has no khata");
+  const target = -Math.max(0, ag.openingBalance);
+  const previous = await khataOpeningOf(ledgerId);
+  if (previous === target) return { ledgerId, previous, now: target, changed: false };
+  await selfApi(req, "PUT", `/api/ledgers/${ledgerId}/opening`, { amount: target, date: ag.startDay });
+  return { ledgerId, previous, now: target, changed: true };
+}
+
 router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res: Response) => {
   try {
     const list = await db
@@ -388,7 +422,35 @@ router.post("/agreements", requireRole(WRITE_ROLES), async (req: AuthRequest, re
       .where(eq(schema.vehicles.id, Number(vehicleId)));
 
     await audit(req, "CREATE", "partner_agreements", created.id, null, created);
-    res.status(201).json(created);
+    // what he still has to pay is the truck ledger's opening balance (a new agreement: nothing is overwritten
+    // unless the khata already has an opening balance of another amount — then it is left for the user to decide)
+    let khataOpening: any = null;
+    try {
+      const lid = await agreementKhata(created, req.user?.id, true);
+      if (lid && opening > 0) {
+        if ((await khataOpeningOf(lid)) === 0) {
+          khataOpening = await putKhataOpening(req, { id: created.id, vehicleId: created.vehicleId, openingBalance: opening, startDay: created.startDate.toISOString().slice(0, 10) });
+        } else khataOpening = { ledgerId: lid, changed: false, note: "The truck ledger already has an opening balance — left as it is" };
+      }
+    } catch (e: any) {
+      khataOpening = { error: e.message };
+    }
+    res.status(201).json({ ...created, khataOpening });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Put "still to pay at the start" into the truck ledger as its opening balance (for an agreement made before this). */
+router.post("/agreements/:id/khata-opening", requireRole(WRITE_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (req.body?.confirm !== true) return res.status(400).json({ error: "Confirm to change the truck ledger's opening balance · تصدیق کریں" });
+    const [ag] = await rowsOf(sql`select id, vehicle_id, opening_balance, to_char(start_date, 'YYYY-MM-DD') start_day from partner_agreements where id = ${id} and not is_deleted`);
+    if (!ag) return res.status(404).json({ error: "Agreement not found" });
+    const r = await putKhataOpening(req, { id: ag.id, vehicleId: ag.vehicle_id, openingBalance: Number(ag.opening_balance), startDay: ag.start_day });
+    await audit(req, "UPDATE", "partner_agreements", id, { khataOpening: r.previous }, { khataOpening: r.now, ledgerId: r.ledgerId });
+    res.json({ ok: true, ...r });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -487,6 +549,15 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       schedule,
       payments,
       khataLedgerId: khatas[0]?.id ?? null,
+      // the truck ledger: its opening balance should be minus what was to pay at the start
+      khata: khatas[0]
+        ? await (async () => {
+            const [k] = await rowsOf(sql`select coalesce(sum(received - paid), 0)::bigint balance,
+                coalesce(sum(received - paid) filter (where method = 'Opening'), 0)::bigint opening
+              from truck_ledger_entries where ledger_id = ${khatas[0].id} and not is_deleted`);
+            return { ledgerId: khatas[0].id as number, registration: khatas[0].registration as string, opening: Number(k.opening), balance: Number(k.balance), target: -ag.agreement.openingBalance };
+          })()
+        : null,
       partnership: pship ? { id: pship.id, ledgerId: pship.truck_ledger_id, percent: pship.partner_percent, partnerName: pship.partner_name } : null,
       totals: {
         installments: installments.length,
@@ -529,11 +600,16 @@ router.get("/agreements/:id/khata-period", requireRole(READ_ROLES), async (req: 
       from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
       where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
         and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp
-        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital', 'Shakhsi')
+        and coalesce(e.method, '') <> 'Opening' and coalesce(e.category, '') not in ('SafiBachat', 'Capital', 'Shakhsi', 'Qist')
       group by 1 order by 1`);
+    // money he took for home (شخصی برداشت): not a truck cost, but it did not pay for the truck either
+    const [home] = await rowsOf(sql`select coalesce(sum(e.paid - e.received), 0)::bigint v
+      from truck_ledger_entries e join truck_ledgers l on l.id = e.ledger_id
+      where not e.is_deleted and not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
+        and e.entry_date >= ${from}::timestamp and e.entry_date < (${to}::date + 1)::timestamp and e.category = 'Shakhsi'`);
     const revenue = lines.reduce((s, l) => s + Number(l.received), 0);
     const expenses = lines.filter((l) => Number(l.paid) > 0).map((l) => ({ type: l.category, amount: Number(l.paid) }));
-    res.json({ from, to, revenue, expenses, totalExpenses: expenses.reduce((s, e) => s + e.amount, 0), entries: lines.reduce((s, l) => s + l.n, 0), byCategory: lines });
+    res.json({ from, to, revenue, expenses, totalExpenses: expenses.reduce((s, e) => s + e.amount, 0), takenForHome: Math.max(0, Number(home?.v || 0)), entries: lines.reduce((s, l) => s + l.n, 0), byCategory: lines });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -603,7 +679,9 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
       ? expenses.map((e: any) => ({ type: e.type || "Misc", amount: Math.round(num(e.amount)), note: e.note || "" }))
       : [];
     const totalExpenses = expList.reduce((s, e) => s + e.amount, 0);
-    const netEarnings = gross - totalExpenses;
+    // money he took for home did not pay for the truck: it comes off the net (and is not counted as an expense)
+    const takenForHome = Math.max(0, Math.round(num(req.body.takenForHome)));
+    const netEarnings = gross - totalExpenses - takenForHome;
 
     const share = ag.companySharePercent ?? 100;
     // all (or share%) of the POSITIVE net goes to the company, capped at the balance
@@ -639,6 +717,7 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
         grossRevenue: gross,
         declaredExpenses: expList,
         totalExpenses,
+        takenForHome,
         netEarnings,
         amountToCompany,
         partnerRetained,
@@ -761,6 +840,16 @@ router.put("/agreements/:id", requireRole(WRITE_ROLES), async (req: AuthRequest,
       .where(eq(schema.partnerAgreements.id, id))
       .returning();
     await audit(req, "UPDATE", "partner_agreements", id, old, updated);
+    // the truck ledger's opening balance followed the old price − advance: it follows the new one
+    if (moneyChanged) {
+      try {
+        const lid = await agreementKhata(updated, req.user?.id, false);
+        if (lid && (await khataOpeningOf(lid)) === -old.openingBalance && old.openingBalance !== 0)
+          await putKhataOpening(req, { id, vehicleId: updated.vehicleId, openingBalance: openingBalance, startDay: updated.startDate.toISOString().slice(0, 10) });
+      } catch {
+        /* the agreement is saved; the truck ledger can be set from the lease screen */
+      }
+    }
     res.json(updated);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -892,18 +981,32 @@ router.post("/agreements/:id/installments", requireRole(WRITE_ROLES), async (req
     const day = isDay(b.date) ? b.date : pkToday();
     const method = ["Cash", "Online", "Cheque", "Bank Transfer"].includes(b.method) ? b.method : "Cash";
     let cashId: number | null = null;
+    let khataEntryId: number | null = null;
+    const what = `Qist / instalment — ${ag.vehicleNumber || ""} (${ag.a.agreementNumber})${b.reference ? ` · ${b.reference}` : ""}`;
     if (b.toCashBook && method === "Cash") {
+      // the Cash Book entry is linked to the truck: its khata row ("Qist received") comes from it, and goes with it
       const c = await selfApi(req, "POST", "/api/cash-book", {
         entryDate: `${day}T12:00:00`,
         direction: "In",
         amount,
         person: ag.partnerName || "Partner",
-        description: `Qist / instalment — ${ag.vehicleNumber || ""} (${ag.a.agreementNumber})${b.reference ? ` · ${b.reference}` : ""}`,
+        description: what,
+        linkType: "truck",
+        linkTargetId: ag.a.vehicleId,
+        linkCategory: "Qist",
       });
       cashId = c?.id ?? null;
+      khataEntryId = c?.derivedEntryId ?? null;
+    } else {
+      // not through the Cash Book (bank, cheque, or cash left out of it): written straight into the truck ledger
+      const lid = await agreementKhata({ id, vehicleId: ag.a.vehicleId }, req.user?.id, true);
+      if (lid) {
+        const e = await selfApi(req, "POST", `/api/ledgers/${lid}/entries`, { entryDate: day, description: `${what} · ${method}`, received: amount, category: "Qist", method });
+        khataEntryId = e?.id ?? null;
+      }
     }
-    const [inst] = await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, created_by)
-      values (${id}, ${`${day}T12:00:00`}::timestamp, ${amount}, ${method}, ${b.reference || null}, ${b.notes || null}, ${cashId}, ${req.user?.id ?? null}) returning *`);
+    const [inst] = await rowsOf(sql`insert into partner_installments (agreement_id, pay_date, amount, method, reference, notes, cash_transaction_id, khata_entry_id, created_by)
+      values (${id}, ${`${day}T12:00:00`}::timestamp, ${amount}, ${method}, ${b.reference || null}, ${b.notes || null}, ${cashId}, ${khataEntryId}, ${req.user?.id ?? null}) returning *`);
     const bal = await recalcBalance(id, req.user?.id);
     await audit(req, "CREATE", "partner_installments", inst.id, null, inst);
     res.status(201).json({ installment: inst, currentBalance: bal?.currentBalance, cashBookEntry: cashId });
@@ -920,8 +1023,13 @@ router.delete("/agreements/:id/installments/:iid", requireRole(WRITE_ROLES), asy
     if (!inst) return res.status(404).json({ error: "Instalment not found" });
     let cashNote: string | null = null;
     if (inst.cash_transaction_id) {
+      // the Cash Book entry takes its truck-ledger row with it
       await selfApi(req, "DELETE", `/api/cash-book/${inst.cash_transaction_id}`).catch((e: any) => {
         cashNote = `Its Cash Book entry could not be removed (${e.message}) — delete it there`;
+      });
+    } else if (inst.khata_entry_id) {
+      await selfApi(req, "DELETE", `/api/ledgers/entries/${inst.khata_entry_id}`).catch((e: any) => {
+        cashNote = `Its truck-ledger row could not be removed (${e.message}) — delete it there`;
       });
     }
     const bal = await recalcBalance(id, req.user?.id);

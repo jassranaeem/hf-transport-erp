@@ -145,5 +145,24 @@ console.log("truck khata: what the money is");
   ok("a row's kind comes from its category", kindOf("Shakhsi", 0, 5) === "shakhsi" && kindOf("SafiBachat", 0, 0) === "safi" && kindOf("Freight", 9, 0) === "income" && kindOf("Freight", 0, 9) === "expense" && kindOf("Capital", 9, 0) === "capital");
 }
 
+console.log("lease: the truck ledger and what is still to pay");
+{
+  // the khata starts at minus what was to pay; trips (net of home money) and payments climb back to it
+  const toPay = 800000;
+  const rows = [
+    { category: "Freight", received: 300000, paid: 0 },
+    { category: "Diesel", received: 0, paid: 100000 },
+    { category: "Shakhsi", received: 0, paid: 20000 },
+    { category: "Qist", received: 150000, paid: 0 },
+  ];
+  const khataBalance = -toPay + rows.reduce((s, r) => s + r.received - r.paid, 0);
+  const net = 300000 - 100000 - 20000; // the trip's qist after money taken for home
+  const stillToPay = toPay - net - 150000;
+  ok("minus of the khata = still to pay", -khataBalance === stillToPay && stillToPay === 470000, { khataBalance, stillToPay });
+  const t = bucketTotals(rows);
+  ok("a qist received is not the truck's income", t.income === 300000 && t.qist === 150000 && t.profit === 200000, t);
+  ok("Qist is its own kind", kindOf("Qist", 5, 0) === "qist");
+}
+
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

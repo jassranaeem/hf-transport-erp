@@ -45,7 +45,7 @@ export default function PartnerInstallments({
   const [form, setForm] = useState<null | "trip" | "cash">(null);
   const [busy, setBusy] = useState(false);
   const [filling, setFilling] = useState(false);
-  const [trip, setTrip] = useState<any>({ grossRevenue: "", expenses: [{ type: "Diesel", amount: "" }], periodFrom: "", periodTo: today(), notes: "", khataNote: "" });
+  const [trip, setTrip] = useState<any>({ grossRevenue: "", expenses: [{ type: "Diesel", amount: "" }], takenForHome: "", periodFrom: "", periodTo: today(), notes: "", khataNote: "" });
   const [cash, setCash] = useState({ amount: "", date: today(), method: "Cash", reference: "", notes: "", toCashBook: true });
   const fromCash = data.totals.totalInstallments || 0;
   const fromTrips = Math.max(0, ag.openingBalance - ag.currentBalance - fromCash);
@@ -67,6 +67,7 @@ export default function PartnerInstallments({
         periodTo: r.to,
         grossRevenue: r.revenue ? String(r.revenue) : t.grossRevenue,
         expenses: r.expenses.length ? r.expenses.map((e: any) => ({ type: e.type, amount: String(e.amount) })) : t.expenses,
+        takenForHome: r.takenForHome ? String(r.takenForHome) : t.takenForHome,
         khataNote: r.entries ? `From the truck's khata, ${dmy(r.from)} – ${dmy(r.to)}: ${r.entries} entries — check the figures before saving` : `Nothing in the truck's khata between ${dmy(r.from)} and ${dmy(r.to)} — type the figures`,
       }));
     } catch (e: any) {
@@ -77,12 +78,13 @@ export default function PartnerInstallments({
   };
   const openTrip = () => {
     setForm("trip");
-    setTrip({ grossRevenue: "", expenses: [{ type: "Diesel", amount: "" }], periodFrom: "", periodTo: today(), notes: "", khataNote: "" });
+    setTrip({ grossRevenue: "", expenses: [{ type: "Diesel", amount: "" }], takenForHome: "", periodFrom: "", periodTo: today(), notes: "", khataNote: "" });
     fillFromKhata();
   };
   const gross = Number(trip.grossRevenue) || 0;
   const exp = trip.expenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
-  const net = gross - exp;
+  const home = Number(trip.takenForHome) || 0;
+  const net = gross - exp - home;
   const toTruck = Math.min(Math.max(0, Math.round((net * share) / 100)), ag.currentBalance);
   const saveTrip = async () => {
     if (!gross) return showFeedback("error", "Enter what the truck earned (kiraya) · کرایہ لکھیں");
@@ -93,6 +95,7 @@ export default function PartnerInstallments({
         body: JSON.stringify({
           grossRevenue: gross,
           expenses: trip.expenses.filter((e: any) => Number(e.amount) > 0).map((e: any) => ({ type: e.type || "Misc", amount: Number(e.amount) })),
+          takenForHome: home,
           periodFrom: trip.periodFrom || undefined,
           periodTo: trip.periodTo || undefined,
           notes: trip.notes,
@@ -181,6 +184,41 @@ export default function PartnerInstallments({
           <span>{paidOff ? "Fully paid" : `The truck is 100% the company's until it is paid — then he becomes a 50% partner · ادائیگی پوری ہونے تک کمپنی 100% مالک`}</span>
         </div>
       </div>
+      {/* the truck ledger: what he still had to pay at the start is its opening balance */}
+      <div className="px-4 py-2 border-b border-[#EEF1F5] text-[12px] flex flex-wrap items-center gap-x-3 gap-y-1">
+        <BookOpen className="w-3.5 h-3.5 text-[#24539B]" />
+        <span className="font-medium text-[#374151]">Truck ledger · ٹرک کھاتہ</span>
+        {data.khata && data.khata.opening === data.khata.target ? (
+          <span className="text-[#166534]" dir="auto">
+            Opening balance <b>−{PKR(ag.openingBalance)}</b> (what was to pay at the start) ✓ · its balance now <b className={data.khata.balance < 0 ? "text-[#B91C1C]" : ""}>{data.khata.balance < 0 ? "−" : ""}{PKR(Math.abs(data.khata.balance))}</b>
+          </span>
+        ) : (
+          <>
+            <span className="text-[#92400E]" dir="auto">
+              {data.khata ? `Its opening balance is ${PKR(data.khata.opening)} — it should be −${PKR(ag.openingBalance)}` : "The truck has no ledger yet"} · ابتدائی بیلنس باقی رقم کے برابر نہیں
+            </span>
+            <button
+              onClick={async () => {
+                if (!window.confirm(`Write −${PKR(ag.openingBalance)} (what he had to pay at the start) as the opening balance of ${ag.vehicleNumber}'s truck ledger? You can change it again there. · ٹرک کھاتے کا ابتدائی بیلنس بدلیں؟`)) return;
+                try {
+                  const r = await enterpriseFetch(`/api/partnerships/agreements/${ag.id}/khata-opening`, { method: "POST", body: JSON.stringify({ confirm: true }) });
+                  showFeedback("success", r.changed ? `Truck ledger opening balance is now −${PKR(ag.openingBalance)} (was ${PKR(r.previous)}) · محفوظ` : "Already in the truck ledger");
+                  onChanged();
+                } catch (e: any) {
+                  showFeedback("error", e.message);
+                }
+              }}
+              className="rounded-lg bg-[#24539B] text-white text-[12px] font-medium px-2.5 py-1"
+              style={{ backgroundColor: "#24539B", color: "#fff" }}
+            >
+              Put −{PKR(ag.openingBalance)} in the truck ledger
+            </button>
+          </>
+        )}
+        {onNavigate && data.khata?.ledgerId && (
+          <button onClick={() => onNavigate("khata", "truck_ledgers", { ledgerId: data.khata.ledgerId })} className="text-[#24539B] hover:underline">Open the truck ledger →</button>
+        )}
+      </div>
       {ag.agreedPrice - ag.advancePaid !== ag.openingBalance && (
         <div className="px-4 py-1.5 text-[11.5px] text-[#B45309] bg-amber-50 border-b border-amber-100">
           <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
@@ -230,12 +268,18 @@ export default function PartnerInstallments({
                 ))}
                 <button onClick={() => setTrip({ ...trip, expenses: [...trip.expenses, { type: "", amount: "" }] })} className="text-[12px] text-[#24539B] hover:underline"><Plus className="w-3 h-3 inline" /> add an expense</button>
               </div>
+              <label className={lbl}>
+                Taken for home (Shakhsi bardasht) · شخصی برداشت
+                <input inputMode="numeric" value={trip.takenForHome} onChange={(e) => setTrip({ ...trip, takenForHome: e.target.value.replace(/[^\d]/g, "") })} className={`${inp} tabular-nums`} placeholder="0" />
+                <span className="text-[11px] font-normal text-[#6B7280]" dir="auto">Money he took for home did not pay for the truck, so it comes off the net and the still-to-pay stays that much higher. · گھر کے لیے لیے گئے پیسے قیمت میں نہیں لگتے</span>
+              </label>
               <label className={lbl}>Note<input value={trip.notes} onChange={(e) => setTrip({ ...trip, notes: e.target.value })} className={inp} placeholder="e.g. Quetta → Karachi, 2 trips" dir="auto" /></label>
             </div>
             {/* the sum, as it will be written */}
             <div className="rounded-xl border border-[#C9D7EC] bg-white p-4 text-[13px] self-start">
               <div className="flex justify-between py-1"><span className="text-[#6B7280]">Earned · کرایہ</span><span className="tabular-nums">{gross.toLocaleString()}</span></div>
               <div className="flex justify-between py-1"><span className="text-[#6B7280]">− Expenses · خرچہ</span><span className="tabular-nums text-[#B91C1C]">{exp.toLocaleString()}</span></div>
+              {home > 0 && <div className="flex justify-between py-1"><span className="text-[#6B7280]">− Taken for home · شخصی برداشت</span><span className="tabular-nums text-[#7C3AED]">{home.toLocaleString()}</span></div>}
               <div className="flex justify-between py-1 border-t border-[#EEF1F5] font-semibold"><span>Net · بچت</span><span className={`tabular-nums ${net < 0 ? "text-[#B91C1C]" : ""}`}>{net.toLocaleString()}</span></div>
               <div className="flex justify-between py-1 mt-1 text-[#166534] font-semibold"><span>This qist — goes to the truck's price{share !== 100 ? ` (${share}%)` : ""}</span><span className="tabular-nums">{toTruck.toLocaleString()}</span></div>
               {net - toTruck > 0 && <div className="flex justify-between py-1 text-[#6B7280]"><span>He keeps</span><span className="tabular-nums">{(net - toTruck).toLocaleString()}</span></div>}
@@ -271,6 +315,7 @@ export default function PartnerInstallments({
               Also write it in the Daily Cash Book as money in · کیش بک میں بھی درج کریں
             </label>
           )}
+          <div className="text-[11.5px] text-[#6B7280] mt-2" dir="auto">It also comes into the truck ledger as “Qist received” (money in, not the truck's income). · ٹرک کھاتے میں بھی «قسط وصول» کے طور پر آئے گی</div>
           {Number(cash.amount) > 0 && <div className="text-[12px] text-[#6B7280] mt-2">Still to pay after this: <b>{PKR(Math.max(0, ag.currentBalance - Number(cash.amount)))}</b>{Number(cash.amount) > ag.currentBalance && <span className="text-red-600"> — more than is owed</span>}</div>}
           <div className="flex gap-2 mt-3">
             <button onClick={saveCash} disabled={busy || !Number(cash.amount)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#24539B] text-white text-[13px] font-medium px-3.5 py-2 disabled:opacity-50">

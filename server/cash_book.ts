@@ -46,7 +46,7 @@ import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { parseCashbookFlat } from "../src/lib/dataio/cashbook-flat-import.ts";
 import { sourceLabelFromFilename } from "../src/lib/dataio/truck-workbook.ts";
-import { recompute as recomputeTruckLedger } from "./ledgers.ts";
+import { recompute as recomputeTruckLedger, sharedWithPartner } from "./ledgers.ts";
 import { recompute as recomputePartyLedger } from "./parties.ts";
 import { partnershipLedgerForPlate } from "./partnership.ts";
 import { ALL_TRUCK_CATS, SHAKHSI } from "../src/lib/khataKinds.ts";
@@ -119,7 +119,7 @@ function dayBounds(dateStr: string) {
 // ledgers" bug this replaced. Matching on the plate itself (same normalization used everywhere
 // else a truck is looked up) makes ledger resolution correct even while that vehicle-row
 // duplication still exists.
-async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
+export async function resolveManualLedgerId(vehicleId: number, userId: number | undefined): Promise<number> {
   const found = await findManualLedger(vehicleId);
   if (found.ledgerId) {
     if (!found.ledgerVehicleId && !found.shared) await db.update(schema.truckLedgers).set({ vehicleId }).where(eq(schema.truckLedgers.id, found.ledgerId));
@@ -363,7 +363,7 @@ router.get("/truck/:vehicleId(\\d+)", requireRole(READ), async (req: AuthRequest
       ledgerId: id,
       title: led?.title || null,
       driverName: led?.driverName || null,
-      sharedWithPartner: found.shared || !!led?.isPartnership,
+      sharedWithPartner: found.shared || (id ? await sharedWithPartner(id) : false),
       balance: Number(bal?.b || 0),
       lastDay: bal?.last_day || null,
       byCategory,
