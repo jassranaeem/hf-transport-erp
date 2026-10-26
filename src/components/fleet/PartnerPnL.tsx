@@ -534,6 +534,22 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
           <b>Cycle {d.closed[0].no} is closed</b> on {fmtDate(d.closed[0].date)} — {d.closed[0].net >= 0 ? "صافی بچت" : "نقصان"} <b>{PKR(d.closed[0].net)}</b>
           {" "}({d.partnerName} {PKR(d.closed[0].partnerShare)} · {d.hfkName} {PKR(d.closed[0].hfkShare)}){d.closed[0].note ? ` — ${d.closed[0].note}` : ""}.
           {" "}Everything written after it is the new cycle {cyc.cycleNo}. · اس کے بعد کا سب نیا حساب {cyc.cycleNo} ہے
+          {d.closed[0].truckLine === false && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[#92400E]">
+              <span>The truck ledger does not show this close yet (its balance still counts these rows). · ٹرک کھاتے میں ابھی صافی بچت کی لائن نہیں</span>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  window.confirm(`Write the Safi bachat line of cycle ${d.closed[0].no} (${PKR(d.closed[0].net)}) in the truck ledger? It goes right after that cycle's last row, and Reopen last cycle removes it again. · ٹرک کھاتے میں لائن لکھیں؟`) &&
+                  act(() => enterpriseFetch(`/api/partnership/${accountId}/cycle/${d.closed[0].no}/truck-line`, { method: "POST" }), () => "Written in the truck ledger · ٹرک کھاتے میں لکھ دیا")
+                }
+                className="rounded-lg bg-[#B45309] text-white font-semibold px-2.5 py-1 disabled:opacity-60"
+                style={{ backgroundColor: "#B45309", color: "#fff" }}
+              >
+                Write it in the truck ledger · ٹرک کھاتے میں لکھیں
+              </button>
+            </div>
+          )}
         </div>
       )}
 

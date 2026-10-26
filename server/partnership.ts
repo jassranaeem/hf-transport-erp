@@ -803,6 +803,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
 
     // cycles closed on this screen: each close wrote one line per side, carrying where that
     // cycle started (sourceRow); it ended where the next one started, or at the watermark
+    const markers = await markerNumbers(a.truckLedgerId);
     const closeLines = history.filter((h) => (kindOf(h.label) === "safi" || kindOf(h.label) === "loss") && h.sourceRow != null);
     const starts = [...new Set(closeLines.map((h) => h.sourceRow as number))].sort((x, y) => x - y);
     const closed = starts.map((after, i) => {
@@ -817,6 +818,7 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         hfkShare: lines.filter((h) => h.partyId === a.hfkPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
         // the note typed when it was closed: "cycle 3 (hisab kal Sabir ke sath): in ..."
         note: (/cycle \d+ \((.+?)\): in /.exec(lines[0]?.description || "") || [])[1] || null,
+        truckLine: markers.has(i + 1), // the صافی بچت line is in the truck's khata
       };
     });
     res.json({
@@ -842,6 +844,53 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
     res.status(500).json({ error: e.message });
   }
 });
+
+/** The line a closed cycle leaves in the truck's khata: صافی بچت taken out (or "loss split", amount 0). */
+const MARKER_RE = /^(Safi bachat|Loss split) · cycle (\d+) closed/;
+
+async function writeCycleMarker(
+  ledgerId: number,
+  o: { afterEntryId: number; no: number; net: number; date: Date; note?: string | null; partnerName: string; hfkName: string; partnerPart: number; hfkPart: number; userId?: number },
+) {
+  const key = await placeOf(o.afterEntryId);
+  const taken = Math.max(0, o.net);
+  const head = o.net >= 0 ? "Safi bachat" : "Loss split";
+  const n = (v: number) => Math.round(v).toLocaleString();
+  const [row] = await db
+    .insert(schema.truckLedgerEntries)
+    .values({
+      ledgerId,
+      entryDate: o.date,
+      rawDate: o.date.toISOString().slice(0, 10),
+      description: `${head} · cycle ${o.no} closed${o.note ? ` (${o.note})` : ""} — ${o.partnerName} ${n(o.partnerPart)} + ${o.hfkName} ${n(o.hfkPart)}`,
+      received: 0,
+      paid: taken,
+      category: "SafiBachat",
+      direction: taken > 0 ? "Out" : null,
+      sectionLabel: "Manual",
+      isSafiBachat: true,
+      // sits right after the last row of the cycle it closes
+      sortKey: key != null ? key + 0.5 : null,
+      createdBy: o.userId,
+    })
+    .returning({ id: schema.truckLedgerEntries.id });
+  await recomputeKhata(ledgerId);
+  return row.id as number;
+}
+
+/** The cycle numbers that already have their line in the truck's khata. */
+async function markerNumbers(ledgerId: number): Promise<Set<number>> {
+  const rows = await db
+    .select({ d: schema.truckLedgerEntries.description })
+    .from(schema.truckLedgerEntries)
+    .where(and(eq(schema.truckLedgerEntries.ledgerId, ledgerId), eq(schema.truckLedgerEntries.category, "SafiBachat"), eq(schema.truckLedgerEntries.isDeleted, false)));
+  const out = new Set<number>();
+  for (const r of rows) {
+    const m = MARKER_RE.exec(r.d || "");
+    if (m) out.add(Number(m[2]));
+  }
+  return out;
+}
 
 /**
  * Close a partnership's open cycle (the paper's صافی بچت / قرضدار): split in − out since the last
@@ -875,7 +924,18 @@ export async function closePartnershipCycle(accountId: number, opts: { date?: an
     description: `${head} × ${100 - a.partnerPercent}%`,
     credit: hfkPart > 0 ? hfkPart : 0, debit: hfkPart < 0 ? -hfkPart : 0,
   });
-  await db.update(schema.partnershipAccounts).set({ lastEntryId: cycle.lastId, cycleNo: no, updatedAt: new Date(), updatedBy: opts.userId }).where(eq(schema.partnershipAccounts.id, a.id));
+  // the truck's own khata gets the line too: the صافی بچت taken out, so its balance starts again from here
+  let watermark = cycle.lastId;
+  let markerId: number | null = null;
+  try {
+    markerId = await writeCycleMarker(a.truckLedgerId, {
+      afterEntryId: cycle.lastId, no, net: cycle.net, date, note: opts.note, partnerName: full.partnerName, hfkName: full.hfkName, partnerPart, hfkPart, userId: opts.userId,
+    });
+    watermark = markerId;
+  } catch (e: any) {
+    console.error("[partnership] cycle line in the truck khata failed:", e?.message);
+  }
+  await db.update(schema.partnershipAccounts).set({ lastEntryId: watermark, cycleNo: no, updatedAt: new Date(), updatedBy: opts.userId }).where(eq(schema.partnershipAccounts.id, a.id));
   await recomputeParty(a.partnerPartyId);
   await recomputeParty(a.hfkPartyId);
   await logAudit({
@@ -883,7 +943,7 @@ export async function closePartnershipCycle(accountId: number, opts: { date?: an
     tableName: "partnership_accounts",
     recordId: a.id,
     oldValues: { lastEntryId: a.lastEntryId, cycleNo: a.cycleNo },
-    newValues: { lastEntryId: cycle.lastId, cycleNo: no, net: cycle.net, entries: [e1.id, e2.id], note: opts.note ?? null },
+    newValues: { lastEntryId: watermark, cycleNo: no, net: cycle.net, entries: [e1.id, e2.id], khataLine: markerId, note: opts.note ?? null },
     performedBy: opts.userId,
   }).catch(() => {});
   return { ok: true, net: cycle.net, partnerShare: partnerPart, hfkShare: hfkPart, cycleNo: no, partnerName: full.partnerName, hfkName: full.hfkName, accountId: a.id };
@@ -921,6 +981,43 @@ export async function partnershipPreviewForPlate(vehicleNumber: string) {
   };
 }
 
+/**
+ * A cycle that was closed before the truck's khata got its line: write the line now, right after the
+ * last row of that cycle (so the khata's balance starts again from there).
+ */
+router.post("/:id/cycle/:no/truck-line", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const full = await loadAccount(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: "Partnership account not found" });
+    const a = full.acc;
+    const no = Number(req.params.no);
+    const lines = await db
+      .select()
+      .from(schema.partyLedgerEntries)
+      .where(and(eq(schema.partyLedgerEntries.refNo, tag(a.id)), eq(schema.partyLedgerEntries.isDeleted, false), inArray(schema.partyLedgerEntries.sectionLabel, [KIND.safi, KIND.loss])));
+    const closeLines = lines.filter((h) => h.sourceRow != null);
+    const starts = [...new Set(closeLines.map((h) => h.sourceRow as number))].sort((x, y) => x - y);
+    const i = no - 1;
+    if (!(i >= 0 && i < starts.length)) return res.status(404).json({ error: "No such closed cycle" });
+    if ((await markerNumbers(a.truckLedgerId)).has(no)) return res.status(400).json({ error: "The truck ledger already has this cycle's صافی بچت line · لائن پہلے سے موجود ہے" });
+    const mine = closeLines.filter((h) => h.sourceRow === starts[i]);
+    const net = mine.reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0);
+    const partnerPart = mine.filter((h) => h.partyId === a.partnerPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0);
+    const upto = starts[i + 1] ?? a.lastEntryId;
+    const note = (/cycle \d+ \((.+?)\): in /.exec(mine[0]?.description || "") || [])[1] || null;
+    const id = await writeCycleMarker(a.truckLedgerId, {
+      afterEntryId: upto, no, net, date: mine[0]?.entryDate ? new Date(mine[0].entryDate) : new Date(), note,
+      partnerName: full.partnerName, hfkName: full.hfkName, partnerPart, hfkPart: net - partnerPart, userId: req.user?.id,
+    });
+    // the latest close: the new cycle starts after its line
+    if (upto === a.lastEntryId) await db.update(schema.partnershipAccounts).set({ lastEntryId: id, updatedAt: new Date(), updatedBy: req.user?.id }).where(eq(schema.partnershipAccounts.id, a.id));
+    await audit(req, "UPDATE", "partnership_accounts", a.id, null, { cycle: no, khataLine: id });
+    res.json({ ok: true, entryId: id, net });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.post("/:id/close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
     // the note stays with the close (in both ledgers' lines and in the closed-cycle list); no brackets, they delimit it
@@ -954,6 +1051,18 @@ export async function reopenLastCycle(accountId: number, userId?: number, onlyIf
   }
   const prev = closes[0].sourceRow;
   const pair = closes.filter((c) => c.sourceRow === prev);
+  // the line that close left in the truck's khata goes too
+  if (a.lastEntryId) {
+    const [mk] = await db
+      .select()
+      .from(schema.truckLedgerEntries)
+      .where(and(eq(schema.truckLedgerEntries.id, a.lastEntryId), eq(schema.truckLedgerEntries.category, "SafiBachat"), eq(schema.truckLedgerEntries.isDeleted, false)))
+      .limit(1);
+    if (mk && MARKER_RE.test(mk.description || "")) {
+      await db.update(schema.truckLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId }).where(eq(schema.truckLedgerEntries.id, mk.id));
+      await recomputeKhata(a.truckLedgerId);
+    }
+  }
   await db.update(schema.partyLedgerEntries).set({ isDeleted: true, deletedAt: new Date(), deletedBy: userId }).where(inArray(schema.partyLedgerEntries.id, pair.map((x) => x.id)));
   await db.update(schema.partnershipAccounts).set({ lastEntryId: prev, cycleNo: Math.max(0, a.cycleNo - 1), updatedAt: new Date(), updatedBy: userId }).where(eq(schema.partnershipAccounts.id, a.id));
   // the trip this close split (if it came from Close trip) is not split any more
