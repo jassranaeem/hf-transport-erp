@@ -455,6 +455,10 @@ function KhataTable({ lines, ledgerId, onOpen, showBalance = true }: { lines: an
 function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { accountId: number; showFeedback: Feedback; onChanged: () => void; onOpen: (d: Detail) => void; onNavigate?: Nav }) {
   const [d, setD] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  // closing the cycle: the day the account was settled, and a note that stays with it
+  const [closing, setClosing] = useState(false);
+  const [closeDate, setCloseDate] = useState(today());
+  const [closeNote, setCloseNote] = useState("");
   const load = useCallback(() => {
     enterpriseFetch(`/api/partnership/${accountId}`).then(setD).catch((e) => showFeedback("error", e.message));
   }, [accountId]);
@@ -525,6 +529,14 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
         </div>
       )}
 
+      {d.closed?.length > 0 && (
+        <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] px-3 py-2 text-[12px] text-[#14532D]" dir="auto">
+          <b>Cycle {d.closed[0].no} is closed</b> on {fmtDate(d.closed[0].date)} — {d.closed[0].net >= 0 ? "صافی بچت" : "نقصان"} <b>{PKR(d.closed[0].net)}</b>
+          {" "}({d.partnerName} {PKR(d.closed[0].partnerShare)} · {d.hfkName} {PKR(d.closed[0].hfkShare)}){d.closed[0].note ? ` — ${d.closed[0].note}` : ""}.
+          {" "}Everything written after it is the new cycle {cyc.cycleNo}. · اس کے بعد کا سب نیا حساب {cyc.cycleNo} ہے
+        </div>
+      )}
+
       <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
         <div className="px-3 py-2 bg-[#F2F5FA] flex items-center justify-between flex-wrap gap-2">
           <div className="text-xs font-bold">
@@ -560,17 +572,49 @@ function CycleTab({ accountId, showFeedback, onChanged, onOpen, onNavigate }: { 
           {cyc.lines.length > 0 && cyc.net >= 0 && (
             <button
               disabled={busy}
-              onClick={() =>
-                window.confirm(`Close cycle ${cyc.cycleNo}: صافی بچت ${PKR(cyc.net)} → ${d.partnerName} ${PKR(cyc.partnerShare)}, ${d.hfkName} ${PKR(cyc.hfkShare)}?`) &&
-                act(
-                  () => enterpriseFetch(`/api/partnership/${accountId}/close`, { method: "POST", body: JSON.stringify({ date: today() }) }),
-                  (r) => `Cycle ${r.cycleNo} closed — ${PKR(r.partnerShare)} to ${d.partnerName}, ${PKR(r.hfkShare)} to ${d.hfkName}`,
-                )
-              }
+              onClick={() => setClosing((v) => !v)}
               className="bg-[#24539B] text-white font-semibold rounded-lg px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-60"
+              style={{ backgroundColor: "#24539B", color: "#fff" }}
             >
               <Lock className="w-3.5 h-3.5" /> Close cycle · صافی بچت: {d.partnerName} {PKR(cyc.partnerShare)} + HFK {PKR(cyc.hfkShare)}
             </button>
+          )}
+          {closing && cyc.lines.length > 0 && cyc.net >= 0 && (
+            <div className="basis-full rounded-lg border border-[#C9D7EC] bg-[#F7F9FD] p-3 space-y-2" dir="auto">
+              <div className="text-[12.5px]">
+                Close <b>cycle {cyc.cycleNo}</b>: صافی بچت <b className="text-[#047857]">{PKR(cyc.net)}</b> → {d.partnerName} <b>{PKR(cyc.partnerShare)}</b> ({pct}%), {d.hfkName} <b>{PKR(cyc.hfkShare)}</b> ({100 - pct}%).
+                Then a new cycle {cyc.cycleNo + 1} starts empty. You can reopen it with “Reopen last cycle”. · بند کرنے کے بعد نیا حساب خالی شروع ہو گا
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[#6B7280]">Settled on (the day of the hisab) · تاریخ</span>
+                  <input id="ppl-close-date" type="date" value={closeDate} onChange={(e) => setCloseDate(e.target.value)} className="border border-[#E5E7EB] rounded px-2 py-1.5" />
+                </label>
+                <label className="flex flex-col gap-1 flex-1 min-w-[220px]">
+                  <span className="text-[#6B7280]">Note — what this hisab was · تفصیل</span>
+                  <input id="ppl-close-note" value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="e.g. hisab Sabir ke sath, 640,000" dir="auto" className="border border-[#E5E7EB] rounded px-2 py-1.5" />
+                </label>
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    const r = await act(
+                      () => enterpriseFetch(`/api/partnership/${accountId}/close`, { method: "POST", body: JSON.stringify({ date: closeDate, note: closeNote }) }),
+                      (r) => `Cycle ${r.cycleNo} closed — ${PKR(r.partnerShare)} to ${d.partnerName}, ${PKR(r.hfkShare)} to ${d.hfkName}. New cycle ${r.cycleNo + 1} started · نیا حساب شروع`,
+                    );
+                    if (r) {
+                      setClosing(false);
+                      setCloseNote("");
+                      load();
+                    }
+                  }}
+                  className="bg-[#166534] text-white font-semibold rounded-lg px-3 py-1.5 disabled:opacity-60"
+                  style={{ backgroundColor: "#166534", color: "#fff" }}
+                >
+                  Close the cycle · حساب بند کریں
+                </button>
+                <button onClick={() => setClosing(false)} className="text-[#4B5563] underline">Cancel</button>
+              </div>
+            </div>
           )}
           {cyc.lines.length > 0 && cyc.net < 0 && (
             <div className="flex items-center gap-2 flex-wrap">
@@ -893,11 +937,15 @@ function HistoryTab({ accountId, ledgerId, showFeedback, onChanged, onOpen }: { 
                 <React.Fragment key={`c${c.no}`}>
                   <tr onClick={() => toggle(`c${c.no}`, `after=${c.after}&upto=${c.upto}`)} className="border-t border-[#F3F4F6] cursor-pointer hover:bg-[#F2F5FA]">
                     <td className="px-3 py-1.5">{openKey === `c${c.no}` ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</td>
-                    <td className="px-3 py-1.5 font-semibold">Cycle {c.no} (closed here)</td>
+                    <td className="px-3 py-1.5 font-semibold">
+                      Cycle {c.no} (closed here)
+                      {c.note && <div className="text-[11px] font-normal text-[#6B7280]" dir="auto">{c.note}</div>}
+                    </td>
                     <td className="px-3 py-1.5">closed {fmtDate(c.date)}</td>
                     <td className="px-3 py-1.5 text-right" />
                     <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${c.net < 0 ? "text-[#B91C1C]" : "text-[#047857]"}`}>
                       {PKR(c.net)} {c.net >= 0 ? "· صافی بچت" : "· نقصان"}
+                      {c.partnerShare != null && <div className="text-[11px] font-normal text-[#6B7280]">{PKR(c.partnerShare)} + {PKR(c.hfkShare)}</div>}
                     </td>
                     <td />
                   </tr>

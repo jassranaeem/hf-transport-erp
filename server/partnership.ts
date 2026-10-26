@@ -814,6 +814,9 @@ router.get("/:id", requireRole(READ), async (req: AuthRequest, res: Response) =>
         date: lines[0]?.entryDate,
         net: lines.reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
         partnerShare: lines.filter((h) => h.partyId === a.partnerPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+        hfkShare: lines.filter((h) => h.partyId === a.hfkPartyId).reduce((s, h) => s + (h.credit || 0) - (h.debit || 0), 0),
+        // the note typed when it was closed: "cycle 3 (hisab kal Sabir ke sath): in ..."
+        note: (/cycle \d+ \((.+?)\): in /.exec(lines[0]?.description || "") || [])[1] || null,
       };
     });
     res.json({
@@ -920,8 +923,10 @@ export async function partnershipPreviewForPlate(vehicleNumber: string) {
 
 router.post("/:id/close", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
-    const r = await closePartnershipCycle(Number(req.params.id), { date: req.body?.date, splitLoss: !!req.body?.splitLoss, userId: req.user?.id });
-    res.json(r);
+    // the note stays with the close (in both ledgers' lines and in the closed-cycle list); no brackets, they delimit it
+    const note = String(req.body?.note || "").replace(/[()]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || undefined;
+    const r = await closePartnershipCycle(Number(req.params.id), { date: req.body?.date, splitLoss: !!req.body?.splitLoss, userId: req.user?.id, note });
+    res.json({ ...r, note: note ?? null });
   } catch (e: any) {
     const known = /not found|Nothing written|short by/.test(e.message || "");
     res.status(known ? 400 : 500).json({ error: e.message });
