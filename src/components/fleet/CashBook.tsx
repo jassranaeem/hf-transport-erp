@@ -50,7 +50,8 @@ export default function CashBook({
   const [newestFirst, toggleNewest] = useNewestFirst();
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState<any>(BLANK);
+  // one form, several lines (some In, some Out): they are saved together as a voucher
+  const [lines, setLines] = useState<any[]>([BLANK]);
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
@@ -94,13 +95,28 @@ export default function CashBook({
   }, []);
   const linkOptions: LinkOptions = { ...links, reload: loadLinks };
 
+  const filledLines = lines.filter((l) => Number(l.amount) > 0);
+  const vIn = filledLines.filter((l) => l.direction === "In").reduce((s, l) => s + Number(l.amount), 0);
+  const vOut = filledLines.filter((l) => l.direction !== "In").reduce((s, l) => s + Number(l.amount), 0);
+  // the next line starts from the last one: same person / truck / party, the other direction
+  const addLine = () =>
+    setLines((ls) => {
+      const last = ls[ls.length - 1];
+      return [...ls, { ...BLANK, direction: last.direction === "In" ? "Out" : "In", person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
+    });
   const add = async () => {
-    if (!Number(form.amount)) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
+    if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     setSaving(true);
     try {
-      const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...form, entryDate: `${date}T${new Date().toTimeString().slice(0, 8)}` }) });
-      showFeedback("success", r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا");
-      setForm(BLANK);
+      const at = `${date}T${new Date().toTimeString().slice(0, 8)}`;
+      if (filledLines.length === 1) {
+        const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...filledLines[0], entryDate: at }) });
+        showFeedback("success", r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا");
+      } else {
+        const r = await enterpriseFetch("/api/cash-book/voucher", { method: "POST", body: JSON.stringify({ lines: filledLines, entryDate: at }) });
+        showFeedback("success", r?.pendingApproval ? r.message : `Saved ${filledLines.length} lines together · In ${PKR(vIn)} · Out ${PKR(vOut)}${r?.lease ? ` · lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay` : ""} · محفوظ`);
+      }
+      setLines([BLANK]);
       setShowAdd(false);
       load();
     } catch (e: any) {
@@ -269,7 +285,49 @@ export default function CashBook({
       )}
 
       {showAdd && (
-        <EntryForm value={form} onChange={setForm} onSubmit={add} saving={saving} onCancel={() => setShowAdd(false)} submitLabel="Save · محفوظ کریں" linkOptions={linkOptions} onNavigate={onNavigate} title={`New entry for ${date} · نیا اندراج`} />
+        <div className="space-y-3 rounded-xl border border-[#C9D7EC] bg-[#F7F9FD] p-3">
+          <div>
+            <div className="text-[13px] font-semibold text-[#1F2937]">New entry for {date} · نیا اندراج</div>
+            <div className="text-[11.5px] text-[#6B7280]" dir="auto">
+              One form can hold several lines — money In and money Out together — saved as one voucher, shown together in the day's list. ·
+              ایک فارم میں کئی لائنیں: آمد اور ادائیگی دونوں، ایک ساتھ محفوظ
+            </div>
+          </div>
+          {lines.map((ln, i) => (
+            <div key={i} className="space-y-1.5">
+              {lines.length > 1 && (
+                <div className="flex items-center justify-between text-[12px]">
+                  <b className={ln.direction === "In" ? "text-[#166534]" : "text-[#B91C1C]"}>Line {i + 1} · {ln.direction === "In" ? "In · وصول" : "Out · ادا"}</b>
+                  <button type="button" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="inline-flex items-center gap-1 text-[#6B7280] hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /> Remove line</button>
+                </div>
+              )}
+              <EntryForm
+                value={ln}
+                onChange={(v) => setLines((ls) => ls.map((x, j) => (j === i ? v : x)))}
+                onSubmit={add}
+                saving={saving}
+                onCancel={() => setShowAdd(false)}
+                submitLabel="Save · محفوظ کریں"
+                compact={i > 0}
+                hideActions
+                linkOptions={linkOptions}
+                onNavigate={onNavigate}
+              />
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <Btn kind="primary" onClick={add} disabled={saving} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>
+              Save · محفوظ کریں{filledLines.length > 1 ? ` (${filledLines.length} lines)` : ""}
+            </Btn>
+            <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-[12.5px] font-medium text-[#24539B] hover:underline"><Plus className="w-3.5 h-3.5" /> Add another line · ایک اور لائن</button>
+            <Btn onClick={() => { setShowAdd(false); setLines([BLANK]); }} icon={<X />}>Cancel</Btn>
+            {filledLines.length > 0 && (
+              <span className="text-[12px] tabular-nums text-[#4B5563]">
+                In <b className="text-[#166534]">{PKR(vIn)}</b> · Out <b className="text-[#B91C1C]">{PKR(vOut)}</b> · net <b>{vIn - vOut < 0 ? "−" : ""}{PKR(vIn - vOut)}</b>
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {data && (
@@ -336,8 +394,22 @@ export default function CashBook({
               </tr>
             </thead>
             <tbody>
-              {inOrder(withRunning, newestFirst).map((r: any) => (
+              {inOrder(withRunning, newestFirst).map((r: any, i: number, list: any[]) => (
                 <React.Fragment key={r.id}>
+                  {r.voucherKey && list[i - 1]?.voucherKey !== r.voucherKey && (() => {
+                    const g = list.filter((x: any) => x.voucherKey === r.voucherKey);
+                    const gin = g.filter((x: any) => x.direction === "In").reduce((s: number, x: any) => s + x.amount, 0);
+                    const gout = g.filter((x: any) => x.direction !== "In").reduce((s: number, x: any) => s + x.amount, 0);
+                    return (
+                      <tr className="bg-[#F5F3FF] border-t border-[#DDD6FE]">
+                        <td colSpan={7} className="px-3 py-1 text-[11.5px] text-[#5B21B6]" dir="auto">
+                          <div className="sticky left-0" style={{ width: "min(640px, calc(100vw - 6rem))" }}>
+                            <b>Voucher · {g.length} lines · ایک ساتھ</b> <span className="tabular-nums">· In {PKR(gin)} · Out {PKR(gout)} · net {gin - gout < 0 ? "−" : ""}{PKR(gin - gout)}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                   <tr
                     onClick={() => (editId === r.id ? setEditId(null) : startEdit(r))}
                     className={`group border-t border-[#F1F4F9] cursor-pointer ${editId === r.id ? "bg-[#F4F7FC]" : "hover:bg-[#F8FAFC]"}`}
@@ -410,8 +482,8 @@ export default function CashBook({
   );
 }
 
-function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions, title, onNavigate }: {
-  value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions; title?: string;
+function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions, title, onNavigate, hideActions }: {
+  value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions; title?: string; hideActions?: boolean;
   onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
 }) {
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
@@ -573,10 +645,12 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
           </label>
         )}
       </div>
+      {!hideActions && (
       <div className="flex items-center gap-2 mt-3">
         <Btn kind="primary" onClick={onSubmit} disabled={saving || (kv.kind === "shakhsi" && !!truckId && !!truck?.sharedWithPartner)} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>{submitLabel}</Btn>
         <Btn onClick={onCancel} icon={<X />}>Cancel</Btn>
       </div>
+      )}
     </div>
   );
 }

@@ -40,6 +40,7 @@
 import { holdForApproval } from "./approvals.ts";
 import { Router, Response } from "express";
 import multer from "multer";
+import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull, lt, gte, lte, sql } from "drizzle-orm";
 import { requireAuth, requireApproved, requireRole, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
@@ -508,6 +509,63 @@ async function qistCheck(category: string | null, direction: string, vehicleId: 
     return `Only PKR ${lease.room.toLocaleString()} is still owed on this truck's lease (${lease.number}) · باقی رقم سے زیادہ نہیں ہو سکتی`;
   return null;
 }
+
+/**
+ * One form, several lines — some money In, some Out — saved together as a voucher. Each line is an
+ * ordinary Daily Cash Book entry (its truck / party link, its kind, the lease and the khata all work
+ * exactly as for a single entry); they share a key so the day's list shows them as one group.
+ * Everything is checked first; an Out that needs an approver holds the whole voucher.
+ */
+router.post("/voucher", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const raw: any[] = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    const lines = raw.filter((l) => Math.round(Number(l?.amount) || 0) > 0).slice(0, 30);
+    if (!lines.length) return res.status(400).json({ error: "Write the amount in at least one line · کم از کم ایک لائن میں رقم لکھیں" });
+    const prepared: Array<{ patch: Record<string, unknown>; linkCategory: string | null }> = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const at = `Line ${i + 1}: `;
+      const patch = coerce({ ...l, entryDate: l.entryDate ?? req.body?.entryDate });
+      if (!patch.amount) return res.status(400).json({ error: `${at}amount is required` });
+      if (patch.direction === undefined) patch.direction = "Out";
+      if (patch.entryDate === undefined) patch.entryDate = new Date();
+      if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
+        return res.status(400).json({ error: `${at}pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں` });
+      }
+      const linkCategory = patch.linkType === "truck" ? truckCategory(l.linkCategory) : null;
+      if (linkCategory === SHAKHSI && (await findManualLedger(patch.linkTargetId as number)).shared) return res.status(400).json({ error: `${at}${SHARED_SHAKHSI}` });
+      const qistProblem = await qistCheck(linkCategory, patch.direction as string, patch.linkTargetId as number, Number(patch.amount), null);
+      if (qistProblem) return res.status(400).json({ error: `${at}${qistProblem}` });
+      prepared.push({ patch, linkCategory });
+    }
+    const out = prepared.filter((p) => p.patch.direction === "Out").reduce((s, p) => s + Number(p.patch.amount), 0);
+    if (
+      out > 0 &&
+      (await holdForApproval(req, res, {
+        kind: "cash_book",
+        amount: out,
+        summary: `Cash Book voucher · ${prepared.length} lines · Out ${out.toLocaleString()}`,
+        method: "POST",
+        path: "/api/cash-book/voucher",
+        payload: req.body,
+      }))
+    )
+      return;
+    const key = randomUUID();
+    const created: any[] = [];
+    for (const p of prepared) {
+      const [row] = await db.insert(T).values({ ...p.patch, voucherKey: key, createdBy: req.user?.id } as any).returning();
+      await syncLink(row, req.user?.id, p.linkCategory);
+      const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
+      await audit(req, "CREATE", row.id, null, fresh);
+      const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
+      created.push({ ...fresh, lease });
+    }
+    res.json({ voucherKey: key, entries: created, lease: created.map((c) => c.lease).find(Boolean) ?? null });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
 
 router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
   try {
