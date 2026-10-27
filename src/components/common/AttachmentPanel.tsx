@@ -36,6 +36,7 @@ export default function AttachmentPanel({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dupWarn, setDupWarn] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +46,7 @@ export default function AttachmentPanel({
     setErr(null);
     try {
       const rows: Attachment[] = await enterpriseFetch(
-        `/api/attachments?entityType=${encodeURIComponent(entityType)}&entityId=${entityId}`
+        `/api/attachments?entityType=${encodeURIComponent(entityType)}&entityId=${entityId}&linked=1`
       );
       setItems(rows);
       // lazy-load image thumbnails as authed blob URLs
@@ -72,23 +73,28 @@ export default function AttachmentPanel({
     setBusy(true);
     setErr(null);
     setDupWarn(null);
+    setInfo(null);
     try {
       for (const f of Array.from(files)) {
         const res: any = await uploadAttachment(entityType, entityId, f);
+        if (res?.alreadyThere) {
+          setInfo(`"${f.name}" is already attached to this entry or to the same payment's other record — it shows here, nothing more to do. · یہ رسید پہلے سے لگی ہے`);
+          continue;
+        }
         if (res?.duplicate && Array.isArray(res.duplicateOf)) {
           const others = res.duplicateOf.filter((d: any) => d.id !== res.id);
           if (others.length) {
             setDupWarn(
-              `⚠ "${f.name}" ki bilkul yehi copy pehle bhi lagi hai — ` +
+              `⚠ An identical copy of "${f.name}" is already attached — ` +
                 others.map((d: any) => `${d.entityType} #${d.entityId} (${new Date(d.createdAt).toLocaleDateString()})`).join(", ") +
-                `. Yeh double slip to nahi?`,
+                `. Possible duplicate slip? · ممکنہ دہری رسید؟`,
             );
           }
         } else if (res?.sameSlipCount > 0) {
           const others = (res.sameSlip || []).filter((d: any) => d.id !== res.id);
           if (others.length) {
             setDupWarn(
-              `⚠ Isi naam/size ki file pehle bhi lagi hai (${others.map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — same slip dobara to nahi lagayi?`,
+              `⚠ A file with the same name and size is already attached (${others.map((d: any) => `${d.entityType} #${d.entityId}`).join(", ")}) — possible duplicate slip? · ممکنہ دہری رسید؟`,
             );
           }
         }
@@ -165,6 +171,13 @@ export default function AttachmentPanel({
         </div>
       )}
 
+      {info && (
+        <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 px-3 py-2 text-[11px] flex items-start gap-2" dir="auto">
+          <span className="flex-1">{info}</span>
+          <button onClick={() => setInfo(null)} className="shrink-0" title="Dismiss"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+
       {!readOnly && (
         <div
           onDragOver={(e) => {
@@ -204,8 +217,11 @@ export default function AttachmentPanel({
                   </div>
                 )}
                 <div className="px-2 py-1 text-[10px] text-slate-600 truncate text-left">{a.fileName}</div>
+                {(a as any).linkedFrom && (
+                  <div className="px-2 pb-1 text-[9px] text-[#24539B] truncate text-left" title="Attached on the same payment's other record">↔ {(a as any).linkedFrom}</div>
+                )}
               </button>
-              {!readOnly && (
+              {!readOnly && !(a as any).linkedFrom && (
                 <button
                   onClick={() => remove(a.id)}
                   className="absolute top-1 right-1 bg-white/90 hover:bg-red-50 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100 transition"

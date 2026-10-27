@@ -8,8 +8,8 @@ services:
     name: hf-transport-erp
     runtime: node
     plan: free
-    region: oregon            # or: frankfurt, singapore, ohio
-    branch: main
+    region: singapore          # matches the Neon DB region (ap-southeast-1)
+    branch: master
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
@@ -33,6 +33,10 @@ services:
       - key: SUPER_ADMIN_PASSWORD   # first-login password; rotate after logging in
         sync: false
       - key: APP_URL               # e.g. https://hf-transport-erp.onrender.com
+        sync: false
+      - key: SMTP_PASSWORD          # Email (Console -> Email): the mailbox password lives only here
+        sync: false
+      - key: ANTHROPIC_API_KEY      # AI Accountant (Claude) - reads photos / PDFs, answers questions
         sync: false
       - key: GEMINI_API_KEY
         sync: false

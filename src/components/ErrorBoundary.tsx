@@ -56,18 +56,18 @@ export class ErrorBoundary extends Component<Props, State> {
         <div style={{ maxWidth: 520, textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
           <h1 style={{ fontSize: 18, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>
-            Kuch ghalat ho gaya · Something went wrong
+            Something went wrong · کچھ غلط ہو گیا
           </h1>
           <p style={{ fontSize: 13, color: "#475569", marginBottom: 16 }}>
-            Yeh screen crash hui, lekin baaqi app theek hai. Neeche wapis jayein ya reload karein.
-            Agar koi row save nahi hui thi, wo dobara likhni pare gi.
+            This screen crashed, but the rest of the app is fine. Go back or reload the page. · یہ اسکرین کریش ہو گئی، باقی ایپ ٹھیک ہے۔ واپس جائیں یا صفحہ ریلوڈ کریں۔
+            If a row was not saved, you will need to enter it again. · اگر کوئی قطار محفوظ نہیں ہوئی تھی تو اسے دوبارہ لکھنا ہوگا۔
           </p>
           <pre
             style={{
               fontSize: 11,
-              color: "#B91C1C",
-              background: "#FEF2F2",
-              border: "1px solid #FECACA",
+              color: "#B00005",
+              background: "#FFF1F1",
+              border: "1px solid #FFC2C3",
               borderRadius: 8,
               padding: 10,
               textAlign: "left",
@@ -83,14 +83,14 @@ export class ErrorBoundary extends Component<Props, State> {
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
-                border: "1px solid #16A34A",
+                border: "1px solid #24539B",
                 background: "#fff",
-                color: "#16A34A",
+                color: "#24539B",
                 fontWeight: 600,
                 cursor: "pointer",
               }}
             >
-              Wapis jayein · Go back
+              Go back · واپس جائیں
             </button>
             <button
               onClick={() => window.location.reload()}
@@ -98,7 +98,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 padding: "8px 16px",
                 borderRadius: 8,
                 border: "none",
-                background: "#16A34A",
+                background: "#24539B",
                 color: "#fff",
                 fontWeight: 600,
                 cursor: "pointer",
