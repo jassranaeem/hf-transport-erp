@@ -99,10 +99,12 @@ export default function CashBook({
   const vIn = filledLines.filter((l) => l.direction === "In").reduce((s, l) => s + Number(l.amount), 0);
   const vOut = filledLines.filter((l) => l.direction !== "In").reduce((s, l) => s + Number(l.amount), 0);
   // the next line starts from the last one: same person / truck / party, the other direction
-  const addLine = () =>
+  const addLine = (direction: "In" | "Out") =>
     setLines((ls) => {
       const last = ls[ls.length - 1];
-      return [...ls, { ...BLANK, direction: last.direction === "In" ? "Out" : "In", person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
+      // a blank first line is simply turned the way it was asked for
+      if (ls.length === 1 && !Number(last.amount) && !last.person && !last.description) return [{ ...last, direction }];
+      return [...ls, { ...BLANK, direction, person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
     });
   const add = async () => {
     if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
@@ -285,47 +287,29 @@ export default function CashBook({
       )}
 
       {showAdd && (
-        <div className="space-y-3 rounded-xl border border-[#C9D7EC] bg-[#F7F9FD] p-3">
-          <div>
-            <div className="text-[13px] font-semibold text-[#1F2937]">New entry for {date} · نیا اندراج</div>
-            <div className="text-[11.5px] text-[#6B7280]" dir="auto">
-              One form can hold several lines — money In and money Out together — saved as one voucher, shown together in the day's list. ·
-              ایک فارم میں کئی لائنیں: آمد اور ادائیگی دونوں، ایک ساتھ محفوظ
+        <div className="rounded-xl border border-[#C9D7EC] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+          <div className="px-4 py-3 bg-[#F7F9FD] border-b border-[#E3E8EF] flex flex-wrap items-center gap-x-4 gap-y-1">
+            <div className="text-[14px] font-semibold text-[#1F2937]">Cash voucher · کیش واؤچر — {dmyDate(date)}</div>
+            <div className="text-[12px] text-[#6B7280]" dir="auto">
+              One line per entry; money received goes in the <b className="text-[#166534]">In</b> box, money paid in the <b className="text-[#B91C1C]">Out</b> box. Add as many lines as you like and save them together. ·
+              ہر لائن ایک اندراج: آمد «In» میں، ادائیگی «Out» میں
             </div>
           </div>
-          {lines.map((ln, i) => (
-            <div key={i} className="space-y-1.5">
-              {lines.length > 1 && (
-                <div className="flex items-center justify-between text-[12px]">
-                  <b className={ln.direction === "In" ? "text-[#166534]" : "text-[#B91C1C]"}>Line {i + 1} · {ln.direction === "In" ? "In · وصول" : "Out · ادا"}</b>
-                  <button type="button" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="inline-flex items-center gap-1 text-[#6B7280] hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /> Remove line</button>
-                </div>
-              )}
-              <EntryForm
-                value={ln}
-                onChange={(v) => setLines((ls) => ls.map((x, j) => (j === i ? v : x)))}
-                onSubmit={add}
-                saving={saving}
-                onCancel={() => setShowAdd(false)}
-                submitLabel="Save · محفوظ کریں"
-                compact={i > 0}
-                hideActions
-                linkOptions={linkOptions}
-                onNavigate={onNavigate}
-              />
-            </div>
-          ))}
-          <div className="flex flex-wrap items-center gap-3">
-            <Btn kind="primary" onClick={add} disabled={saving} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>
-              Save · محفوظ کریں{filledLines.length > 1 ? ` (${filledLines.length} lines)` : ""}
-            </Btn>
-            <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-[12.5px] font-medium text-[#24539B] hover:underline"><Plus className="w-3.5 h-3.5" /> Add another line · ایک اور لائن</button>
-            <Btn onClick={() => { setShowAdd(false); setLines([BLANK]); }} icon={<X />}>Cancel</Btn>
+          <VoucherGrid lines={lines} setLines={setLines} linkOptions={linkOptions} onNavigate={onNavigate} />
+          <div className="px-4 py-3 border-t border-[#E3E8EF] bg-[#F8FAFC] flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => addLine("In")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] text-[#166534] text-[12.5px] font-semibold px-3 py-1.5 hover:bg-[#DCFCE7]"><Plus className="w-3.5 h-3.5" /> Receipt line · وصول</button>
+            <button type="button" onClick={() => addLine("Out")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C] text-[12.5px] font-semibold px-3 py-1.5 hover:bg-[#FEE2E2]"><Plus className="w-3.5 h-3.5" /> Payment line · ادائیگی</button>
+            <div className="flex-1" />
             {filledLines.length > 0 && (
-              <span className="text-[12px] tabular-nums text-[#4B5563]">
+              <div className="text-[12px] tabular-nums text-[#4B5563]" dir="auto">
                 In <b className="text-[#166534]">{PKR(vIn)}</b> · Out <b className="text-[#B91C1C]">{PKR(vOut)}</b> · net <b>{vIn - vOut < 0 ? "−" : ""}{PKR(vIn - vOut)}</b>
-              </span>
+                {data ? <> · closing after saving <b className={data.closingBalance + vIn - vOut < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}>{data.closingBalance + vIn - vOut < 0 ? "−" : ""}{PKR(data.closingBalance + vIn - vOut)}</b></> : null}
+              </div>
             )}
+            <Btn onClick={() => { setShowAdd(false); setLines([BLANK]); }} icon={<X />}>Cancel</Btn>
+            <Btn kind="primary" onClick={add} disabled={saving} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>
+              Save{filledLines.length > 1 ? ` ${filledLines.length} lines` : ""} · محفوظ کریں
+            </Btn>
           </div>
         </div>
       )}
@@ -384,16 +368,22 @@ export default function CashBook({
           <table className="w-full text-[12.5px]">
             <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
               <tr className="border-b border-[#E3E8EF]">
-                <th className="text-left px-3 py-2">Time</th>
-                <th className="text-left px-3 py-2">In / Out</th>
-                <th className="text-left px-3 py-2">Person · کس کو / کس سے</th>
-                <th className="text-left px-3 py-2">Description</th>
-                <th className="text-right px-3 py-2">Amount</th>
-                <th className="text-right px-3 py-2">Balance</th>
+                <th className="text-left px-3 py-2 w-[78px]">Time</th>
+                <th className="text-left px-3 py-2">Particulars · تفصیل <span className="font-normal text-[#9CA3AF]">(who · what · where it went)</span></th>
+                <th className="text-right px-3 py-2 w-[130px] text-[#166534]">Receipts · In · وصول</th>
+                <th className="text-right px-3 py-2 w-[130px] text-[#B91C1C]">Payments · Out · ادائیگی</th>
+                <th className="text-right px-3 py-2 w-[130px]">Balance · بیلنس</th>
                 <th className="px-2 w-[64px]"></th>
               </tr>
             </thead>
             <tbody>
+              {data && (
+                <tr className="bg-[#F8FAFC] border-b border-[#E3E8EF] text-[#374151]">
+                  <td className="px-3 py-1.5" colSpan={4}><b>Opening balance · صبح کا بیلنس</b></td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{data.openingBalance < 0 ? "−" : ""}{PKR(data.openingBalance)}</td>
+                  <td />
+                </tr>
+              )}
               {inOrder(withRunning, newestFirst).map((r: any, i: number, list: any[]) => (
                 <React.Fragment key={r.id}>
                   {r.voucherKey && list[i - 1]?.voucherKey !== r.voucherKey && (() => {
@@ -402,7 +392,7 @@ export default function CashBook({
                     const gout = g.filter((x: any) => x.direction !== "In").reduce((s: number, x: any) => s + x.amount, 0);
                     return (
                       <tr className="bg-[#F5F3FF] border-t border-[#DDD6FE]">
-                        <td colSpan={7} className="px-3 py-1 text-[11.5px] text-[#5B21B6]" dir="auto">
+                        <td colSpan={6} className="px-3 py-1 text-[11.5px] text-[#5B21B6]" dir="auto">
                           <div className="sticky left-0" style={{ width: "min(640px, calc(100vw - 6rem))" }}>
                             <b>Voucher · {g.length} lines · ایک ساتھ</b> <span className="tabular-nums">· In {PKR(gin)} · Out {PKR(gout)} · net {gin - gout < 0 ? "−" : ""}{PKR(gin - gout)}</span>
                           </div>
@@ -412,19 +402,13 @@ export default function CashBook({
                   })()}
                   <tr
                     onClick={() => (editId === r.id ? setEditId(null) : startEdit(r))}
-                    className={`group border-t border-[#F1F4F9] cursor-pointer ${editId === r.id ? "bg-[#F4F7FC]" : "hover:bg-[#F8FAFC]"}`}
+                    className={`group border-t border-[#F1F4F9] cursor-pointer border-l-[3px] ${r.direction === "In" ? "border-l-[#22C55E]" : "border-l-[#F87171]"} ${editId === r.id ? "bg-[#F4F7FC]" : "hover:bg-[#F8FAFC]"}`}
                     title="Click to open this entry's full detail · مکمل تفصیل کے لیے کلک کریں"
                   >
                     <td className="px-3 py-2 whitespace-nowrap text-[#6B7280] tabular-nums align-top">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                    <td className="px-3 py-2 align-top">
-                      {r.direction === "In" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#ECFDF3] text-[#166534] px-2 py-0.5 text-[11.5px] font-medium"><ArrowDownCircle className="w-3.5 h-3.5" /> In</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#FEF2F2] text-[#B91C1C] px-2 py-0.5 text-[11.5px] font-medium"><ArrowUpCircle className="w-3.5 h-3.5" /> Out</span>
-                      )}
-                    </td>
                     <td className="px-3 py-2 align-top" dir="auto">
-                      <span className="text-[#1F2937]">{r.person || "—"}</span>
+                      <div className="font-medium text-[#1F2937]">{r.person || r.description || "—"}</div>
+                      {r.person && r.description && <div className="text-[12px] text-[#4B5563]" title={r.description}>{r.description}</div>}
                       {r.linkType && (r.resolvedLedgerId || r.resolvedPartyId) ? (
                         <button
                           onClick={(e) => {
@@ -444,8 +428,8 @@ export default function CashBook({
                         <div className="text-[11px] text-[#92400E]" title="This entry also shows in these modules · یہ اندراج ان میں بھی نظر آتا ہے">also in: {r.alsoIn.join(" · ")}</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 max-w-[280px] truncate text-[#374151] align-top" dir="auto" title={r.description || ""}>{r.description || "—"}</td>
-                    <td className={`px-3 py-2 text-right tabular-nums font-semibold align-top ${r.direction === "In" ? "text-[#166534]" : "text-[#B91C1C]"}`}>{PKR(r.amount)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold align-top text-[#166534] bg-[#F7FDF9]">{r.direction === "In" ? PKR(r.amount) : ""}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold align-top text-[#B91C1C] bg-[#FFF8F8]">{r.direction !== "In" ? PKR(r.amount) : ""}</td>
                     <td className={`px-3 py-2 text-right tabular-nums align-top ${r.runningAfter < 0 ? "text-[#B91C1C]" : "text-[#111827]"}`}>{r.runningAfter < 0 ? "−" : ""}{PKR(r.runningAfter)}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap text-right align-top opacity-40 group-hover:opacity-100 transition-opacity">
                       <button onClick={(e) => { e.stopPropagation(); startEdit(r); }} title="Edit" className="text-[#6B7280] hover:text-[#24539B] p-1 rounded hover:bg-white"><Pencil className="w-3.5 h-3.5" /></button>
@@ -454,7 +438,7 @@ export default function CashBook({
                   </tr>
                   {editId === r.id && (
                     <tr className="bg-[#F4F7FC]">
-                      <td colSpan={7} className="px-4 pb-4 pt-1">
+                      <td colSpan={6} className="px-4 pb-4 pt-1">
                         <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} onNavigate={onNavigate} />
                         <div className="mt-3">
                           {/* a receipt here also shows on the khata / party / trip row this entry wrote, and theirs here */}
@@ -467,12 +451,25 @@ export default function CashBook({
               ))}
               {withRunning.length === 0 && (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={6}>
                     <Empty icon={<Wallet />} title={`No entries for ${date} yet`} hint="ابھی کوئی اندراج نہیں — “Add entry” سے شروع کریں" />
                   </td>
                 </tr>
               )}
             </tbody>
+            {data && withRunning.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-[#CBD5E1] bg-[#F8FAFC] font-semibold text-[#111827]">
+                  <td className="px-3 py-2" colSpan={2}>Total of the day · دن کا کل</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#166534]">{PKR(data.totalIn)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#B91C1C]">{PKR(data.totalOut)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${data.closingBalance < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`} title="Closing balance · باقی بچا">
+                    {data.closingBalance < 0 ? "−" : ""}{PKR(data.closingBalance)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </Card>
@@ -489,25 +486,8 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
   const set = (k: string, v: any) => onChange({ ...value, [k]: v });
   // a truck picked: its khata's detail, and the same "what is this money" choice as Truck Ledger
   const truckId = value.linkType === "truck" && value.linkTargetId ? Number(value.linkTargetId) : null;
-  const [truck, setTruck] = useState<any>(null);
-  const [truckErr, setTruckErr] = useState("");
-  useEffect(() => {
-    setTruck(null);
-    setTruckErr("");
-    if (!truckId) return;
-    let live = true;
-    enterpriseFetch(`/api/cash-book/truck/${truckId}`)
-      .then((r) => live && setTruck(r))
-      .catch((e) => live && setTruckErr(e.message));
-    return () => {
-      live = false;
-    };
-  }, [truckId]);
-  const kv: KhataKindValue = {
-    kind: kindOf(value.linkCategory || "Other", value.direction === "In" ? 1 : 0, value.direction === "Out" ? 1 : 0),
-    category: value.linkCategory || "Other",
-    direction: value.direction === "In" ? "In" : "Out",
-  };
+  const { truck, truckErr } = useTruckInfo(truckId);
+  const kv = kvOf(value);
   // In / Out flipped by hand: keep the kind when it still fits, else plain "Other"
   const setDirection = (d: "In" | "Out") => {
     if (!truckId || d === value.direction) return set("direction", d);
@@ -731,6 +711,265 @@ function TruckSnapshot({ t, onOpen }: { t: any; onOpen?: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------------------------
+// shared bits of the entry forms
+
+const dmyDate = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`;
+
+/** The picked truck's khata at a glance (balance, totals, lease / partnership), fetched when a truck is chosen. */
+function useTruckInfo(truckId: number | null) {
+  const [truck, setTruck] = useState<any>(null);
+  const [truckErr, setTruckErr] = useState("");
+  useEffect(() => {
+    setTruck(null);
+    setTruckErr("");
+    if (!truckId) return;
+    let live = true;
+    enterpriseFetch(`/api/cash-book/truck/${truckId}`)
+      .then((r) => live && setTruck(r))
+      .catch((e) => live && setTruckErr(e.message));
+    return () => {
+      live = false;
+    };
+  }, [truckId]);
+  return { truck, truckErr };
+}
+
+/** What the money is, for a truck entry: from its category and which way it goes. */
+function kvOf(value: any): KhataKindValue {
+  return {
+    kind: kindOf(value.linkCategory || "Other", value.direction === "In" ? 1 : 0, value.direction === "Out" ? 1 : 0),
+    category: value.linkCategory || "Other",
+    direction: value.direction === "In" ? "In" : "Out",
+  };
+}
+
+/** The entry turned to In or Out; on a truck, a kind that does not fit the new way goes back to "Other". */
+function withDirection(value: any, d: "In" | "Out"): any {
+  if (d === value.direction) return value;
+  const truckId = value.linkType === "truck" && value.linkTargetId;
+  if (!truckId) return { ...value, direction: d };
+  const kv = kvOf(value);
+  const k: KhataKind = kv.kind;
+  const fits = k === "shakhsi" || k === "safi" || k === "capital" || (d === "In" ? INCOME_CATS : EXPENSE_CATS).includes(kv.category);
+  return { ...value, direction: d, linkCategory: fits ? value.linkCategory : "Other" };
+}
+
+/** $ / Toman / Afghani → PKR, the rate fetched by itself; writes the amount and a note of the conversion. */
+function FxBox({ onApply, onClose }: { onApply: (pkr: number, note: string) => void; onClose: () => void }) {
+  const lbl = "flex flex-col gap-1 text-[11.5px] font-medium text-[#4B5563]";
+  const inp = "border border-[#CBD5E1] rounded-lg px-3 py-2 text-[13px] text-[#111827] bg-white";
+  const [fx, setFx] = useState({ code: "USD", amount: "", rate: "", source: "" });
+  const pickFx = (code: string) => {
+    setFx((f) => ({ ...f, code, rate: "", source: "getting today's rate…" }));
+    enterpriseFetch(`/api/currency/live?code=${code}`)
+      .then((r) => setFx((f) => (f.code === code ? { ...f, rate: String(r.rate), source: r.source === "yours" ? "your rate for today" : r.source === "internet" ? "today's internet rate — change it if you got another" : r.warning || "last saved rate" } : f)))
+      .catch((e) => setFx((f) => ({ ...f, source: e.message })));
+  };
+  useEffect(() => pickFx("USD"), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pkr = Math.round((Number(fx.amount) || 0) * (Number(fx.rate) || 0));
+  return (
+    <div className="rounded-lg border border-[#C9D7EC] bg-white p-3 flex flex-wrap items-end gap-2">
+      <label className={lbl}>Currency
+        <select value={fx.code} onChange={(e) => pickFx(e.target.value)} className={inp}>
+          {["USD", "TMN", "IRR", "AFN", "AED", "SAR", "CNY", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </label>
+      <label className={lbl}>Amount<input inputMode="decimal" value={fx.amount} onChange={(e) => setFx({ ...fx, amount: e.target.value })} className={`${inp} w-28`} placeholder="1100" /></label>
+      <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value, source: "your rate" })} className={`${inp} w-28`} placeholder="…" /></label>
+      <div className="text-[13px] pb-2">= <b className="tabular-nums">PKR {pkr.toLocaleString()}</b></div>
+      <Btn size="sm" kind="primary" onClick={() => { onApply(pkr, `(${fx.code} ${Number(fx.amount).toLocaleString()} × ${Number(fx.rate).toLocaleString()})`); onClose(); }} disabled={!pkr}>Use this</Btn>
+      <button type="button" onClick={onClose} className="text-[12px] text-[#6B7280] underline pb-2">Close</button>
+      <span className="text-[11px] text-[#9CA3AF] basis-full">{fx.source}{fx.source ? " · " : ""}The description will note the conversion. All rates: Finance → Currency Rates.</span>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------------------------
+// the voucher grid: one line per entry, money received in the In box, money paid in the Out box
+
+const GRID = "md:grid-cols-[26px_minmax(0,1.25fr)_minmax(0,1.5fr)_minmax(0,1.05fr)_128px_128px_30px]";
+
+function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
+  lines: any[];
+  setLines: React.Dispatch<React.SetStateAction<any[]>>;
+  linkOptions: LinkOptions;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  return (
+    <div>
+      <div className={`hidden md:grid ${GRID} gap-2 px-4 py-2 bg-[#F8FAFC] border-b border-[#E3E8EF] text-[11.5px] font-medium text-[#4B5563]`}>
+        <span>#</span>
+        <span>Person · کس کو / کس سے</span>
+        <span>Description · تفصیل</span>
+        <span>Goes to · کھاتہ</span>
+        <span className="text-right text-[#166534]">In · وصول</span>
+        <span className="text-right text-[#B91C1C]">Out · ادائیگی</span>
+        <span />
+      </div>
+      {lines.map((ln, i) => (
+        <React.Fragment key={i}>
+          <VoucherRow
+            index={i}
+            line={ln}
+            onChange={(patch) => setLines((ls) => ls.map((x, j) => (j === i ? (typeof patch === "function" ? patch(x) : { ...x, ...patch }) : x)))}
+            onRemove={lines.length > 1 ? () => setLines((ls) => ls.filter((_, j) => j !== i)) : undefined}
+            linkOptions={linkOptions}
+            onNavigate={onNavigate}
+          />
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate }: {
+  index: number;
+  line: any;
+  onChange: (patch: any) => void;
+  onRemove?: () => void;
+  linkOptions: LinkOptions;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  const [more, setMore] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
+  const isIn = line.direction === "In";
+  const truckId = line.linkType === "truck" && line.linkTargetId ? Number(line.linkTargetId) : null;
+  const { truck, truckErr } = useTruckInfo(truckId);
+  const kv = kvOf(line);
+  const inp = "border border-[#CBD5E1] rounded-lg px-2.5 py-1.5 text-[13px] text-[#111827] bg-white w-full min-w-0";
+  const amt = "border rounded-lg px-2.5 py-1.5 text-[13px] font-semibold tabular-nums text-right bg-white w-full min-w-0";
+  const hasDetail = !!line.linkType || more;
+  return (
+    <div className={`px-4 py-2.5 border-t border-[#F1F4F9] border-l-[3px] ${isIn ? "border-l-[#22C55E]" : "border-l-[#F87171]"}`}>
+      <div className={`grid grid-cols-1 ${GRID} gap-2 items-start`}>
+        <span className="hidden md:block pt-2 text-[12px] text-[#9CA3AF] tabular-nums">{index + 1}</span>
+        <input dir="auto" value={line.person} onChange={(e) => onChange({ person: e.target.value })} className={inp} placeholder="Person · کس کو / کس سے" />
+        <input dir="auto" value={line.description} onChange={(e) => onChange({ description: e.target.value })} className={inp} placeholder="Description · تفصیل" />
+        <select
+          value={line.linkType}
+          onChange={(e) => onChange({ linkType: e.target.value, linkTargetId: "", linkCategory: "" })}
+          className={inp}
+          title="Where else this entry is written · اور کہاں لکھنا ہے"
+        >
+          <option value="">Cash Book only · صرف کیش بک</option>
+          <option value="truck">Truck Ledger · ٹرک</option>
+          <option value="party">Party Ledger · پارٹی</option>
+          <option value="personal">Personal · ذاتی</option>
+          <option value="zakat">Zakat · زکوٰۃ</option>
+        </select>
+        <div className="grid grid-cols-2 gap-2 md:contents">
+          <input
+            inputMode="numeric"
+            value={isIn ? line.amount : ""}
+            onChange={(e) => onChange((x: any) => ({ ...withDirection(x, "In"), amount: e.target.value.replace(/[^\d]/g, "") }))}
+            className={`${amt} ${isIn && line.amount ? "border-[#86EFAC] text-[#166534]" : "border-[#CBD5E1] text-[#166534]"}`}
+            placeholder="In · وصول"
+            aria-label="Money in"
+          />
+          <input
+            inputMode="numeric"
+            value={!isIn ? line.amount : ""}
+            onChange={(e) => onChange((x: any) => ({ ...withDirection(x, "Out"), amount: e.target.value.replace(/[^\d]/g, "") }))}
+            className={`${amt} ${!isIn && line.amount ? "border-[#FCA5A5] text-[#B91C1C]" : "border-[#CBD5E1] text-[#B91C1C]"}`}
+            placeholder="Out · ادائیگی"
+            aria-label="Money out"
+          />
+        </div>
+        {onRemove ? (
+          <button type="button" onClick={onRemove} title="Remove this line" className="pt-2 text-[#9CA3AF] hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+        ) : (
+          <span />
+        )}
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-[11.5px] md:pl-[34px]">
+        <button type="button" onClick={() => setMore((v) => !v)} className="text-[#24539B] hover:underline">{more ? "− Less" : "+ Note / $→PKR · نوٹ / ڈالر"}</button>
+      </div>
+
+      {hasDetail && (
+        <div className="mt-2 space-y-2 md:pl-[34px]">
+          {more && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <input dir="auto" value={line.notes} onChange={(e) => onChange({ notes: e.target.value })} className={`${inp} max-w-md`} placeholder="Notes · نوٹ" />
+                <button type="button" onClick={() => setFxOpen((v) => !v)} className="text-[12px] text-[#24539B] hover:underline" title="Dollar / Toman / Afghani → PKR">$ → PKR</button>
+              </div>
+              {fxOpen && (
+                <FxBox
+                  onClose={() => setFxOpen(false)}
+                  onApply={(pkr, note) => onChange((x: any) => ({ ...x, amount: String(pkr), description: `${String(x.description || "").replace(/\s*\([A-Z]{3} [\d,.]+ × [\d,.]+\)$/, "")} ${note}`.trim() }))}
+                />
+              )}
+            </div>
+          )}
+
+          {line.linkType === "truck" && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <select value={line.linkTargetId} onChange={(e) => onChange({ linkTargetId: e.target.value, linkCategory: "" })} className={`${inp} max-w-[260px]`} aria-label="Which truck">
+                  <option value="">{linkOptions.loading ? "Loading the trucks…" : linkOptions.trucks.length ? "— which truck · کونسا ٹرک —" : "— no trucks —"}</option>
+                  {linkOptions.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration}</option>)}
+                </select>
+                {linkOptions.error && (
+                  <span className="text-[11.5px] text-[#B91C1C]" dir="auto">
+                    The truck list could not be loaded: {linkOptions.error}{" "}
+                    <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+                  </span>
+                )}
+                {!linkOptions.error && !linkOptions.loading && linkOptions.trucks.length === 0 && (
+                  <span className="text-[11.5px] text-[#92400E]" dir="auto">No trucks are saved yet — add them in Fleet → Vehicles</span>
+                )}
+              </div>
+              {truckId && (
+                <>
+                  {truckErr ? (
+                    <div className="text-[12px] text-[#B91C1C]">{truckErr}</div>
+                  ) : !truck ? (
+                    <div className="text-[12px] text-[#6B7280] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Opening the truck's khata…</div>
+                  ) : (
+                    <TruckSnapshot t={truck} onOpen={onNavigate && truck.ledgerId ? () => onNavigate("khata", "truck_ledgers", { ledgerId: truck.ledgerId }) : undefined} />
+                  )}
+                  <div className="rounded-lg border border-[#E3E8EF] bg-[#FBFCFE] p-3">
+                    <KhataKindPicker
+                      value={kv}
+                      onChange={(n) => onChange({ linkCategory: n.category, direction: n.direction })}
+                      isPartnership={!!truck?.sharedWithPartner}
+                      showQist={truck?.lease?.status === "Active"}
+                      onOpenPartnerPnl={onNavigate && truck?.ledgerId ? () => onNavigate("finance", "partner_pnl", { ledgerId: truck.ledgerId }) : undefined}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {line.linkType === "party" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={line.linkTargetId} onChange={(e) => onChange({ linkTargetId: e.target.value })} className={`${inp} max-w-[300px]`} aria-label="Which party">
+                <option value="">{linkOptions.loading ? "Loading the parties…" : linkOptions.parties.length ? "— which party · کونسی پارٹی —" : "— no parties —"}</option>
+                {linkOptions.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {linkOptions.error && (
+                <span className="text-[11.5px] text-[#B91C1C]" dir="auto">
+                  The party list could not be loaded: {linkOptions.error}{" "}
+                  <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+                </span>
+              )}
+            </div>
+          )}
+
+          {(line.linkType === "personal" || line.linkType === "zakat") && (
+            <div className="text-[11.5px] text-[#6B7280]" dir="auto">
+              {line.linkType === "personal" ? "Also written in Personal & Household · ذاتی کھاتے میں بھی لکھا جائے گا" : "Also written in Zakat (always money given) · زکوٰۃ میں بھی لکھا جائے گا"}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
