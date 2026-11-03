@@ -295,6 +295,13 @@
       "when": 1791900000000,
       "tag": "0041_cash_voucher",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792000000000,
+      "tag": "0042_personal_openings",
+      "breakpoints": true
     }
   ]
 }

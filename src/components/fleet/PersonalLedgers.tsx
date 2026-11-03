@@ -58,6 +58,8 @@ export default function PersonalLedgers({
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
+  // the opening balance of the open ledger, written by hand
+  const [openingEdit, setOpeningEdit] = useState<string | null>(null);
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
@@ -85,6 +87,26 @@ export default function PersonalLedgers({
       .catch((e) => showFeedback("error", e.message));
   }, [selected, qs, showFeedback]);
   useEffect(loadLedger, [loadLedger, refreshKey]);
+
+  // the opening balance of the open ledger: written by hand, kept apart from the entries
+  useEffect(() => setOpeningEdit(null), [selected?.kind, selected?.name]);
+  const startOpening = () => setOpeningEdit(ledger?.ownOpening ? String(ledger.ownOpening) : "");
+  const saveOpening = async () => {
+    if (!selected || openingEdit === null) return;
+    setSaving(true);
+    try {
+      await enterpriseFetch("/api/personal-expenses/openings", { method: "PUT", body: JSON.stringify({ kind: selected.kind, name: selected.name, amount: openingEdit }) });
+      showFeedback("success", Number(openingEdit) ? "Opening balance saved · ابتدائی بیلنس محفوظ" : "Opening balance cleared · ہٹا دیا");
+      setOpeningEdit(null);
+      loadLedger();
+      loadList();
+      onChanged();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // another ledger: close whatever was open in the last one
   useEffect(() => {
@@ -257,13 +279,47 @@ export default function PersonalLedgers({
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-3 text-xs">
-              {[["Opening · ابتدائی", ledger.opening], ["Spent · خرچ", ledger.spent], ["Funds in · رقم جمع", ledger.funds], [ledger.balanceLabel, ledger.closing]].map(([l, v]: any) => (
-                <div key={l} className="border border-[#E5E7EB] rounded-lg p-2">
-                  <div className="text-[10px] text-[#6B7280]" dir="auto">{l}</div>
-                  <div className="font-semibold tabular-nums">{PKR(v)}</div>
+              {[["Opening · ابتدائی", ledger.opening], ["Spent · خرچ", ledger.spent], ["Funds in · رقم جمع", ledger.funds], [ledger.balanceLabel, ledger.closing]].map(([l, v]: any, i: number) => (
+                <div key={l} className={`border rounded-lg p-2 ${i === 0 ? "border-[#C9D7EC] bg-[#F7F9FD]" : "border-[#E5E7EB]"}`}>
+                  <div className="text-[10px] text-[#6B7280] flex items-center justify-between gap-1" dir="auto">
+                    <span>{l}</span>
+                    {i === 0 && (
+                      <button onClick={startOpening} title="Write the opening balance yourself · ابتدائی بیلنس خود لکھیں" className="text-[#6B7280] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
+                    )}
+                  </div>
+                  <div className="font-semibold tabular-nums">{v < 0 ? "−" : ""}{PKR(Math.abs(v))}</div>
                 </div>
               ))}
             </div>
+            {openingEdit !== null && (
+              <div className="mx-3 mb-3 rounded-lg border border-[#C9D7EC] bg-[#F7F9FD] p-3 text-xs flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[#4B5563] font-medium" dir="auto">
+                    {selected.kind === "pot"
+                      ? "Money in the house pot at the start · پاٹ میں شروع کی رقم"
+                      : "Already spent before the first entry · پہلے سے ہو چکا خرچ"}
+                  </span>
+                  <input
+                    id="personal-opening"
+                    autoFocus
+                    inputMode="numeric"
+                    value={openingEdit}
+                    onChange={(e) => setOpeningEdit(e.target.value.replace(/[^\d-]/g, ""))}
+                    onKeyDown={(e) => e.key === "Enter" && saveOpening()}
+                    className="border border-[#CBD5E1] rounded-lg px-3 py-1.5 w-44 tabular-nums font-semibold bg-white"
+                    placeholder="0"
+                  />
+                </label>
+                <button onClick={saveOpening} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 bg-[#24539B] text-white font-semibold disabled:opacity-60" style={{ backgroundColor: "#24539B", color: "#fff" }}>
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Save opening · محفوظ کریں
+                </button>
+                <button onClick={() => setOpeningEdit(null)} className="text-[#4B5563] underline">Cancel</button>
+                <span className="text-[11px] text-[#6B7280] basis-full" dir="auto">
+                  It counts as the balance from before the first entry. Leave it empty (or 0) to clear it. If you look at only some dates, the opening also includes what was entered before them. ·
+                  یہ پہلی انٹری سے پہلے کا بیلنس مانا جاتا ہے۔ خالی یا 0 لکھیں تو ہٹ جائے گا۔
+                </span>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-[12.5px]">
                 <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
@@ -281,8 +337,11 @@ export default function PersonalLedgers({
                 </thead>
                 <tbody>
                   <tr className="border-t border-[#F3F4F6] bg-[#FAFAFA] font-semibold">
-                    <td className="px-3 py-2" colSpan={COLS - 1}>Opening balance · ابتدائی بیلنس</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{PKR(ledger.opening)}</td>
+                    <td className="px-3 py-2" colSpan={COLS - 1}>
+                      Opening balance · ابتدائی بیلنس{" "}
+                      <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{ledger.opening < 0 ? "−" : ""}{PKR(Math.abs(ledger.opening))}</td>
                   </tr>
                   {ledger.rows.map((r: any) => (
                     <React.Fragment key={r.id}>

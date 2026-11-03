@@ -15,6 +15,7 @@
  *   DELETE /api/personal-expenses/categories/:id[?moveTo=Name]   remove an empty one (or move its entries first)
  *   GET    /api/personal-expenses/ledgers?from=&to=      one ledger per category, per person, and the house pot
  *   GET    /api/personal-expenses/ledger?kind=category|person|pot&name=&from=&to=   one ledger with running balance
+ *   PUT    /api/personal-expenses/openings   { kind, name?, amount }   set a ledger's opening balance (0 clears it)
  *
  * Mounted at /api/personal-expenses.
  */
@@ -245,8 +246,34 @@ router.get("/meta", requireRole(READ), async (_req: AuthRequest, res: Response) 
 const net = sql`case when ${T.direction} = 'expense' then ${T.amount} else -${T.amount} end`;
 const day = (s: any, fallback: string | null = null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback);
 
+/** The opening balances the user wrote, by "kind:name" (the house pot is "pot:House pot"). */
+async function ownOpenings(): Promise<Map<string, number>> {
+  const rows = (((await db.execute(sql`select kind, name, amount::bigint amount from personal_openings`)) as any).rows as any[]) ?? [];
+  return new Map(rows.map((r) => [`${r.kind}:${r.name}`, Number(r.amount)]));
+}
+
+router.put("/openings", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
+  try {
+    const kind = String(req.body?.kind || "");
+    if (!["category", "person", "pot"].includes(kind)) return res.status(400).json({ error: "Which kind of ledger? · کس قسم کا کھاتہ؟" });
+    const name = kind === "pot" ? "House pot" : String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "Which ledger? · کونسا کھاتہ؟" });
+    const amount = Math.round(Number(String(req.body?.amount ?? 0).replace(/[^0-9.-]/g, "")) || 0);
+    const before = (await ownOpenings()).get(`${kind}:${name}`) ?? 0;
+    if (amount === 0) await db.execute(sql`delete from personal_openings where kind = ${kind} and name = ${name}`);
+    else
+      await db.execute(sql`insert into personal_openings (kind, name, amount, updated_by) values (${kind}, ${name}, ${amount}, ${req.user?.id ?? null})
+        on conflict (kind, name) do update set amount = excluded.amount, updated_at = now(), updated_by = excluded.updated_by`);
+    await logAudit({ action: "UPDATE", tableName: "personal_openings", recordId: 0, oldValues: { kind, name, amount: before }, newValues: { kind, name, amount }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+    res.json({ ok: true, kind, name, ownOpening: amount });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response) => {
   try {
+    const own = await ownOpenings().catch(() => new Map<string, number>());
     const from = day(req.query.from);
     const to = day(req.query.to);
     const before = from ? sql`${T.entryDate} < ${from}::timestamp` : sql`false`; // a day string, not a JS Date: the entries hold their day at 00:00
@@ -263,19 +290,30 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
       db.select({ name: T.person, ...cols }).from(T).where(and(live, sql`${T.person} is not null and ${T.person} <> ''`)).groupBy(T.person),
       db.select({ ...cols }).from(T).where(live),
     ]);
-    const shape = (r: any) => ({ name: r.name, opening: Number(r.opening), spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + Number(r.spent) - Number(r.funds), count: r.count, last: r.last });
+    // the opening the user wrote counts as money from before the first entry: it is part of every period's opening
+    const shape = (r: any, kind: string = "category") => {
+      const o = kind === "pot" ? 0 : own.get(`${kind}:${r.name}`) ?? 0;
+      return { name: r.name, opening: Number(r.opening) + o, spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + o + Number(r.spent) - Number(r.funds), count: r.count, last: r.last, ownOpening: o };
+    };
     const made = await ensureCategories();
     const order = new Map(made.map((c, i) => [c.name, i]));
     // only the ledgers that exist (a removed one is gone); each shows even before its first entry
-    const catRows = cats.map(shape).filter((r) => order.has(r.name));
-    for (const c of made) if (!catRows.find((r) => r.name === c.name)) catRows.push({ name: c.name, opening: 0, spent: 0, funds: 0, closing: 0, count: 0, last: null as any });
+    const catRows = cats.map((r) => shape(r)).filter((r) => order.has(r.name));
+    for (const c of made) {
+      if (!catRows.find((r) => r.name === c.name)) {
+        const o = own.get(`category:${c.name}`) ?? 0;
+        catRows.push({ name: c.name, opening: o, spent: 0, funds: 0, closing: o, count: 0, last: null as any, ownOpening: o });
+      }
+    }
     catRows.sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999));
-    const p = shape({ name: "House pot", ...pot });
+    const p = shape({ name: "House pot", ...pot }, "pot");
+    const potOwn = own.get("pot:House pot") ?? 0;
     res.json({
       categories: catRows,
-      people: people.map(shape).sort((a, b) => b.spent - a.spent),
-      // the house pot: money put in less money spent — what is left in the household's hands
-      pot: { ...p, opening: -p.opening, closing: -p.closing },
+      people: people.map((r) => shape(r, "person")).sort((a, b) => b.spent - a.spent),
+      // the house pot: money put in less money spent — what is left in the household's hands (the opening
+      // the user wrote is money in hand at the start, so it adds to what is left)
+      pot: { ...p, opening: -p.opening + potOwn, closing: -p.closing + potOwn, ownOpening: potOwn },
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -302,7 +340,9 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       .orderBy(T.entryDate, T.id)
       .limit(5000);
     const counts = await attachmentCounts(list.map((r) => r.id));
-    const opening = sign * Number(openRow?.v || 0);
+    // the opening the user wrote for this ledger (money from before the first entry), then what came before the dates
+    const ownOpening = (await ownOpenings().catch(() => new Map<string, number>())).get(`${kind}:${kind === "pot" ? "House pot" : name}`) ?? 0;
+    const opening = ownOpening + sign * Number(openRow?.v || 0);
     let running = opening;
     let spent = 0;
     let funds = 0;
@@ -318,6 +358,7 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       name: kind === "pot" ? "House pot" : name,
       balanceLabel: kind === "pot" ? "Left in the pot · پاٹ میں باقی" : "Spent, net of funds in · خرچ (رقم جمع نکال کر)",
       opening,
+      ownOpening,
       spent,
       funds,
       closing: running,
