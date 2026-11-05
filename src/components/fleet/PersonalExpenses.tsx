@@ -291,6 +291,7 @@ export default function PersonalExpenses({
           meta={meta}
           onRenamedLedger={(from, to) => setLedgerSel((s) => (s && s.kind === "category" && s.name === from ? { kind: "category", name: to } : s))}
           onChanged={() => { setLedgerKey((k) => k + 1); load(); }}
+          onShowAll={() => setMode("all")}
           showFeedback={showFeedback}
         />
       )}

@@ -287,6 +287,7 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
       spent: sql<number>`coalesce(sum(case when ${before} then 0 when ${T.direction} = 'expense' then ${T.amount} else 0 end), 0)::bigint`,
       funds: sql<number>`coalesce(sum(case when ${before} then 0 when ${T.direction} = 'income' then ${T.amount} else 0 end), 0)::bigint`,
       count: sql<number>`count(*) filter (where not (${before}))::int`,
+      earlier: sql<number>`count(*) filter (where ${before})::int`,
       last: sql<string>`to_char(max(${T.entryDate}), 'YYYY-MM-DD')`,
     };
     const live = and(eq(T.isDeleted, false), to ? lte(T.entryDate, new Date(new Date(to).getTime() + 24 * 3600_000 - 1)) : undefined);
@@ -298,7 +299,7 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
     // the opening the user wrote counts as money from before the first entry: it is part of every period's opening
     const shape = (r: any, kind: string = "category") => {
       const o = kind === "pot" ? 0 : own.get(`${kind}:${r.name}`) ?? 0;
-      return { name: r.name, opening: Number(r.opening) + o, spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + o + Number(r.spent) - Number(r.funds), count: r.count, last: r.last, ownOpening: o };
+      return { name: r.name, opening: Number(r.opening) + o, spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + o + Number(r.spent) - Number(r.funds), count: r.count, earlier: Number(r.earlier || 0), last: r.last, ownOpening: o };
     };
     const made = await ensureCategories();
     const order = new Map(made.map((c, i) => [c.name, i]));
@@ -307,7 +308,7 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
     for (const c of made) {
       if (!catRows.find((r) => r.name === c.name)) {
         const o = own.get(`category:${c.name}`) ?? 0;
-        catRows.push({ name: c.name, opening: o, spent: 0, funds: 0, closing: o, count: 0, last: null as any, ownOpening: o });
+        catRows.push({ name: c.name, opening: o, spent: 0, funds: 0, closing: o, count: 0, earlier: 0, last: null as any, ownOpening: o });
       }
     }
     catRows.sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999));
@@ -348,6 +349,13 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
     // the opening the user wrote for this ledger (money from before the first entry), then what came before the dates
     const ownOpening = (await ownOpenings().catch(() => new Map<string, number>())).get(`${kind}:${kind === "pot" ? "House pot" : name}`) ?? 0;
     const opening = ownOpening + sign * Number(openRow?.v || 0);
+    // the entries dated before the chosen dates are inside the opening, so they are not listed: say how many
+    const [early] = from
+      ? await db
+          .select({ n: sql<number>`count(*)::int`, last: sql<string>`to_char(max(${T.entryDate}), 'YYYY-MM-DD')` })
+          .from(T)
+          .where(and(base, lt(T.entryDate, new Date(from))))
+      : [{ n: 0, last: null as any }];
     let running = opening;
     let spent = 0;
     let funds = 0;
@@ -364,6 +372,8 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       balanceLabel: kind === "pot" ? "Left in the pot · پاٹ میں باقی" : "Spent, net of funds in · خرچ (رقم جمع نکال کر)",
       opening,
       ownOpening,
+      beforeCount: Number(early?.n || 0),
+      beforeLast: early?.last || null,
       spent,
       funds,
       closing: running,

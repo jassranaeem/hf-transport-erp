@@ -18,7 +18,7 @@ const PKR = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n
 const dmy = (d: string | null | undefined) => (d ? String(d).slice(0, 10).split("-").reverse().join(".") : "—");
 
 type Sel = { kind: "category" | "person" | "pot"; name: string };
-interface Row { name: string; opening: number; spent: number; funds: number; closing: number; count: number; last: string | null }
+interface Row { name: string; opening: number; spent: number; funds: number; closing: number; count: number; earlier?: number; last: string | null }
 
 export default function PersonalLedgers({
   from,
@@ -31,6 +31,7 @@ export default function PersonalLedgers({
   meta,
   onChanged,
   onRenamedLedger,
+  onShowAll,
   showFeedback,
 }: {
   from: string;
@@ -43,6 +44,7 @@ export default function PersonalLedgers({
   meta: any;
   onChanged: () => void;
   onRenamedLedger: (from: string, to: string) => void;
+  onShowAll?: () => void;
   showFeedback: (t: "success" | "error", m: string) => void;
 }) {
   const [managing, setManaging] = useState(false);
@@ -206,7 +208,13 @@ export default function PersonalLedgers({
           {r.name}
           {sub && <span className="text-[#9CA3AF] font-normal"> · {sub}</span>}
         </div>
-        <div className="text-[10px] text-[#9CA3AF]">{r.count ? `${r.count} ${r.count === 1 ? "entry" : "entries"} · last ${dmy(r.last)}` : "no entries yet · ابھی کوئی اندراج نہیں"}</div>
+        <div className="text-[10px] text-[#9CA3AF]">
+          {r.count
+            ? `${r.count} ${r.count === 1 ? "entry" : "entries"} · last ${dmy(r.last)}`
+            : r.earlier
+              ? `no entries in these dates · ${r.earlier} earlier (in the opening) · پہلے کی ${r.earlier}`
+              : "no entries yet · ابھی کوئی اندراج نہیں"}
+        </div>
       </div>
       <div className={`text-xs font-semibold tabular-nums ${r.closing < 0 && kind !== "pot" ? "text-[#1E4480]" : kind === "pot" ? (r.closing < 0 ? "text-[#B00005]" : "text-[#166534]") : "text-[#B00005]"}`}>{PKR(r.closing)}</div>
     </div>
@@ -291,6 +299,19 @@ export default function PersonalLedgers({
                 </div>
               ))}
             </div>
+            {ledger.beforeCount > 0 && (
+              <div className="mx-3 mb-3 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E] flex flex-wrap items-center gap-2" dir="auto">
+                <span>
+                  <b>{ledger.beforeCount} {ledger.beforeCount === 1 ? "entry is" : "entries are"} dated before these dates</b> (the last on {dmy(ledger.beforeLast)}): they are counted in the Opening above, so they are not listed here. ·
+                  پہلے کی تاریخوں کی {ledger.beforeCount} انٹری اوپر ابتدائی میں شامل ہیں، یہاں فہرست میں نہیں۔
+                </span>
+                {onShowAll && (
+                  <button onClick={onShowAll} className="rounded-lg bg-[#B45309] text-white font-semibold px-2.5 py-1" style={{ backgroundColor: "#B45309", color: "#fff" }}>
+                    Show all entries · سب اندراجات دکھائیں
+                  </button>
+                )}
+              </div>
+            )}
             {openingEdit !== null && (
               <div className="mx-3 mb-3 rounded-lg border border-[#C9D7EC] bg-[#F7F9FD] p-3 text-xs flex flex-wrap items-end gap-3">
                 <label className="flex flex-col gap-1">
@@ -338,7 +359,7 @@ export default function PersonalLedgers({
                 <tbody>
                   <tr className="border-t border-[#F3F4F6] bg-[#FAFAFA] font-semibold">
                     <td className="px-3 py-2" colSpan={COLS - 1}>
-                      Opening balance · ابتدائی بیلنس{" "}
+                      Opening balance · ابتدائی بیلنس{ledger.beforeCount > 0 ? <span className="font-normal text-[#92400E]"> (includes {ledger.beforeCount} earlier {ledger.beforeCount === 1 ? "entry" : "entries"})</span> : null}{" "}
                       <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{ledger.opening < 0 ? "−" : ""}{PKR(Math.abs(ledger.opening))}</td>
