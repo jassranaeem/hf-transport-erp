@@ -296,10 +296,13 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
       db.select({ name: T.person, ...cols }).from(T).where(and(live, sql`${T.person} is not null and ${T.person} <> ''`)).groupBy(T.person),
       db.select({ ...cols }).from(T).where(live),
     ]);
-    // the opening the user wrote counts as money from before the first entry: it is part of every period's opening
+    // A category or a person is a SPENDING ledger: what was spent in an earlier month is not carried into the next
+    // one, so every dated period starts from 0 (the opening a user wrote for it counts only when no dates are
+    // chosen). Only the house pot is a balance — money in hand — and carries forward month to month.
     const shape = (r: any, kind: string = "category") => {
       const o = kind === "pot" ? 0 : own.get(`${kind}:${r.name}`) ?? 0;
-      return { name: r.name, opening: Number(r.opening) + o, spent: Number(r.spent), funds: Number(r.funds), closing: Number(r.opening) + o + Number(r.spent) - Number(r.funds), count: r.count, earlier: Number(r.earlier || 0), last: r.last, ownOpening: o };
+      const opening = kind === "pot" ? Number(r.opening) : from ? 0 : o;
+      return { name: r.name, opening, spent: Number(r.spent), funds: Number(r.funds), closing: opening + Number(r.spent) - Number(r.funds), count: r.count, earlier: Number(r.earlier || 0), last: r.last, ownOpening: o };
     };
     const made = await ensureCategories();
     const order = new Map(made.map((c, i) => [c.name, i]));
@@ -308,7 +311,8 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
     for (const c of made) {
       if (!catRows.find((r) => r.name === c.name)) {
         const o = own.get(`category:${c.name}`) ?? 0;
-        catRows.push({ name: c.name, opening: o, spent: 0, funds: 0, closing: o, count: 0, earlier: 0, last: null as any, ownOpening: o });
+        const op = from ? 0 : o;
+        catRows.push({ name: c.name, opening: op, spent: 0, funds: 0, closing: op, count: 0, earlier: 0, last: null as any, ownOpening: o });
       }
     }
     catRows.sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999));
@@ -346,9 +350,11 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
       .orderBy(T.entryDate, T.id)
       .limit(5000);
     const counts = await attachmentCounts(list.map((r) => r.id));
-    // the opening the user wrote for this ledger (money from before the first entry), then what came before the dates
+    // The house pot is a balance: the opening the user wrote, then what came before the dates, carries forward.
+    // A category or a person is spending: it starts every dated period from 0 (an earlier month's spending is not
+    // an opening balance); the opening a user wrote for it counts only when no dates are chosen.
     const ownOpening = (await ownOpenings().catch(() => new Map<string, number>())).get(`${kind}:${kind === "pot" ? "House pot" : name}`) ?? 0;
-    const opening = ownOpening + sign * Number(openRow?.v || 0);
+    const opening = kind === "pot" ? ownOpening + sign * Number(openRow?.v || 0) : from ? 0 : ownOpening;
     // the entries dated before the chosen dates are inside the opening, so they are not listed: say how many
     const [early] = from
       ? await db

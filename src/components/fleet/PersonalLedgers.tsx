@@ -212,7 +212,7 @@ export default function PersonalLedgers({
           {r.count
             ? `${r.count} ${r.count === 1 ? "entry" : "entries"} · last ${dmy(r.last)}`
             : r.earlier
-              ? `no entries in these dates · ${r.earlier} earlier (in the opening) · پہلے کی ${r.earlier}`
+              ? `no entries in these dates · ${r.earlier} earlier · پہلے کی ${r.earlier}`
               : "no entries yet · ابھی کوئی اندراج نہیں"}
         </div>
       </div>
@@ -291,7 +291,7 @@ export default function PersonalLedgers({
                 <div key={l} className={`border rounded-lg p-2 ${i === 0 ? "border-[#C9D7EC] bg-[#F7F9FD]" : "border-[#E5E7EB]"}`}>
                   <div className="text-[10px] text-[#6B7280] flex items-center justify-between gap-1" dir="auto">
                     <span>{l}</span>
-                    {i === 0 && (
+                    {i === 0 && (selected.kind === "pot" || !from) && (
                       <button onClick={startOpening} title="Write the opening balance yourself · ابتدائی بیلنس خود لکھیں" className="text-[#6B7280] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
                     )}
                   </div>
@@ -301,10 +301,17 @@ export default function PersonalLedgers({
             </div>
             {ledger.beforeCount > 0 && (
               <div className="mx-3 mb-3 rounded-lg border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E] flex flex-wrap items-center gap-2" dir="auto">
-                <span>
-                  <b>{ledger.beforeCount} {ledger.beforeCount === 1 ? "entry is" : "entries are"} dated before these dates</b> (the last on {dmy(ledger.beforeLast)}): they are counted in the Opening above, so they are not listed here. ·
-                  پہلے کی تاریخوں کی {ledger.beforeCount} انٹری اوپر ابتدائی میں شامل ہیں، یہاں فہرست میں نہیں۔
-                </span>
+                {selected.kind === "pot" ? (
+                  <span>
+                    <b>{ledger.beforeCount} {ledger.beforeCount === 1 ? "entry is" : "entries are"} dated before these dates</b> (the last on {dmy(ledger.beforeLast)}): what is left from them is carried into the Opening above, so they are not listed here. ·
+                    پہلے کی تاریخوں کی {ledger.beforeCount} انٹری کا بچا ہوا اوپر ابتدائی میں شامل ہے۔
+                  </span>
+                ) : (
+                  <span>
+                    <b>{ledger.beforeCount} {ledger.beforeCount === 1 ? "entry is" : "entries are"} dated before these dates</b> (the last on {dmy(ledger.beforeLast)}). Spending is not carried from one period to the next, so they are not counted here — only the House pot carries a balance. ·
+                    خرچ ایک مدت سے دوسری میں آگے نہیں جاتا، اس لیے یہ یہاں شامل نہیں۔
+                  </span>
+                )}
                 {onShowAll && (
                   <button onClick={onShowAll} className="rounded-lg bg-[#B45309] text-white font-semibold px-2.5 py-1" style={{ backgroundColor: "#B45309", color: "#fff" }}>
                     Show all entries · سب اندراجات دکھائیں
@@ -318,7 +325,7 @@ export default function PersonalLedgers({
                   <span className="text-[#4B5563] font-medium" dir="auto">
                     {selected.kind === "pot"
                       ? "Money in the house pot at the start · پاٹ میں شروع کی رقم"
-                      : "Already spent before the first entry · پہلے سے ہو چکا خرچ"}
+                      : "Already spent before the first entry (counts when no dates are chosen) · پہلے سے ہو چکا خرچ"}
                   </span>
                   <input
                     id="personal-opening"
@@ -359,8 +366,10 @@ export default function PersonalLedgers({
                 <tbody>
                   <tr className="border-t border-[#F3F4F6] bg-[#FAFAFA] font-semibold">
                     <td className="px-3 py-2" colSpan={COLS - 1}>
-                      Opening balance · ابتدائی بیلنس{ledger.beforeCount > 0 ? <span className="font-normal text-[#92400E]"> (includes {ledger.beforeCount} earlier {ledger.beforeCount === 1 ? "entry" : "entries"})</span> : null}{" "}
-                      <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
+                      Opening balance · ابتدائی بیلنس{selected.kind === "pot" && ledger.beforeCount > 0 ? <span className="font-normal text-[#92400E]"> (includes {ledger.beforeCount} earlier {ledger.beforeCount === 1 ? "entry" : "entries"})</span> : null}{" "}
+                      {(selected.kind === "pot" || !from) && (
+                        <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{ledger.opening < 0 ? "−" : ""}{PKR(Math.abs(ledger.opening))}</td>
                   </tr>
