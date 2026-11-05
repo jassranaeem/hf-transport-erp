@@ -97,7 +97,7 @@ export default function PersonalLedgers({
     if (!selected || openingEdit === null) return;
     setSaving(true);
     try {
-      await enterpriseFetch("/api/personal-expenses/openings", { method: "PUT", body: JSON.stringify({ kind: selected.kind, name: selected.name, amount: openingEdit }) });
+      await enterpriseFetch("/api/personal-expenses/openings", { method: "PUT", body: JSON.stringify({ kind: selected.kind, name: selected.name, amount: openingEdit, from: from || "" }) });
       showFeedback("success", Number(openingEdit) ? "Opening balance saved · ابتدائی بیلنس محفوظ" : "Opening balance cleared · ہٹا دیا");
       setOpeningEdit(null);
       loadLedger();
@@ -291,7 +291,7 @@ export default function PersonalLedgers({
                 <div key={l} className={`border rounded-lg p-2 ${i === 0 ? "border-[#C9D7EC] bg-[#F7F9FD]" : "border-[#E5E7EB]"}`}>
                   <div className="text-[10px] text-[#6B7280] flex items-center justify-between gap-1" dir="auto">
                     <span>{l}</span>
-                    {i === 0 && (selected.kind === "pot" || !from) && (
+                    {i === 0 && (
                       <button onClick={startOpening} title="Write the opening balance yourself · ابتدائی بیلنس خود لکھیں" className="text-[#6B7280] hover:text-[#24539B]"><Pencil className="w-3 h-3" /></button>
                     )}
                   </div>
@@ -325,7 +325,9 @@ export default function PersonalLedgers({
                   <span className="text-[#4B5563] font-medium" dir="auto">
                     {selected.kind === "pot"
                       ? "Money in the house pot at the start · پاٹ میں شروع کی رقم"
-                      : "Already spent before the first entry (counts when no dates are chosen) · پہلے سے ہو چکا خرچ"}
+                      : from
+                        ? `Opening for this period (from ${dmy(from)}) · اس مدت کا ابتدائی`
+                        : "Opening for all dates together · تمام تاریخوں کا ابتدائی"}
                   </span>
                   <input
                     id="personal-opening"
@@ -343,8 +345,9 @@ export default function PersonalLedgers({
                 </button>
                 <button onClick={() => setOpeningEdit(null)} className="text-[#4B5563] underline">Cancel</button>
                 <span className="text-[11px] text-[#6B7280] basis-full" dir="auto">
-                  It counts as the balance from before the first entry. Leave it empty (or 0) to clear it. If you look at only some dates, the opening also includes what was entered before them. ·
-                  یہ پہلی انٹری سے پہلے کا بیلنس مانا جاتا ہے۔ خالی یا 0 لکھیں تو ہٹ جائے گا۔
+                  {selected.kind === "pot"
+                    ? "It counts as the balance from before the first entry, and carries into every period. Leave it empty (or 0) to clear it. · یہ پہلی انٹری سے پہلے کا بیلنس ہے اور ہر مدت میں آگے چلتا ہے۔"
+                    : "It is the opening of THIS period only (each period has its own; a period with none opens at 0). Leave it empty (or 0) to clear it. · یہ صرف اسی مدت کا ابتدائی ہے، ہر مدت کا اپنا۔ خالی یا 0 لکھیں تو ہٹ جائے گا۔"}
                 </span>
               </div>
             )}
@@ -367,9 +370,7 @@ export default function PersonalLedgers({
                   <tr className="border-t border-[#F3F4F6] bg-[#FAFAFA] font-semibold">
                     <td className="px-3 py-2" colSpan={COLS - 1}>
                       Opening balance · ابتدائی بیلنس{selected.kind === "pot" && ledger.beforeCount > 0 ? <span className="font-normal text-[#92400E]"> (includes {ledger.beforeCount} earlier {ledger.beforeCount === 1 ? "entry" : "entries"})</span> : null}{" "}
-                      {(selected.kind === "pot" || !from) && (
-                        <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
-                      )}
+                      <button onClick={startOpening} className="ml-1 text-[11px] font-normal text-[#24539B] hover:underline">{ledger.ownOpening ? "change" : "write it · لکھیں"}</button>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{ledger.opening < 0 ? "−" : ""}{PKR(Math.abs(ledger.opening))}</td>
                   </tr>

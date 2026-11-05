@@ -15,7 +15,8 @@
  *   DELETE /api/personal-expenses/categories/:id[?moveTo=Name]   remove an empty one (or move its entries first)
  *   GET    /api/personal-expenses/ledgers?from=&to=      one ledger per category, per person, and the house pot
  *   GET    /api/personal-expenses/ledger?kind=category|person|pot&name=&from=&to=   one ledger with running balance
- *   PUT    /api/personal-expenses/openings   { kind, name?, amount }   set a ledger's opening balance (0 clears it)
+ *   PUT    /api/personal-expenses/openings   { kind, name?, amount, from? }   set a ledger's opening balance (0 clears it);
+ *                                              a spending ledger's is for the period starting `from` (none = no dates chosen)
  *
  * Mounted at /api/personal-expenses.
  */
@@ -251,10 +252,13 @@ router.get("/meta", requireRole(READ), async (_req: AuthRequest, res: Response) 
 const net = sql`case when ${T.direction} = 'expense' then ${T.amount} else -${T.amount} end`;
 const day = (s: any, fallback: string | null = null) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback);
 
-/** The opening balances the user wrote, by "kind:name" (the house pot is "pot:House pot"). */
+/**
+ * The opening balances the user wrote, by "kind:name:period". The period is the day a dated period starts
+ * ("" = no dates chosen). The house pot ("pot:House pot:") is a balance and has only the "" one.
+ */
 async function ownOpenings(): Promise<Map<string, number>> {
-  const rows = (((await db.execute(sql`select kind, name, amount::bigint amount from personal_openings`)) as any).rows as any[]) ?? [];
-  return new Map(rows.map((r) => [`${r.kind}:${r.name}`, Number(r.amount)]));
+  const rows = (((await db.execute(sql`select kind, name, period, amount::bigint amount from personal_openings`)) as any).rows as any[]) ?? [];
+  return new Map(rows.map((r) => [`${r.kind}:${r.name}:${r.period || ""}`, Number(r.amount)]));
 }
 
 router.put("/openings", requireRole(WRITE), async (req: AuthRequest, res: Response) => {
@@ -264,13 +268,15 @@ router.put("/openings", requireRole(WRITE), async (req: AuthRequest, res: Respon
     const name = kind === "pot" ? "House pot" : String(req.body?.name || "").trim();
     if (!name) return res.status(400).json({ error: "Which ledger? · کونسا کھاتہ؟" });
     const amount = Math.round(Number(String(req.body?.amount ?? 0).replace(/[^0-9.-]/g, "")) || 0);
-    const before = (await ownOpenings()).get(`${kind}:${name}`) ?? 0;
-    if (amount === 0) await db.execute(sql`delete from personal_openings where kind = ${kind} and name = ${name}`);
+    // a spending ledger's opening belongs to the period it is written for (the day it starts); the pot's is the one
+    const period = kind === "pot" ? "" : day(req.body?.from) || "";
+    const before = (await ownOpenings()).get(`${kind}:${name}:${period}`) ?? 0;
+    if (amount === 0) await db.execute(sql`delete from personal_openings where kind = ${kind} and name = ${name} and period = ${period}`);
     else
-      await db.execute(sql`insert into personal_openings (kind, name, amount, updated_by) values (${kind}, ${name}, ${amount}, ${req.user?.id ?? null})
-        on conflict (kind, name) do update set amount = excluded.amount, updated_at = now(), updated_by = excluded.updated_by`);
-    await logAudit({ action: "UPDATE", tableName: "personal_openings", recordId: 0, oldValues: { kind, name, amount: before }, newValues: { kind, name, amount }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
-    res.json({ ok: true, kind, name, ownOpening: amount });
+      await db.execute(sql`insert into personal_openings (kind, name, period, amount, updated_by) values (${kind}, ${name}, ${period}, ${amount}, ${req.user?.id ?? null})
+        on conflict (kind, name, period) do update set amount = excluded.amount, updated_at = now(), updated_by = excluded.updated_by`);
+    await logAudit({ action: "UPDATE", tableName: "personal_openings", recordId: 0, oldValues: { kind, name, period, amount: before }, newValues: { kind, name, period, amount }, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+    res.json({ ok: true, kind, name, period, ownOpening: amount });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -300,8 +306,9 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
     // one, so every dated period starts from 0 (the opening a user wrote for it counts only when no dates are
     // chosen). Only the house pot is a balance — money in hand — and carries forward month to month.
     const shape = (r: any, kind: string = "category") => {
-      const o = kind === "pot" ? 0 : own.get(`${kind}:${r.name}`) ?? 0;
-      const opening = kind === "pot" ? Number(r.opening) : from ? 0 : o;
+      // a spending ledger opens at what the user wrote for THIS period (none = 0)
+      const o = kind === "pot" ? 0 : own.get(`${kind}:${r.name}:${from || ""}`) ?? 0;
+      const opening = kind === "pot" ? Number(r.opening) : o;
       return { name: r.name, opening, spent: Number(r.spent), funds: Number(r.funds), closing: opening + Number(r.spent) - Number(r.funds), count: r.count, earlier: Number(r.earlier || 0), last: r.last, ownOpening: o };
     };
     const made = await ensureCategories();
@@ -310,14 +317,14 @@ router.get("/ledgers", requireRole(READ), async (req: AuthRequest, res: Response
     const catRows = cats.map((r) => shape(r)).filter((r) => order.has(r.name));
     for (const c of made) {
       if (!catRows.find((r) => r.name === c.name)) {
-        const o = own.get(`category:${c.name}`) ?? 0;
-        const op = from ? 0 : o;
+        const o = own.get(`category:${c.name}:${from || ""}`) ?? 0;
+        const op = o;
         catRows.push({ name: c.name, opening: op, spent: 0, funds: 0, closing: op, count: 0, earlier: 0, last: null as any, ownOpening: o });
       }
     }
     catRows.sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999));
     const p = shape({ name: "House pot", ...pot }, "pot");
-    const potOwn = own.get("pot:House pot") ?? 0;
+    const potOwn = own.get("pot:House pot:") ?? 0;
     res.json({
       categories: catRows,
       people: people.map((r) => shape(r, "person")).sort((a, b) => b.spent - a.spent),
@@ -353,8 +360,8 @@ router.get("/ledger", requireRole(READ), async (req: AuthRequest, res: Response)
     // The house pot is a balance: the opening the user wrote, then what came before the dates, carries forward.
     // A category or a person is spending: it starts every dated period from 0 (an earlier month's spending is not
     // an opening balance); the opening a user wrote for it counts only when no dates are chosen.
-    const ownOpening = (await ownOpenings().catch(() => new Map<string, number>())).get(`${kind}:${kind === "pot" ? "House pot" : name}`) ?? 0;
-    const opening = kind === "pot" ? ownOpening + sign * Number(openRow?.v || 0) : from ? 0 : ownOpening;
+    const ownOpening = (await ownOpenings().catch(() => new Map<string, number>())).get(`${kind}:${kind === "pot" ? "House pot" : name}:${kind === "pot" ? "" : from || ""}`) ?? 0;
+    const opening = kind === "pot" ? ownOpening + sign * Number(openRow?.v || 0) : ownOpening;
     // the entries dated before the chosen dates are inside the opening, so they are not listed: say how many
     const [early] = from
       ? await db
