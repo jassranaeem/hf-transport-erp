@@ -79,6 +79,11 @@ async function ensureCategories() {
   return rows;
 }
 
+/** The personal ledgers' categories (the standard ones and the ones the user made), for pickers elsewhere. */
+export async function personalCategoryList(): Promise<Array<{ name: string; nameUr: string | null }>> {
+  return (await ensureCategories()).map((c) => ({ name: c.name, nameUr: c.nameUr }));
+}
+
 /** How many files are attached to each entry (receipts, slips, photos) — one query for a whole page. */
 async function attachmentCounts(ids: number[]): Promise<Map<number, number>> {
   if (!ids.length) return new Map();

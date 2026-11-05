@@ -26,6 +26,7 @@ const BLANK = { direction: "Out", amount: "", person: "", description: "", notes
 interface LinkOptions {
   trucks: { id: number; registration: string }[];
   parties: { id: number; name: string }[];
+  personalCategories?: { name: string; nameUr?: string | null }[]; // the Personal & Household ledgers
   loading?: boolean; // the truck / party list is being fetched
   error?: string; // why it could not be (shown, with a Try again)
   reload?: () => void;
@@ -84,7 +85,7 @@ export default function CashBook({
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const r = await enterpriseFetch("/api/cash-book/link-options");
-        setLinks({ trucks: r.trucks || [], parties: r.parties || [] });
+        setLinks({ trucks: r.trucks || [], parties: r.parties || [], personalCategories: r.personalCategories || [] });
         return;
       } catch (e: any) {
         err = e?.message || "Could not load the list";
@@ -108,6 +109,8 @@ export default function CashBook({
     });
   const add = async () => {
     if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
+    const noCat = filledLines.findIndex((l) => l.linkType === "personal" && !l.linkCategory);
+    if (noCat >= 0) { showFeedback("error", `${filledLines.length > 1 ? `Line ${noCat + 1}: ` : ""}choose the Personal & Household category (مد) · ذاتی کھاتے کی مد چنیں`); return; }
     setSaving(true);
     try {
       const at = `${date}T${new Date().toTimeString().slice(0, 8)}`;
@@ -130,7 +133,7 @@ export default function CashBook({
 
   const startEdit = (r: any) => {
     setEditId(r.id);
-    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || "" });
+    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
   };
   const saveEdit = async () => {
     if (!editId) return;
@@ -422,7 +425,7 @@ export default function CashBook({
                           ↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}{r.truckCategory && r.truckCategory !== "Other" ? ` · ${catLabel(r.truckCategory)}` : ""} · open →
                         </button>
                       ) : r.linkType ? (
-                        <div className="text-[11px] text-[#24539B]">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}</div>
+                        <div className="text-[11px] text-[#24539B]">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}{r.personalCategory ? `: ${r.personalCategory}` : ""}</div>
                       ) : null}
                       {r.alsoIn?.length > 0 && (
                         <div className="text-[11px] text-[#92400E]" title="This entry also shows in these modules · یہ اندراج ان میں بھی نظر آتا ہے">also in: {r.alsoIn.join(" · ")}</div>
@@ -609,6 +612,11 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
               />
             </div>
           </div>
+        )}
+        {value.linkType === "personal" && (
+          <label className={`${lbl} col-span-2`}>Personal category · ذاتی مد
+            <PersonalCategoryPicker value={value.linkCategory} onChange={(v) => set("linkCategory", v)} linkOptions={linkOptions} className={inp} />
+          </label>
         )}
         {value.linkType === "party" && (
           <label className={`${lbl} col-span-2`}>Which party · کونسی پارٹی
@@ -963,13 +971,30 @@ function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate }
             </div>
           )}
 
-          {(line.linkType === "personal" || line.linkType === "zakat") && (
-            <div className="text-[11.5px] text-[#6B7280]" dir="auto">
-              {line.linkType === "personal" ? "Also written in Personal & Household · ذاتی کھاتے میں بھی لکھا جائے گا" : "Also written in Zakat (always money given) · زکوٰۃ میں بھی لکھا جائے گا"}
+          {line.linkType === "personal" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <PersonalCategoryPicker value={line.linkCategory} onChange={(v) => onChange({ linkCategory: v })} linkOptions={linkOptions} className={`${inp} max-w-[300px]`} />
+              <span className="text-[11.5px] text-[#6B7280]" dir="auto">One entry is written in that Personal ledger — the person above stays the payee. · ایک اندراج اسی کھاتے میں لکھا جائے گا</span>
             </div>
+          )}
+          {line.linkType === "zakat" && (
+            <div className="text-[11.5px] text-[#6B7280]" dir="auto">Also written in Zakat (always money given) · زکوٰۃ میں بھی لکھا جائے گا</div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+/** The Personal & Household category an entry goes to — the user's own list (standard and ones they made). */
+function PersonalCategoryPicker({ value, onChange, linkOptions, className }: { value: string; onChange: (v: string) => void; linkOptions: LinkOptions; className: string }) {
+  const cats = linkOptions.personalCategories || [];
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={className} aria-label="Personal category">
+      <option value="">{linkOptions.loading ? "Loading…" : "— which category · کونسی مد —"}</option>
+      {cats.map((c) => (
+        <option key={c.name} value={c.name}>{c.name}{c.nameUr ? ` · ${c.nameUr}` : ""}</option>
+      ))}
+    </select>
   );
 }

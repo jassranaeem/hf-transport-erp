@@ -52,6 +52,18 @@ import { recompute as recomputePartyLedger } from "./parties.ts";
 import { partnershipLedgerForPlate } from "./partnership.ts";
 import { ALL_TRUCK_CATS, SHAKHSI } from "../src/lib/khataKinds.ts";
 import { syncLeaseFromCash, leaseRoomForCash, alsoInFor } from "./lease_sync.ts";
+import { personalCategoryList } from "./personal_expenses.ts";
+
+/**
+ * The Personal & Household category chosen for an entry that also goes there: the name as it is in the
+ * personal ledgers' list (any case), null when none is given. An unknown name is refused, not guessed.
+ */
+async function personalCategoryOf(v: unknown): Promise<{ name: string | null; error?: string }> {
+  const t = typeof v === "string" ? v.trim() : "";
+  if (!t) return { name: null };
+  const hit = (await personalCategoryList()).find((c) => c.name.toLowerCase() === t.toLowerCase());
+  return hit ? { name: hit.name } : { name: null, error: `"${t}" is not a Personal & Household category · یہ ذاتی کھاتوں کی مد نہیں` };
+}
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -273,10 +285,24 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
   } else if (row.linkType === "personal") {
     // Household direction (income/expense) mirrors the cash-book direction; no running
     // balance to recompute here, it's a plain dated list like the cash book itself.
+    // The cash book's "Person" is who the money went to / came from — the payee. It is NOT the family
+    // member whose expense it is (that is the Personal ledger's own "person"): copying it there made a
+    // person ledger of every payee and showed one entry in several ledgers.
     if (row.derivedEntryId) {
+      const [was] = await db.select().from(schema.personalExpenses).where(eq(schema.personalExpenses.id, row.derivedEntryId)).limit(1);
       await db
         .update(schema.personalExpenses)
-        .set({ entryDate: row.entryDate, direction: row.direction === "In" ? "income" : "expense", amount: row.amount, person: row.person, payee: row.person, description, updatedAt: new Date() })
+        .set({
+          entryDate: row.entryDate,
+          direction: row.direction === "In" ? "income" : "expense",
+          amount: row.amount,
+          payee: row.person,
+          // an earlier version copied the payee into "person": that copy is taken off again
+          ...(was && was.person && was.person === was.payee ? { person: null } : {}),
+          ...(category ? { category } : {}),
+          description,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.personalExpenses.id, row.derivedEntryId));
     } else {
       const [entry] = await db
@@ -284,8 +310,8 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
         .values({
           entryDate: row.entryDate,
           direction: row.direction === "In" ? "income" : "expense",
-          category: "Other",
-          person: row.person,
+          category: category || "Other",
+          person: null,
           payee: row.person,
           description,
           amount: row.amount,
@@ -414,7 +440,7 @@ router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Re
     });
     parties.sort((a, b) => a.name.localeCompare(b.name));
 
-    res.json({ trucks, parties });
+    res.json({ trucks, parties, personalCategories: await personalCategoryList().catch(() => []) });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }
@@ -461,8 +487,14 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const truckLedgerById = new Map(truckTargets.map((t) => [t.id, t.ledgerId]));
     const truckCatById = new Map(truckTargets.map((t: any) => [t.id, t.category as string | null]));
     const partyIdById = new Map(partyTargets.map((t) => [t.id, t.partyId]));
+    const personalIds = entries.filter((e) => e.linkType === "personal" && e.derivedEntryId).map((e) => e.derivedEntryId!);
+    const personalRows = personalIds.length
+      ? await db.select({ id: schema.personalExpenses.id, category: schema.personalExpenses.category }).from(schema.personalExpenses).where(inArray(schema.personalExpenses.id, personalIds))
+      : [];
+    const personalCatById = new Map(personalRows.map((p) => [p.id, p.category]));
     const entriesWithTargets = entries.map((e) => ({
       ...e,
+      personalCategory: e.linkType === "personal" && e.derivedEntryId ? personalCatById.get(e.derivedEntryId) ?? null : null,
       resolvedLedgerId: e.linkType === "truck" && e.derivedEntryId ? truckLedgerById.get(e.derivedEntryId) ?? null : null,
       truckCategory: e.linkType === "truck" && e.derivedEntryId ? truckCatById.get(e.derivedEntryId) ?? null : null,
       resolvedPartyId: e.linkType === "party" && e.derivedEntryId ? partyIdById.get(e.derivedEntryId) ?? null : null,
@@ -536,7 +568,9 @@ router.post("/voucher", requireRole(WRITE), async (req: AuthRequest, res: Respon
       if (linkCategory === SHAKHSI && (await findManualLedger(patch.linkTargetId as number)).shared) return res.status(400).json({ error: `${at}${SHARED_SHAKHSI}` });
       const qistProblem = await qistCheck(linkCategory, patch.direction as string, patch.linkTargetId as number, Number(patch.amount), null);
       if (qistProblem) return res.status(400).json({ error: `${at}${qistProblem}` });
-      prepared.push({ patch, linkCategory });
+      const pc = patch.linkType === "personal" ? await personalCategoryOf(l.linkCategory) : { name: null };
+      if (pc.error) return res.status(400).json({ error: `${at}${pc.error}` });
+      prepared.push({ patch, linkCategory: linkCategory ?? pc.name });
     }
     const out = prepared.filter((p) => p.patch.direction === "Out").reduce((s, p) => s + Number(p.patch.amount), 0);
     if (
@@ -580,6 +614,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     if (linkCategory === SHAKHSI && (await findManualLedger(patch.linkTargetId as number)).shared) return res.status(400).json({ error: SHARED_SHAKHSI });
     const qistProblem = await qistCheck(linkCategory, patch.direction as string, patch.linkTargetId as number, Number(patch.amount), null);
     if (qistProblem) return res.status(400).json({ error: qistProblem });
+    const pc = patch.linkType === "personal" ? await personalCategoryOf(req.body?.linkCategory) : { name: null };
+    if (pc.error) return res.status(400).json({ error: pc.error });
     if (
       patch.direction === "Out" &&
       (await holdForApproval(req, res, {
@@ -593,7 +629,7 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     )
       return;
     const [row] = await db.insert(T).values({ ...patch, createdBy: req.user?.id } as any).returning();
-    await syncLink(row, req.user?.id, linkCategory);
+    await syncLink(row, req.user?.id, linkCategory ?? pc.name);
     const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
     await audit(req, "CREATE", row.id, null, fresh);
     // a Qist received on a lease truck also counts toward what he still has to pay
@@ -629,6 +665,8 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
       const qistProblem = await qistCheck(cat, dir, effectiveTargetId as number, amt, id);
       if (qistProblem) return res.status(400).json({ error: qistProblem });
     }
+    const pcPut = effectiveLinkType === "personal" ? await personalCategoryOf(req.body?.linkCategory) : { name: null };
+    if (pcPut.error) return res.status(400).json({ error: pcPut.error });
 
     const linkChanged =
       ("linkType" in patch && patch.linkType !== old.linkType) || ("linkTargetId" in patch && patch.linkTargetId !== old.linkTargetId);
@@ -642,7 +680,7 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
       .set({ ...patch, updatedAt: new Date(), updatedBy: req.user?.id })
       .where(eq(T.id, id))
       .returning();
-    await syncLink(row, req.user?.id, linkCategory);
+    await syncLink(row, req.user?.id, linkCategory ?? pcPut.name);
     const [fresh] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     await audit(req, "UPDATE", id, old, fresh);
     const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
