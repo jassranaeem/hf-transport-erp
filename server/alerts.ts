@@ -16,6 +16,8 @@ import { and, eq, sql, desc, asc, inArray, isNotNull, ne } from "drizzle-orm";
 import { requireAuth, requireApproved, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
+import { gpsDistanceKm } from "./gps_distance.ts";
+import { linkedRecords } from "./attachments.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -66,7 +68,18 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
     .where(inArray(schema.attachments.id, allIds));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
-  return groups.map((g) => {
+  // the same receipt on the records of ONE payment (a Cash Book entry and the rows it wrote, or the lines
+  // of one voucher — an In and an Out sharing a slip) is one receipt shown in several places, not a double entry
+  const real = await Promise.all(
+    groups.map(async (g) => {
+      const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
+      if (items.length < 2) return true;
+      const fam = await linkedRecords(items[0].entityType, items[0].entityId).catch(() => []);
+      const keys = new Set([`${items[0].entityType}:${items[0].entityId}`, ...fam.map((f) => `${f.entityType}:${f.entityId}`)]);
+      return !items.every((a) => keys.has(`${a.entityType}:${a.entityId}`));
+    }),
+  );
+  return groups.filter((_, i) => real[i]).map((g) => {
     const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
     const first = items[0];
     return {
@@ -240,7 +253,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
   }
   const N = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
-  for (const [, list] of byVeh) {
+  for (const [vehicleId, list] of byVeh) {
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
       if (!txnIds.includes(f.id)) continue;
@@ -248,7 +261,19 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
       const rate = N(f.rate) || (f.total && litres ? f.total / litres : 0);
       const valuePKR = f.total || Math.round(litres * rate);
       const next = list[i + 1];
-      const legKm = next && next.odometer != null && f.odometer != null ? next.odometer - f.odometer : null;
+      // odometer is a required field on every fuel row, so a truck no one has entered a real
+      // reading for stores 0 there — that's "unknown", not "hasn't moved". Treating it as a real
+      // reading made every such fill look like "0 km since the last one, so all of it is over-draw".
+      let legKm: number | null = next && next.odometer && f.odometer ? next.odometer - f.odometer : null;
+      let legSource: "odometer" | "gps" | null = legKm != null ? "odometer" : null;
+      if (legKm == null && next) {
+        // no usable odometer on this leg — fall back to the truck's own GPS trail between the two fills
+        const gps = await gpsDistanceKm(vehicleId, new Date(f.date), new Date(next.date));
+        if (gps != null) {
+          legKm = gps;
+          legSource = "gps";
+        }
+      }
       let expectedLitres: number | null = null;
       let overdrawLitres: number | null = null;
       let overdrawPct: number | null = null;
@@ -266,6 +291,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
         odometerAtFill: f.odometer,
         nextOdometer: next?.odometer ?? null,
         legKm,
+        legSource,
         benchmarkKmpl: BENCHMARK_KMPL,
         expectedLitres,
         overdrawLitres,

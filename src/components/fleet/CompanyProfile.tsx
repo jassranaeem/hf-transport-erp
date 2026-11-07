@@ -81,13 +81,13 @@ export default function CompanyProfile({
     try {
       const dataUrl = await fileToLogoDataUrl(file);
       if (dataUrl.length > 1_900_000) {
-        showFeedback("error", "Logo abhi bhi bahut bara hai — chhoti image use karein (~200 KB).");
+        showFeedback("error", "The logo is still too large — use a smaller image (about 200 KB). · لوگو اب بھی بہت بڑا ہے — چھوٹی تصویر استعمال کریں۔");
         return;
       }
       set("logoDataUrl", dataUrl);
-      showFeedback("success", "Logo laga diya — ab Save karein");
+      showFeedback("success", "Logo added — now click Save. · لوگو لگ گیا — اب محفوظ کریں۔");
     } catch (e: any) {
-      showFeedback("error", e.message || "Logo load nahi hua");
+      showFeedback("error", e.message || "Could not load the logo · لوگو لوڈ نہیں ہو سکا");
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
@@ -121,7 +121,7 @@ export default function CompanyProfile({
       showFeedback("success", "Company profile saved · محفوظ ہو گیا");
       if (r?.profile) { setP(r.profile); setBanks(r.profile.bankAccountsJson || []); }
     } catch (e: any) {
-      showFeedback("error", e.message || "Save nahi hua (Admin chahiye)");
+      showFeedback("error", e.message || "Could not save (Admin access required) · محفوظ نہیں ہوا (ایڈمن درکار ہے)");
     } finally {
       setSaving(false);
     }
@@ -132,16 +132,16 @@ export default function CompanyProfile({
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h2 className="text-base font-bold flex items-center gap-2">
-          <Building2 className="w-4 h-4" /> Company Profile <span className="text-[#9CA3AF] font-normal text-sm">· کمپنی پروفائل / لیٹر ہیڈ</span>
+        <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight">
+          <Building2 className="w-5 h-5 text-[#24539B]" /> Company Profile <span className="text-[#9CA3AF] font-normal text-sm">· کمپنی پروفائل / لیٹر ہیڈ</span>
         </h2>
         <p className="text-[12px] text-[#6B7280]" dir="auto">
-          Yeh sab har invoice ke upar print hota hai · ہر انوائس کے اوپر چھپتا ہے۔ Invoice bante waqt copy ho jata hai — baad mein change karo to purani invoices nahi badaltīn.
+          This is printed at the top of every invoice. It is copied when an invoice is created, so later changes do not affect old invoices. · یہ ہر انوائس کے اوپر چھپتا ہے۔ انوائس بنتے وقت کاپی ہو جاتا ہے، اس لیے بعد کی تبدیلی پرانی انوائسز کو نہیں بدلتی۔
         </p>
       </div>
 
       {/* logo */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4">
         <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5 mb-2"><ImageIcon className="w-3.5 h-3.5" /> Logo</div>
         <div className="flex items-center gap-4">
           <div className="w-40 h-20 border border-dashed border-slate-300 rounded flex items-center justify-center bg-slate-50 overflow-hidden">
@@ -156,14 +156,14 @@ export default function CompanyProfile({
                 <Trash2 className="w-3.5 h-3.5" /> Remove
               </button>
             )}
-            <p className="text-[10px] text-slate-400">PNG / JPG / SVG. Bari image khud chhoti ho jayegi · بڑی تصویر خود چھوٹی ہو جائے گی۔</p>
+            <p className="text-[10px] text-slate-400">PNG / JPG / SVG. Large images are resized automatically · بڑی تصویر خود چھوٹی ہو جائے گی۔</p>
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && pickLogo(e.target.files[0])} />
           </div>
         </div>
       </section>
 
       {/* identity */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <F l="Trade name · نام"><input className="i" value={p.tradeName || ""} onChange={(e) => set("tradeName", e.target.value)} dir="auto" /></F>
         <F l="Legal name"><input className="i" value={p.legalName || ""} onChange={(e) => set("legalName", e.target.value)} dir="auto" /></F>
         <F l="Tagline"><input className="i" value={p.tagline || ""} onChange={(e) => set("tagline", e.target.value)} dir="auto" /></F>
@@ -178,12 +178,12 @@ export default function CompanyProfile({
       </section>
 
       {/* invoice defaults */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <F l="Invoice prefix"><input className="i" value={p.invoicePrefix || "INV"} onChange={(e) => set("invoicePrefix", e.target.value)} /></F>
         <F l="Default payment terms"><input className="i" value={p.defaultPaymentTerms || "Net 30"} onChange={(e) => set("defaultPaymentTerms", e.target.value)} /></F>
         <F l="Invoice footer note · فوٹر" wide><input className="i" value={p.invoiceFooterNote || ""} onChange={(e) => set("invoiceFooterNote", e.target.value)} dir="auto" /></F>
         <label className="flex flex-col text-[10px] text-slate-500 col-span-2 md:col-span-3">
-          <span dir="auto">Terms &amp; conditions — har invoice par chhapte hain (ek line = ek point)</span>
+          <span dir="auto">Terms &amp; conditions — printed on every invoice (one line = one point) · شرائط و ضوابط — ہر انوائس پر چھپتی ہیں (ایک سطر = ایک نکتہ)</span>
           <textarea
             className="i"
             rows={6}
@@ -191,12 +191,12 @@ export default function CompanyProfile({
             value={p.invoiceTerms ?? DEFAULT_TERMS}
             onChange={(e) => set("invoiceTerms", e.target.value)}
           />
-          <span className="text-[9px] text-slate-400 mt-0.5">Khali chhod dein to system ke default terms lag jayenge (50% advance khali gaari par, 50% loading par).</span>
+          <span className="text-[9px] text-slate-400 mt-0.5">Leave blank to use the default terms (50% advance on an empty truck, 50% on loading). · خالی چھوڑیں تو ڈیفالٹ شرائط لگیں گی (خالی گاڑی پر 50% ایڈوانس، لوڈنگ پر 50%)۔</span>
         </label>
       </section>
 
       {/* bank accounts */}
-      <section className="rounded-xl border border-[#E5E7EB] bg-white p-4 space-y-2">
+      <section className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] p-4 space-y-2">
         <div className="text-xs font-bold text-slate-600">Bank accounts (payment details on the invoice) · بینک تفصیل</div>
         {banks.map((bk, i) => (
           <div key={i} className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs items-end">
@@ -214,7 +214,7 @@ export default function CompanyProfile({
         </button>
       </section>
 
-      <button onClick={save} disabled={saving} className="h-10 px-5 rounded-lg bg-[#16A34A] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
+      <button onClick={save} disabled={saving} className="h-10 px-5 rounded-lg bg-[#24539B] text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save profile · محفوظ کریں
       </button>
 

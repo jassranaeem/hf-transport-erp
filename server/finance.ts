@@ -225,6 +225,7 @@ router.get("/invoices", requireAuth, requirePermission("finance", "read"), async
         taxAmount: schema.invoices.taxAmount,
         totalAmount: schema.invoices.totalAmount,
         paidAmount: schema.invoices.paidAmount,
+        creditedAmount: schema.invoices.creditedAmount,
         outstandingBalance: schema.invoices.outstandingBalance,
         status: schema.invoices.status,
         pdfUrl: schema.invoices.pdfUrl,
@@ -233,6 +234,7 @@ router.get("/invoices", requireAuth, requirePermission("finance", "read"), async
         tripNumber: schema.trips.tripNumber,
         contractorId: schema.invoices.contractorId,
         contractorName: schema.contractors.company,
+        contractorEmail: schema.contractors.email,
         routeFrom: schema.invoices.routeFrom,
         routeTo: schema.invoices.routeTo,
         advanceReceived: schema.invoices.advanceReceived,
@@ -295,6 +297,7 @@ router.get("/invoices/:id(\\d+)", requireAuth, requirePermission("finance", "rea
       .select({
         invoice: schema.invoices,
         contractorName: schema.contractors.company,
+        contractorEmail: schema.contractors.email,
         tripNumber: schema.trips.tripNumber,
         vehicleNumber: schema.vehicles.vehicleNumber,
         driverName: schema.drivers.driverName,
@@ -511,6 +514,147 @@ router.post("/bills", requireAuth, requirePermission("finance", "create"), async
     res.json(createdBill);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------
+// Payment history, undo and delete — so a wrong payment or a wrong bill can be put right
+// (every reversal also puts back the bill balance / status, the customer's or vendor's
+// balance, a bank balance it had changed, and the journal entry it posted).
+// ---------------------------------------------------------
+const finAudit = (req: AuthRequest, action: "CREATE" | "UPDATE" | "DELETE", tableName: string, recordId: number, oldValues: unknown, newValues: unknown) =>
+  logAudit({ action, tableName, recordId, oldValues, newValues, performedBy: req.user?.id, ipAddress: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});
+
+async function dropJournal(where: any) {
+  const jes = await db.select({ id: schema.journalEntries.id }).from(schema.journalEntries).where(where);
+  for (const j of jes) {
+    await db.delete(schema.journalLines).where(eq(schema.journalLines.journalEntryId, j.id));
+    await db.delete(schema.journalEntries).where(eq(schema.journalEntries.id, j.id));
+  }
+  return jes.length;
+}
+
+/** Payments received on an invoice. */
+router.get("/invoices/:id(\\d+)/payments", requireAuth, requirePermission("finance", "read"), async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: schema.payments.id,
+        paymentNumber: schema.payments.paymentNumber,
+        paymentDate: schema.payments.paymentDate,
+        paymentMethod: schema.payments.paymentMethod,
+        referenceNumber: schema.payments.referenceNumber,
+        notes: schema.payments.notes,
+        amount: schema.invoicePayments.amount,
+      })
+      .from(schema.invoicePayments)
+      .innerJoin(schema.payments, eq(schema.invoicePayments.paymentId, schema.payments.id))
+      .where(eq(schema.invoicePayments.invoiceId, parseInt(req.params.id)))
+      .orderBy(desc(schema.payments.paymentDate));
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Undo one payment on an invoice (recorded by mistake / wrong amount). */
+router.delete("/invoices/:id(\\d+)/payments/:paymentId(\\d+)", requireAuth, requirePermission("finance", "update"), async (req: AuthRequest, res: Response) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    const paymentId = parseInt(req.params.paymentId);
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).limit(1);
+    const [link] = await db
+      .select()
+      .from(schema.invoicePayments)
+      .where(and(eq(schema.invoicePayments.invoiceId, invoiceId), eq(schema.invoicePayments.paymentId, paymentId)))
+      .limit(1);
+    const [pay] = await db.select().from(schema.payments).where(eq(schema.payments.id, paymentId)).limit(1);
+    if (!inv || !link || !pay) return res.status(404).json({ error: "Payment not found on this invoice" });
+    const amount = link.amount || 0;
+    await dropJournal(and(eq(schema.journalEntries.sourceType, "Payment"), eq(schema.journalEntries.sourceId, paymentId), sql`${schema.journalEntries.entryNumber} like 'JE-PAY-%'`));
+    await db.delete(schema.invoicePayments).where(eq(schema.invoicePayments.id, link.id));
+    await db.delete(schema.payments).where(eq(schema.payments.id, paymentId));
+    const paid = Math.max(0, (inv.paidAmount || 0) - amount);
+    const settled = paid + (inv.creditedAmount || 0);
+    const status = settled <= 0 ? "Unpaid" : settled >= inv.totalAmount ? "Paid" : "Partially Paid";
+    await db.update(schema.invoices).set({ paidAmount: paid, outstandingBalance: Math.max(0, inv.totalAmount - settled), status }).where(eq(schema.invoices.id, invoiceId));
+    const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
+    if (c) await db.update(schema.contractors).set({ outstandingBalance: (c.bal || 0) + amount }).where(eq(schema.contractors.id, inv.contractorId));
+    if (pay.bankAccountId) {
+      const [b] = await db.select({ bal: schema.bankAccounts.currentBalance }).from(schema.bankAccounts).where(eq(schema.bankAccounts.id, pay.bankAccountId)).limit(1);
+      if (b) await db.update(schema.bankAccounts).set({ currentBalance: (b.bal || 0) - amount }).where(eq(schema.bankAccounts.id, pay.bankAccountId));
+    }
+    await finAudit(req, "DELETE", "payments", paymentId, { ...pay, invoiceId, amount }, null);
+    res.json({ ok: true, status, outstandingBalance: Math.max(0, inv.totalAmount - settled) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Delete an invoice made by mistake — only once it has no payments (undo those first). */
+router.delete("/invoices/:id(\\d+)", requireAuth, requirePermission("finance", "delete"), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [inv] = await db.select().from(schema.invoices).where(and(eq(schema.invoices.id, id), eq(schema.invoices.isDeleted, false))).limit(1);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    const [anyPay] = await db.select({ id: schema.invoicePayments.id }).from(schema.invoicePayments).where(eq(schema.invoicePayments.invoiceId, id)).limit(1);
+    if (anyPay || (inv.paidAmount || 0) > 0) {
+      return res.status(400).json({ error: "This invoice has payments — undo them first (Payments → Undo) · پہلے ادائیگیاں واپس لیں" });
+    }
+    await dropJournal(and(eq(schema.journalEntries.sourceType, "Invoice"), eq(schema.journalEntries.sourceId, id)));
+    await db.update(schema.invoices).set({ isDeleted: true, deletedAt: new Date(), deletedBy: req.user?.id }).where(eq(schema.invoices.id, id));
+    const [c] = await db.select({ bal: schema.contractors.outstandingBalance }).from(schema.contractors).where(eq(schema.contractors.id, inv.contractorId)).limit(1);
+    if (c) await db.update(schema.contractors).set({ outstandingBalance: Math.max(0, (c.bal || 0) - (inv.outstandingBalance || 0)) }).where(eq(schema.contractors.id, inv.contractorId));
+    await finAudit(req, "DELETE", "invoices", id, inv, null);
+    res.json({ ok: true, message: `Invoice ${inv.invoiceNumber} deleted` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Payments made on a vendor bill (each is one journal entry JE-BILLPAY-…). */
+router.get("/bills/:id(\\d+)/payments", requireAuth, requirePermission("finance", "read"), async (req: AuthRequest, res: Response) => {
+  try {
+    const billId = parseInt(req.params.id);
+    const rows = await db
+      .select({
+        id: schema.journalEntries.id,
+        entryNumber: schema.journalEntries.entryNumber,
+        date: schema.journalEntries.entryDate,
+        description: schema.journalEntries.description,
+        amount: sql<number>`(select coalesce(sum(l.debit),0)::int from journal_lines l where l.journal_entry_id = "journal_entries"."id")`,
+      })
+      .from(schema.journalEntries)
+      .where(and(eq(schema.journalEntries.sourceType, "Payment"), eq(schema.journalEntries.sourceId, billId), sql`${schema.journalEntries.entryNumber} like 'JE-BILLPAY-%'`))
+      .orderBy(desc(schema.journalEntries.id));
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Undo one payment on a vendor bill. */
+router.delete("/bills/:id(\\d+)/payments/:jeId(\\d+)", requireAuth, requirePermission("finance", "update"), async (req: AuthRequest, res: Response) => {
+  try {
+    const billId = parseInt(req.params.id);
+    const jeId = parseInt(req.params.jeId);
+    const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.id, billId)).limit(1);
+    const [je] = await db
+      .select()
+      .from(schema.journalEntries)
+      .where(and(eq(schema.journalEntries.id, jeId), eq(schema.journalEntries.sourceId, billId), sql`${schema.journalEntries.entryNumber} like 'JE-BILLPAY-%'`))
+      .limit(1);
+    if (!bill || !je) return res.status(404).json({ error: "Payment not found on this bill" });
+    const [sum] = await db.select({ amt: sql<number>`coalesce(sum(${schema.journalLines.debit}),0)::int` }).from(schema.journalLines).where(eq(schema.journalLines.journalEntryId, jeId));
+    const amount = Number(sum?.amt || 0);
+    await dropJournal(eq(schema.journalEntries.id, jeId));
+    const paid = Math.max(0, (bill.paidAmount || 0) - amount);
+    const status = paid <= 0 ? "Unpaid" : paid >= bill.amount ? "Paid" : "Partially Paid";
+    await db.update(schema.bills).set({ paidAmount: paid, outstandingBalance: Math.max(0, bill.amount - paid), status }).where(eq(schema.bills.id, billId));
+    await finAudit(req, "DELETE", "journal_entries", jeId, { bill: billId, amount }, null);
+    res.json({ ok: true, status, outstandingBalance: Math.max(0, bill.amount - paid) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

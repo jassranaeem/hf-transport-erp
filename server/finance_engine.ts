@@ -408,8 +408,8 @@ export async function updateDetailedInvoice(
   const advanceReceived =
     input.advanceReceived != null ? Math.max(0, Math.round(Number(input.advanceReceived))) : oldAdvance;
   const paidAmount = advanceReceived + extraPaid;
-  const outstandingBalance = totalAmount - paidAmount;
-  const status = outstandingBalance <= 0 ? "Paid" : paidAmount > 0 ? "Partially Paid" : "Unpaid";
+  const outstandingBalance = totalAmount - paidAmount - Number(existing.creditedAmount || 0);
+  const status = outstandingBalance <= 0 ? "Paid" : paidAmount > 0 || Number(existing.creditedAmount || 0) > 0 ? "Partially Paid" : "Unpaid";
 
   const patch: Record<string, unknown> = {
     contractorId,
@@ -654,7 +654,7 @@ export async function postInvoicePayment(
 
   // 3. Update Invoice Balances
   const newPaidAmount = (inv.paidAmount || 0) + amount;
-  const newOutstanding = Math.max(inv.totalAmount - newPaidAmount, 0);
+  const newOutstanding = Math.max(inv.totalAmount - newPaidAmount - (inv.creditedAmount || 0), 0);
   const newStatus = newOutstanding === 0 ? "Paid" : "Partially Paid";
 
   await db

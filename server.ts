@@ -25,11 +25,31 @@ import alertsRouter from "./server/alerts.ts";
 import { smsRouter } from "./server/sms.ts";
 import reportsRouter from "./server/reports.ts";
 import partnerPnlRouter from "./server/partner_pnl.ts";
+import partnershipRouter from "./server/partnership.ts";
 import personalExpensesRouter from "./server/personal_expenses.ts";
 import zakatRouter from "./server/zakat.ts";
+import booksCheckRouter from "./server/books_check.ts";
+import entryOriginRouter from "./server/entry_origin.ts";
+import aiAccountantRouter from "./server/ai_accountant.ts";
+import booksRouter, { startBooksKeeper } from "./server/books.ts";
+import bankRouter from "./server/bank.ts";
+import statementsRouter from "./server/statements.ts";
+import taxRouter from "./server/tax.ts";
+import { cashBookRouter } from "./server/cash_book.ts";
+import { tripDeskRouter } from "./server/trip_desk.ts";
 import quotationsRouter from "./server/quotations.ts";
 import trackingRouter, { startTrackingSweep } from "./server/tracking.ts";
 import { systemResetRouter } from "./server/system_reset.ts";
+import mailRouter from "./server/mail.ts";
+import docMailRouter from "./server/documents_mail.ts";
+import creditNotesRouter from "./server/credit_notes.ts";
+import remindersRouter, { startReminderKeeper } from "./server/reminders.ts";
+import recurringRouter, { startRecurringKeeper } from "./server/recurring.ts";
+import approvalsRouter from "./server/approvals.ts";
+import commentsRouter from "./server/comments.ts";
+import searchRouter from "./server/search.ts";
+import stockRouter from "./server/stock.ts";
+import { currencyRouter, customFieldsRouter, depreciationRouter, startCurrencyKeeper } from "./server/business_misc.ts";
 import { configureSecurity, centralErrorHandler, globalRateLimiter } from "./src/middleware/security.ts";
 import { SocketServer } from "./src/sockets/socket.ts";
 import { CronScheduler } from "./src/scheduler/cron.ts";
@@ -102,11 +122,33 @@ async function startServer() {
   app.use("/api/sms", smsRouter);
   app.use("/api/reports", reportsRouter);
   app.use("/api/partner-pnl", partnerPnlRouter);
+  app.use("/api/partnership", partnershipRouter);
   app.use("/api/personal-expenses", personalExpensesRouter);
   app.use("/api/zakat", zakatRouter);
+  app.use("/api/books-check", booksCheckRouter);
+  app.use("/api/entry-origin", entryOriginRouter);
+  app.use("/api/ai-accountant", aiAccountantRouter);
+  app.use("/api/books", booksRouter);
+  app.use("/api/bank", bankRouter);
+  app.use("/api/statements", statementsRouter);
+  app.use("/api/tax", taxRouter);
+  app.use("/api/cash-book", cashBookRouter);
+  app.use("/api/trip-desk", tripDeskRouter);
   app.use("/api/quotations", quotationsRouter);
   app.use("/api/tracking", trackingRouter);
   app.use("/api/system", systemResetRouter);
+  app.use("/api/mail", mailRouter);
+  app.use("/api/doc-mail", docMailRouter);
+  app.use("/api/credit-notes", creditNotesRouter);
+  app.use("/api/reminders", remindersRouter);
+  app.use("/api/recurring", recurringRouter);
+  app.use("/api/approvals", approvalsRouter);
+  app.use("/api/comments", commentsRouter);
+  app.use("/api/search", searchRouter);
+  app.use("/api/stock", stockRouter);
+  app.use("/api/currency", currencyRouter);
+  app.use("/api/custom-fields", customFieldsRouter);
+  app.use("/api/depreciation", depreciationRouter);
 
   // Unknown API path -> JSON 404 (never fall through to the SPA).
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
@@ -151,6 +193,11 @@ async function startServer() {
   app.use(centralErrorHandler);
 
   await new Promise<void>((resolve) => httpServer.listen(PORT, "0.0.0.0", resolve));
+  // the double-entry books keep themselves current from every module (server/books.ts)
+  startBooksKeeper();
+  startRecurringKeeper(); // due recurring entries become drafts to approve
+  startReminderKeeper(); // automatic payment reminders — only when switched on
+  startCurrencyKeeper(); // today's currency rates from the internet
   console.log(
     `[ERP] listening on 0.0.0.0:${PORT} | env=${process.env.NODE_ENV || "development"} | jwt=${jwtSecretFingerprint()}`
   );

@@ -14,7 +14,7 @@ import { enterpriseFetch } from "../../../client/api.ts";
 
 const fmt = (n: number) => "PKR " + Math.abs(Math.round(n || 0)).toLocaleString();
 
-const SOURCE_LABEL: Record<string, string> = { party: "Party Khata", truck: "Truck Khata", expense: "Finance Expense" };
+const SOURCE_LABEL: Record<string, string> = { party: "Party Ledger", truck: "Truck Ledger", expense: "Finance Expense" };
 const SOURCE_COLOR: Record<string, string> = {
   party: "bg-blue-50 text-blue-700 border-blue-200",
   truck: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -52,7 +52,7 @@ export default function ReceiptSearch({
   const doSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!q.trim() && !amount.trim()) {
-      showFeedback("error", "Receipt number, koi text, ya amount likhein search karne ke liye.");
+      showFeedback("error", "Enter a receipt number, some text or an amount to search. · تلاش کے لیے رسید نمبر، کوئی متن یا رقم لکھیں۔");
       return;
     }
     setSearching(true);
@@ -75,12 +75,12 @@ export default function ReceiptSearch({
     <div className="space-y-4">
       <div className="bg-white p-4 border border-slate-200 rounded-xl space-y-3">
         <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-          <Receipt className="w-4 h-4 text-emerald-600" /> Receipt Search — purani receipt kahan gayi thi?
+          <Receipt className="w-4 h-4 text-emerald-600" /> Receipt Search — where did that old receipt go? · رسید تلاش — پرانی رسید کہاں گئی؟
         </h2>
         <p className="text-[12px] text-slate-500">
-          Receipt number, bank reference, ya description ka koi lafz likhein — aur/ya amount daalein. System har party
-          khata, truck khata aur Finance expense mein dhoondega, aur agar koi scanned receipt already lagi hai uska naam
-          bhi check karega. Kuch na mile tou iska matlab yeh entry kabhi ki hi nahi gayi.
+          Type a receipt number, bank reference or any word from the description — and / or an amount. The system searches every party
+          ledger, truck ledger and Finance expense, and also checks the file names of any scanned receipts already
+          attached. If nothing is found, the entry was never made.
         </p>
         <form onSubmit={doSearch} className="space-y-2">
           <div className="relative">
@@ -137,10 +137,10 @@ export default function ReceiptSearch({
           {results.length === 0 ? (
             <div className="p-6 text-center">
               <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-              <p className="text-sm font-semibold text-slate-700">Yeh receipt kahin bhi nahi mili.</p>
+              <p className="text-sm font-semibold text-slate-700">This receipt was not found anywhere. · یہ رسید کہیں نہیں ملی۔</p>
               <p className="text-[12px] text-slate-500 mt-1">
-                Records mein is number/amount ki koi entry darj nahi hai — matlab yeh entry karna reh gaya hai. Party
-                khata ya Truck khata mein jaa kar isko naya entry ki tarah daal dein.
+                No record has this number / amount — the entry was probably never made. Go to the Party
+                Ledger or Truck Ledger and add it as a new entry.
               </p>
             </div>
           ) : (
@@ -170,7 +170,7 @@ export default function ReceiptSearch({
                         </span>
                       ) : (
                         <span className="text-[11px] text-amber-600 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Koi scanned receipt attach nahi hai
+                          <AlertTriangle className="w-3 h-3" /> No scanned receipt attached · کوئی اسکین شدہ رسید منسلک نہیں
                         </span>
                       )}
                     </div>

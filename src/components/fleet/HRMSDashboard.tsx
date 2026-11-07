@@ -600,7 +600,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
             <Building className="text-emerald-500 w-8 h-8" />
-            HF Workforce ERP Suite <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-500/20 font-mono">v2.0 Enterprise</span>
+            HF Workforce ERP Suite <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-500/20 tabular-nums">v2.0 Enterprise</span>
           </h1>
           <p className="text-slate-400 mt-1 text-sm">
             Core HRMS Master, Shift Planners, Automated Payroll Calculations & Compliance Audit logs
@@ -665,7 +665,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
       {loading ? (
         <div className="flex justify-center items-center py-24">
           <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-          <span className="text-slate-400 ml-3 font-mono">Loading Enterprise Databases...</span>
+          <span className="text-slate-400 ml-3 tabular-nums">Loading Enterprise Databases...</span>
         </div>
       ) : (
         <AnimatePresence mode="wait">
@@ -680,7 +680,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-400 block font-mono">ACTIVE HEADCOUNT</span>
+                    <span className="text-xs text-slate-400 block tabular-nums">ACTIVE HEADCOUNT</span>
                     <span className="text-2xl font-bold text-white mt-1 block">{dashboardStats.totalEmployees || 0}</span>
                   </div>
                   <div className="bg-blue-500/10 p-3 rounded-lg text-blue-400 border border-blue-500/20">
@@ -690,7 +690,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
                 <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-400 block font-mono">PRESENT TODAY</span>
+                    <span className="text-xs text-slate-400 block tabular-nums">PRESENT TODAY</span>
                     <span className="text-2xl font-bold text-emerald-400 mt-1 block">{dashboardStats.presentToday || 0}</span>
                   </div>
                   <div className="bg-emerald-500/10 p-3 rounded-lg text-emerald-400 border border-emerald-500/20">
@@ -700,7 +700,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
                 <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-400 block font-mono">LATE / DELAYED ARRIVAL</span>
+                    <span className="text-xs text-slate-400 block tabular-nums">LATE / DELAYED ARRIVAL</span>
                     <span className="text-2xl font-bold text-amber-400 mt-1 block">{dashboardStats.lateEmployees || 0}</span>
                   </div>
                   <div className="bg-amber-500/10 p-3 rounded-lg text-amber-400 border border-amber-500/20">
@@ -710,7 +710,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
                 <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-400 block font-mono">EST. PAYROLL BUDGET</span>
+                    <span className="text-xs text-slate-400 block tabular-nums">EST. PAYROLL BUDGET</span>
                     <span className="text-2xl font-bold text-white mt-1 block">PKR {(dashboardStats.payrollCost || 0).toLocaleString()}</span>
                   </div>
                   <div className="bg-emerald-500/10 p-3 rounded-lg text-emerald-400 border border-emerald-500/20">
@@ -728,23 +728,23 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                   </h3>
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                      <span className="text-xs text-slate-400 font-mono">ON ACTIVE TRIP</span>
+                      <span className="text-xs text-slate-400 tabular-nums">ON ACTIVE TRIP</span>
                       <span className="text-2xl font-extrabold text-blue-400 block mt-1">{dashboardStats.driversOnTrip || 0} Drivers</span>
                     </div>
                     <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                      <span className="text-xs text-slate-400 font-mono">AVAILABLE IN YARD</span>
+                      <span className="text-xs text-slate-400 tabular-nums">AVAILABLE IN YARD</span>
                       <span className="text-2xl font-extrabold text-emerald-400 block mt-1">{dashboardStats.driversAvailable || 0} Drivers</span>
                     </div>
                   </div>
 
                   {/* Department breakdown stats */}
-                  <h4 className="text-xs font-mono text-slate-400 mb-2 uppercase tracking-wider">Departmental Headcount Distributions</h4>
+                  <h4 className="text-xs tabular-nums text-slate-400 mb-2">Departmental Headcount Distributions</h4>
                   <div className="space-y-3">
                     {dashboardStats.departmentStats && dashboardStats.departmentStats.map((dept: any, idx: number) => (
                       <div key={idx} className="flex items-center justify-between bg-slate-950 p-2.5 rounded border border-slate-800">
                         <span className="text-sm font-medium">{dept.departmentName}</span>
                         <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-400 font-mono">{dept.count} active</span>
+                          <span className="text-xs text-slate-400 tabular-nums">{dept.count} active</span>
                           <div className="w-24 bg-slate-850 h-2 rounded overflow-hidden">
                             <div className="bg-emerald-500 h-full" style={{ width: `${Math.min(100, (dept.count / dashboardStats.totalEmployees) * 100)}%` }} />
                           </div>
@@ -767,7 +767,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                             <span className="text-sm font-semibold block text-white">{exp.employeeName}</span>
                             <span className="text-xs text-amber-400 block mt-0.5">{exp.docType}</span>
                           </div>
-                          <span className="text-xs font-mono bg-amber-500/10 text-amber-400 px-2 py-1 rounded border border-amber-500/20">
+                          <span className="text-xs tabular-nums bg-amber-500/10 text-amber-400 px-2 py-1 rounded border border-amber-500/20">
                             {new Date(exp.expiryDate).toLocaleDateString()}
                           </span>
                         </div>
@@ -775,7 +775,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                     ) : (
                       <div className="text-center py-8 text-slate-500">
                         <CheckCircle className="w-8 h-8 text-slate-650 mx-auto mb-2" />
-                        <span className="text-xs font-mono">No imminent document expiries in next 30 days.</span>
+                        <span className="text-xs tabular-nums">No imminent document expiries in next 30 days.</span>
                       </div>
                     )}
                   </div>
@@ -833,7 +833,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                     <div className="p-5">
                       <div className="flex justify-between items-start">
                         <div>
-                          <span className="text-xs font-mono bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                          <span className="text-xs tabular-nums bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
                             {emp.employeeCode}
                           </span>
                           <h3 className="text-lg font-bold text-white mt-2">{emp.fullName}</h3>
@@ -846,7 +846,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                         </span>
                       </div>
 
-                      <div className="border-t border-slate-800/60 my-4 pt-3 grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="border-t border-slate-800/60 my-4 pt-3 grid grid-cols-2 gap-2 text-xs tabular-nums">
                         <div>
                           <span className="text-slate-500 block">CNIC Number</span>
                           <span className="text-slate-300">{emp.cnic}</span>
@@ -870,13 +870,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                         <div className="flex items-center gap-2">
                           <QrCode className="w-8 h-8 text-slate-400" />
                           <div>
-                            <span className="text-[10px] text-slate-500 block font-mono">SECURE QR CODE</span>
-                            <span className="text-[10px] text-slate-300 block font-mono">QR-{emp.employeeCode}</span>
+                            <span className="text-[10px] text-slate-500 block tabular-nums">SECURE QR CODE</span>
+                            <span className="text-[10px] text-slate-300 block tabular-nums">QR-{emp.employeeCode}</span>
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-[10px] text-slate-500 block font-mono">BARCODE</span>
-                          <span className="text-[10px] text-slate-300 block font-mono">BAR-{emp.employeeCode}</span>
+                          <span className="text-[10px] text-slate-500 block tabular-nums">BARCODE</span>
+                          <span className="text-[10px] text-slate-300 block tabular-nums">BAR-{emp.employeeCode}</span>
                         </div>
                       </div>
 
@@ -884,13 +884,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       <div className="flex gap-2 mt-4 pt-3 border-t border-slate-800">
                         <button
                           onClick={() => handleSimulatedClock(emp.id, "in")}
-                          className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 py-1.5 rounded text-xs font-medium font-mono"
+                          className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 py-1.5 rounded text-xs font-medium tabular-nums"
                         >
                           Sim. Clock In
                         </button>
                         <button
                           onClick={() => handleSimulatedClock(emp.id, "out")}
-                          className="flex-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 py-1.5 rounded text-xs font-medium font-mono"
+                          className="flex-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 py-1.5 rounded text-xs font-medium tabular-nums"
                         >
                           Sim. Clock Out
                         </button>
@@ -932,7 +932,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Date</th>
                         <th className="py-3">Clock In</th>
@@ -947,21 +947,21 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {attendanceList.map((att) => (
                         <tr key={att.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {att.employeeName} <span className="text-xs text-slate-400 font-mono block">{att.employeeCode}</span>
+                            {att.employeeName} <span className="text-xs text-slate-400 tabular-nums block">{att.employeeCode}</span>
                           </td>
-                          <td className="py-3 font-mono text-xs">{new Date(att.date).toLocaleDateString()}</td>
-                          <td className="py-3 font-mono text-xs text-emerald-400">{att.clockIn ? new Date(att.clockIn).toLocaleTimeString() : "—"}</td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{att.clockOut ? new Date(att.clockOut).toLocaleTimeString() : "—"}</td>
-                          <td className="py-3 font-mono text-xs text-slate-400">{att.latitudeIn ? `${att.latitudeIn}, ${att.longitudeIn}` : "—"}</td>
+                          <td className="py-3 tabular-nums text-xs">{new Date(att.date).toLocaleDateString()}</td>
+                          <td className="py-3 tabular-nums text-xs text-emerald-400">{att.clockIn ? new Date(att.clockIn).toLocaleTimeString() : "—"}</td>
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{att.clockOut ? new Date(att.clockOut).toLocaleTimeString() : "—"}</td>
+                          <td className="py-3 tabular-nums text-xs text-slate-400">{att.latitudeIn ? `${att.latitudeIn}, ${att.longitudeIn}` : "—"}</td>
                           <td className="py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded font-mono ${
+                            <span className={`text-xs px-2 py-0.5 rounded tabular-nums ${
                               att.status === "Present" ? "bg-emerald-500/10 text-emerald-400" :
                               att.status === "Late" ? "bg-amber-500/10 text-amber-400" : "bg-rose-500/10 text-rose-400"
                             }`}>
                               {att.status}
                             </span>
                           </td>
-                          <td className="py-3 font-mono text-xs">{att.overtimeMinutes || 0} mins</td>
+                          <td className="py-3 tabular-nums text-xs">{att.overtimeMinutes || 0} mins</td>
                           <td className="py-3">
                             {att.correctionRequested && (
                               <button
@@ -1011,7 +1011,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Type</th>
                         <th className="py-3">Duration</th>
@@ -1024,15 +1024,15 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {leavesList.map((lv) => (
                         <tr key={lv.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {lv.employeeName} <span className="text-xs text-slate-400 block font-mono">{lv.employeeCode}</span>
+                            {lv.employeeName} <span className="text-xs text-slate-400 block tabular-nums">{lv.employeeCode}</span>
                           </td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{lv.leaveType}</td>
-                          <td className="py-3 font-mono text-xs">
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{lv.leaveType}</td>
+                          <td className="py-3 tabular-nums text-xs">
                             {new Date(lv.startDate).toLocaleDateString()} to {new Date(lv.endDate).toLocaleDateString()}
                           </td>
                           <td className="py-3 text-slate-300">{lv.reason}</td>
                           <td className="py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded font-mono ${
+                            <span className={`text-xs px-2 py-0.5 rounded tabular-nums ${
                               lv.status === "Approved" ? "bg-emerald-500/10 text-emerald-400" :
                               lv.status === "Pending" ? "bg-amber-500/10 text-amber-400" : "bg-rose-500/10 text-rose-400"
                             }`}>
@@ -1081,7 +1081,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                   <div>
-                    <label className="text-xs text-slate-400 block font-mono mb-1">SELECT PAYROLL MONTH</label>
+                    <label className="text-xs text-slate-400 block tabular-nums mb-1">SELECT PAYROLL MONTH</label>
                     {/* type="month", not free text — the calculation route
                         matches this string exactly (payrollPeriod ===
                         "YYYY-MM") and also builds a Date from it; a typo or
@@ -1099,7 +1099,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-400 block font-mono mb-1">DISBURSE FUND ACCOUNT</label>
+                    <label className="text-xs text-slate-400 block tabular-nums mb-1">DISBURSE FUND ACCOUNT</label>
                     <select
                       value={selectedBankAccount}
                       onChange={(e) => setSelectedBankAccount(e.target.value)}
@@ -1113,7 +1113,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-400 block font-mono mb-1">BANK REFERENCE/REF</label>
+                    <label className="text-xs text-slate-400 block tabular-nums mb-1">BANK REFERENCE/REF</label>
                     <input
                       type="text"
                       placeholder="e.g. REF-HBL-WORKERS"
@@ -1151,7 +1151,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Basic Salary</th>
                         <th className="py-3">Allowances</th>
@@ -1166,14 +1166,14 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {payrollList.map((p) => (
                         <tr key={p.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {p.employeeName} <span className="text-xs text-slate-400 block font-mono">{p.employeeCode}</span>
+                            {p.employeeName} <span className="text-xs text-slate-400 block tabular-nums">{p.employeeCode}</span>
                           </td>
-                          <td className="py-3 font-mono text-xs">PKR {Number(p.basicSalary || 0).toLocaleString()}</td>
-                          <td className="py-3 font-mono text-xs text-slate-300">PKR {Number(p.allowances || 0).toLocaleString()}</td>
-                          <td className="py-3 font-mono text-xs text-emerald-400">PKR {Number(p.tripAllowance || 0).toLocaleString()}</td>
-                          <td className="py-3 font-mono text-xs text-blue-400">PKR {Number(p.overtime || 0).toLocaleString()}</td>
-                          <td className="py-3 font-mono text-xs text-rose-400">PKR {Number(p.tax || 0).toLocaleString()}</td>
-                          <td className="py-3 font-mono text-xs font-bold text-white">PKR {Number(p.netSalary || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs">PKR {Number(p.basicSalary || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs text-slate-300">PKR {Number(p.allowances || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs text-emerald-400">PKR {Number(p.tripAllowance || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs text-blue-400">PKR {Number(p.overtime || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs text-rose-400">PKR {Number(p.tax || 0).toLocaleString()}</td>
+                          <td className="py-3 tabular-nums text-xs font-bold text-white">PKR {Number(p.netSalary || 0).toLocaleString()}</td>
                           <td className="py-3">
                             <span className={`text-xs px-2.5 py-1 rounded-full font-semibold border ${
                               p.status === "Paid" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
@@ -1219,11 +1219,11 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
               {/* Driver Performance metrics grid */}
               <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-emerald-400 font-mono mb-3 uppercase">Driver Safety & Efficiency Records</h4>
+                <h4 className="text-sm font-bold text-emerald-400 tabular-nums mb-3 uppercase">Driver Safety & Efficiency Records</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Driver Name</th>
                         <th className="py-3">Period</th>
                         <th className="py-3">Fuel Efficiency</th>
@@ -1237,13 +1237,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {driverPerfList.map((dp) => (
                         <tr key={dp.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">{dp.driverName}</td>
-                          <td className="py-3 font-mono text-xs">{dp.period}</td>
-                          <td className="py-3 font-mono text-xs text-emerald-400">{dp.fuelEfficiency} Km/L</td>
-                          <td className="py-3 font-mono text-xs">{dp.onTimeDeliveryCount} / {dp.totalDeliveries}</td>
-                          <td className="py-3 font-mono text-xs text-rose-400">{dp.overspeedEvents} / {dp.accidentsCount}</td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{dp.routeComplianceRate}%</td>
+                          <td className="py-3 tabular-nums text-xs">{dp.period}</td>
+                          <td className="py-3 tabular-nums text-xs text-emerald-400">{dp.fuelEfficiency} Km/L</td>
+                          <td className="py-3 tabular-nums text-xs">{dp.onTimeDeliveryCount} / {dp.totalDeliveries}</td>
+                          <td className="py-3 tabular-nums text-xs text-rose-400">{dp.overspeedEvents} / {dp.accidentsCount}</td>
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{dp.routeComplianceRate}%</td>
                           <td className="py-3">
-                            <span className="text-xs bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded font-mono">
+                            <span className="text-xs bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded tabular-nums">
                               ★ {dp.customerRating}
                             </span>
                           </td>
@@ -1256,11 +1256,11 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
               {/* Staff performance review records */}
               <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-blue-400 font-mono mb-3 uppercase">Office & Admin Appraisals</h4>
+                <h4 className="text-sm font-bold text-blue-400 tabular-nums mb-3 uppercase">Office & Admin Appraisals</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Period</th>
                         <th className="py-3">Attendance</th>
@@ -1272,13 +1272,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {staffPerfList.map((sp) => (
                         <tr key={sp.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {sp.employeeName} <span className="text-xs text-slate-400 block font-mono">{sp.employeeCode}</span>
+                            {sp.employeeName} <span className="text-xs text-slate-400 block tabular-nums">{sp.employeeCode}</span>
                           </td>
-                          <td className="py-3 font-mono text-xs">{sp.period}</td>
-                          <td className="py-3 font-mono text-xs text-emerald-400">{sp.attendanceRate}%</td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{sp.taskCompletionRate}%</td>
+                          <td className="py-3 tabular-nums text-xs">{sp.period}</td>
+                          <td className="py-3 tabular-nums text-xs text-emerald-400">{sp.attendanceRate}%</td>
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{sp.taskCompletionRate}%</td>
                           <td className="py-3">
-                            <span className="text-xs bg-purple-500/10 text-purple-400 px-2 py-1 rounded border border-purple-500/20 font-mono font-bold">
+                            <span className="text-xs bg-purple-500/10 text-purple-400 px-2 py-1 rounded border border-purple-500/20 tabular-nums font-bold">
                               {sp.rating}
                             </span>
                           </td>
@@ -1324,9 +1324,9 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="text-lg font-bold text-white">{job.title}</h4>
-                        <span className="text-xs font-mono text-slate-400 block mt-1">DEP: {job.departmentName || "General Operations"}</span>
+                        <span className="text-xs tabular-nums text-slate-400 block mt-1">DEP: {job.departmentName || "General Operations"}</span>
                       </div>
-                      <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-mono">
+                      <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded tabular-nums">
                         {job.status}
                       </span>
                     </div>
@@ -1337,11 +1337,11 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
 
               {/* Applicants pipeline list */}
               <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-slate-300 font-mono mb-3 uppercase">Active Candidates Pipeline</h4>
+                <h4 className="text-sm font-bold text-slate-300 tabular-nums mb-3 uppercase">Active Candidates Pipeline</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Candidate</th>
                         <th className="py-3">Target Job</th>
                         <th className="py-3">Contact</th>
@@ -1354,15 +1354,15 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {applicantsList.map((app) => (
                         <tr key={app.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">{app.fullName}</td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{app.jobTitle || "Fleet Assistant"}</td>
-                          <td className="py-3 font-mono text-xs text-slate-300">{app.phone} <span className="text-[10px] text-slate-500 block">{app.email}</span></td>
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{app.jobTitle || "Fleet Assistant"}</td>
+                          <td className="py-3 tabular-nums text-xs text-slate-300">{app.phone} <span className="text-[10px] text-slate-500 block">{app.email}</span></td>
                           <td className="py-3">
                             <a href={app.cvUrl} className="text-xs text-emerald-400 flex items-center gap-1 hover:underline" target="_blank" rel="noreferrer">
                               <Download className="w-3.5 h-3.5" /> cv.pdf
                             </a>
                           </td>
                           <td className="py-3">
-                            <span className="text-xs bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded font-mono">
+                            <span className="text-xs bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded tabular-nums">
                               {app.status}
                             </span>
                           </td>
@@ -1372,7 +1372,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                                 <button
                                   key={stage}
                                   onClick={() => handleApplicantStatus(app.id, stage)}
-                                  className={`px-1.5 py-0.5 text-[10px] rounded font-mono font-bold border transition ${
+                                  className={`px-1.5 py-0.5 text-[10px] rounded tabular-nums font-bold border transition ${
                                     app.status === stage
                                       ? "bg-emerald-500 text-slate-950 border-emerald-400"
                                       : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
@@ -1419,13 +1419,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
               </div>
 
               <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-emerald-400 font-mono mb-3 uppercase">Active Training Sessions</h4>
+                <h4 className="text-sm font-bold text-emerald-400 tabular-nums mb-3 uppercase">Active Training Sessions</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {trainingsList.map((tr) => (
                     <div key={tr.id} className="bg-slate-950 p-4 rounded-lg border border-slate-800">
                       <h5 className="font-bold text-white text-base">{tr.name}</h5>
-                      <span className="text-xs text-slate-400 block mt-1 font-mono">Trainer: {tr.trainer}</span>
-                      <span className="text-xs text-slate-400 block font-mono">Scheduled: {new Date(tr.sessionDate).toLocaleDateString()}</span>
+                      <span className="text-xs text-slate-400 block mt-1 tabular-nums">Trainer: {tr.trainer}</span>
+                      <span className="text-xs text-slate-400 block tabular-nums">Scheduled: {new Date(tr.sessionDate).toLocaleDateString()}</span>
                       <p className="text-slate-300 text-xs mt-2">{tr.description}</p>
                     </div>
                   ))}
@@ -1433,11 +1433,11 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
               </div>
 
               <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-                <h4 className="text-sm font-bold text-blue-400 font-mono mb-3 uppercase">Employee Certificate Logs & Renewals</h4>
+                <h4 className="text-sm font-bold text-blue-400 tabular-nums mb-3 uppercase">Employee Certificate Logs & Renewals</h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Training Module</th>
                         <th className="py-3">Completion Date</th>
@@ -1450,13 +1450,13 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {empTrainingsList.map((et) => (
                         <tr key={et.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {et.employeeName} <span className="text-xs text-slate-400 block font-mono">{et.employeeCode}</span>
+                            {et.employeeName} <span className="text-xs text-slate-400 block tabular-nums">{et.employeeCode}</span>
                           </td>
                           <td className="py-3 text-slate-300">{et.trainingName}</td>
-                          <td className="py-3 font-mono text-xs">{et.completionDate ? new Date(et.completionDate).toLocaleDateString() : "Pending"}</td>
-                          <td className="py-3 font-mono text-xs text-amber-400">{et.expiryDate ? new Date(et.expiryDate).toLocaleDateString() : "None"}</td>
+                          <td className="py-3 tabular-nums text-xs">{et.completionDate ? new Date(et.completionDate).toLocaleDateString() : "Pending"}</td>
+                          <td className="py-3 tabular-nums text-xs text-amber-400">{et.expiryDate ? new Date(et.expiryDate).toLocaleDateString() : "None"}</td>
                           <td className="py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded font-mono ${
+                            <span className={`text-xs px-2 py-0.5 rounded tabular-nums ${
                               et.status === "Completed" ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"
                             }`}>
                               {et.status}
@@ -1505,7 +1505,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 font-mono text-xs uppercase">
+                      <tr className="border-b border-slate-800 text-slate-400 tabular-nums text-xs uppercase">
                         <th className="py-3">Employee</th>
                         <th className="py-3">Doc Type</th>
                         <th className="py-3">Identifier/No.</th>
@@ -1519,11 +1519,11 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                       {documentsList.map((doc) => (
                         <tr key={doc.id} className="hover:bg-slate-850/40">
                           <td className="py-3 font-semibold text-white">
-                            {doc.employeeName} <span className="text-xs text-slate-400 block font-mono">{doc.employeeCode}</span>
+                            {doc.employeeName} <span className="text-xs text-slate-400 block tabular-nums">{doc.employeeCode}</span>
                           </td>
-                          <td className="py-3 font-mono text-xs text-blue-400">{doc.docType}</td>
-                          <td className="py-3 font-mono text-xs text-slate-300">{doc.docNumber || "—"}</td>
-                          <td className="py-3 font-mono text-xs text-slate-400">
+                          <td className="py-3 tabular-nums text-xs text-blue-400">{doc.docType}</td>
+                          <td className="py-3 tabular-nums text-xs text-slate-300">{doc.docNumber || "—"}</td>
+                          <td className="py-3 tabular-nums text-xs text-slate-400">
                             {doc.expiryDate ? new Date(doc.expiryDate).toLocaleDateString() : "Permanent"}
                           </td>
                           <td className="py-3 max-w-xs text-slate-300 text-xs truncate">
@@ -1577,7 +1577,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
             <form onSubmit={handleSaveEmployee} className="space-y-4 text-sm text-slate-300">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">FULL NAME *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">FULL NAME *</label>
                   <input
                     type="text" required
                     value={employeeForm.fullName}
@@ -1587,7 +1587,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">FATHER NAME *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">FATHER NAME *</label>
                   <input
                     type="text" required
                     value={employeeForm.fatherName}
@@ -1597,27 +1597,27 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">CNIC NUMBER *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">CNIC NUMBER *</label>
                   <input
                     type="text" required placeholder="e.g. 37405-1234567-1"
                     value={employeeForm.cnic}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, cnic: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">PASSPORT (OPTIONAL)</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">PASSPORT (OPTIONAL)</label>
                   <input
                     type="text"
                     value={employeeForm.passport}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, passport: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">GENDER *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">GENDER *</label>
                   <select
                     value={employeeForm.gender}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value })}
@@ -1630,7 +1630,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">DATE OF BIRTH *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">DATE OF BIRTH *</label>
                   <input
                     type="date" required
                     value={employeeForm.dob}
@@ -1640,17 +1640,17 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">MOBILE PHONE *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">MOBILE PHONE *</label>
                   <input
                     type="text" required
                     value={employeeForm.phone}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, phone: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">OFFICIAL EMAIL *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">OFFICIAL EMAIL *</label>
                   <input
                     type="email" required
                     value={employeeForm.email}
@@ -1660,17 +1660,17 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">EMERGENCY CONTACT *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">EMERGENCY CONTACT *</label>
                   <input
                     type="text" required
                     value={employeeForm.emergencyContact}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, emergencyContact: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">DEPARTMENT *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">DEPARTMENT *</label>
                   <select
                     value={employeeForm.departmentId} required
                     onChange={(e) => setEmployeeForm({ ...employeeForm, departmentId: e.target.value })}
@@ -1684,7 +1684,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">DESIGNATION *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">DESIGNATION *</label>
                   <select
                     value={employeeForm.designationId} required
                     onChange={(e) => setEmployeeForm({ ...employeeForm, designationId: e.target.value })}
@@ -1698,7 +1698,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">BRANCH *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">BRANCH *</label>
                   <select
                     value={employeeForm.branchId} required
                     onChange={(e) => setEmployeeForm({ ...employeeForm, branchId: e.target.value })}
@@ -1712,37 +1712,37 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">BASIC MONTHLY SALARY *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">BASIC MONTHLY SALARY *</label>
                   <input
                     type="number" required placeholder="PKR"
                     value={employeeForm.basicSalary}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, basicSalary: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">FUEL ALLOWANCE</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">FUEL ALLOWANCE</label>
                   <input
                     type="number" placeholder="PKR"
                     value={employeeForm.fuelAllowance}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, fuelAllowance: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">OTHER ALLOWANCES</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">OTHER ALLOWANCES</label>
                   <input
                     type="number" placeholder="PKR"
                     value={employeeForm.otherAllowances}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, otherAllowances: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div className="md:col-span-3">
-                  <label className="block text-xs font-mono text-slate-400 mb-1">RESIDENTIAL ADDRESS *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">RESIDENTIAL ADDRESS *</label>
                   <textarea
                     required rows={2}
                     value={employeeForm.address}
@@ -1752,7 +1752,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">CITY *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">CITY *</label>
                   <input
                     type="text" required
                     value={employeeForm.city}
@@ -1762,7 +1762,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">PROVINCE *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">PROVINCE *</label>
                   <input
                     type="text" required
                     value={employeeForm.province}
@@ -1772,7 +1772,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">QUALIFICATION *</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">QUALIFICATION *</label>
                   <input
                     type="text" required
                     value={employeeForm.qualification}
@@ -1782,7 +1782,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">BANK NAME</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">BANK NAME</label>
                   <input
                     type="text"
                     value={employeeForm.bankName}
@@ -1792,22 +1792,22 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">BANK ACCOUNT/IBAN</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">BANK ACCOUNT/IBAN</label>
                   <input
                     type="text"
                     value={employeeForm.bankAccount}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, bankAccount: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">NTN TAX NUMBER</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">NTN TAX NUMBER</label>
                   <input
                     type="text"
                     value={employeeForm.taxNumber}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, taxNumber: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                    className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                   />
                 </div>
               </div>
@@ -1844,7 +1844,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
             </div>
             <form onSubmit={handleAddDepartment} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">DEPARTMENT NAME</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">DEPARTMENT NAME</label>
                 <input
                   type="text" required
                   value={deptForm.name}
@@ -1853,12 +1853,12 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 />
               </div>
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">DEPARTMENT CODE</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">DEPARTMENT CODE</label>
                 <input
                   type="text" required placeholder="e.g. FIN, OPS, HR"
                   value={deptForm.code}
                   onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })}
-                  className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full font-mono"
+                  className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-white w-full tabular-nums"
                 />
               </div>
               <div className="flex justify-end gap-3">
@@ -1882,7 +1882,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
             </div>
             <form onSubmit={handleAddDesignation} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">DESIGNATION NAME</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">DESIGNATION NAME</label>
                 <input
                   type="text" required
                   value={desigForm.name}
@@ -1891,7 +1891,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 />
               </div>
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">GRADE LEVEL</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">GRADE LEVEL</label>
                 <select
                   value={desigForm.grade}
                   onChange={(e) => setDesigForm({ ...desigForm, grade: e.target.value })}
@@ -1925,7 +1925,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
             </div>
             <form onSubmit={handleApplyLeave} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">EMPLOYEE</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">EMPLOYEE</label>
                 <select
                   value={leaveForm.employeeId} required
                   onChange={(e) => setLeaveForm({ ...leaveForm, employeeId: e.target.value })}
@@ -1938,7 +1938,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">LEAVE TYPE</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">LEAVE TYPE</label>
                 <select
                   value={leaveForm.leaveType}
                   onChange={(e) => setLeaveForm({ ...leaveForm, leaveType: e.target.value })}
@@ -1954,7 +1954,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">START DATE</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">START DATE</label>
                   <input
                     type="date" required
                     value={leaveForm.startDate}
@@ -1963,7 +1963,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">END DATE</label>
+                  <label className="block text-xs tabular-nums text-slate-400 mb-1">END DATE</label>
                   <input
                     type="date" required
                     value={leaveForm.endDate}
@@ -1973,7 +1973,7 @@ export default function HRMSDashboard({ dbUser, showFeedback }: HRMSDashboardPro
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-mono text-slate-400 mb-1">REASON / JUSTIFICATION</label>
+                <label className="block text-xs tabular-nums text-slate-400 mb-1">REASON / JUSTIFICATION</label>
                 <textarea
                   required rows={3}
                   value={leaveForm.reason}

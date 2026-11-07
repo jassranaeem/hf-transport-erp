@@ -21,7 +21,7 @@
  */
 import ExcelJS from "exceljs";
 import { repairXlsxBuffer } from "./xlsx-repair.ts";
-import { cellText, toAmount, parseDate, normRoute, looksLikeHeader } from "./truck-workbook.ts";
+import { cellText, toAmount, parseDate, detectDateOrder, normRoute, looksLikeHeader } from "./truck-workbook.ts";
 import { mapCashbookColumns } from "./cashbook-workbook.ts";
 import type { ParsedLedger, ParsedEntry, WorkbookReport, ParseResult, LedgerCategory } from "./truck-workbook.ts";
 
@@ -145,6 +145,7 @@ export async function parseFreightLogWorkbook(buffer: Buffer, sourceLabel?: stri
     const cols = mapLogColumns(rows[headerIdx]);
     let anyRow = false;
 
+    const dateOrder = detectDateOrder(rows);
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       if (looksLikeLogHeader(r)) continue; // a repeated header mid-sheet
@@ -160,7 +161,7 @@ export async function parseFreightLogWorkbook(buffer: Buffer, sourceLabel?: stri
 
       anyRow = true;
       const dateRaw = g("date");
-      const entryDate = parseDate(dateRaw);
+      const entryDate = parseDate(dateRaw, dateOrder);
       const from = normRoute(g("from"));
       const to = normRoute(g("to"));
       const partyOrCompany = g("party");

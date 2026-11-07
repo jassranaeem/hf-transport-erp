@@ -9,6 +9,7 @@ import {
   registerTokenGetter,
   setSessionToken,
   getStoredToken,
+  postAuth,
 } from "../client/api.ts";
 import { DbUser, AuditLog, HealthStatus } from "./types.ts";
 import WorkbookShell from "./components/workbook/WorkbookShell.tsx";
@@ -186,13 +187,10 @@ export default function App() {
     setAuthLoading(true);
     setLoading(true);
     try {
-      const res = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+      const { ok, data } = await postAuth(path, body, (n) => {
+        if (n === 1) showFeedback("success", "The server is waking up — signing you in as soon as it is ready · سرور جاگ رہا ہے، تھوڑا انتظار کریں");
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Authentication failed");
+      if (!ok) throw new Error(data.error || "Authentication failed");
       setSessionToken(data.token);
       registerTokenGetter(async () => data.token); // ensure immediate calls carry it
       setDbUser(data.user);
