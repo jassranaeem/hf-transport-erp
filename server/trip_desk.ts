@@ -159,7 +159,32 @@ router.get("/options", requireRole(READ), async (_req: AuthRequest, res: Respons
       db.select({ id: schema.contractors.id, company: schema.contractors.company }).from(schema.contractors).where(eq(schema.contractors.isDeleted, false)),
       db.select({ id: schema.routes.id, origin: schema.routes.origin, destination: schema.routes.destination }).from(schema.routes).where(eq(schema.routes.isDeleted, false)),
     ]);
-    res.json({ vehicles: veh, drivers: drv, contractors: con, routes: rts });
+    // who drives each truck, best guess first: the driver written on its truck ledger, the driver assigned to it,
+    // the driver of its last trip, then the partner who runs it (lease partner / 50-50 partner)
+    const raw = async (q: any) => (((await db.execute(q)) as any).rows as any[]);
+    const plate = (s: any) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const [lg, asg, last, lease, pship] = await Promise.all([
+      raw(sql`select vehicle_id, registration, driver_name, driver_phone from truck_ledgers where not is_deleted and coalesce(trim(driver_name), '') <> '' order by updated_at desc`),
+      raw(sql`select assigned_vehicle_id vid, driver_name, mobile from drivers where not is_deleted and assigned_vehicle_id is not null and status <> 'Terminated' order by id desc`),
+      raw(sql`select distinct on (t.vehicle_id) t.vehicle_id vid, d.driver_name, d.mobile from trips t join drivers d on d.id = t.driver_id where not t.is_deleted order by t.vehicle_id, t.departure_time desc`),
+      raw(sql`select distinct on (a.vehicle_id) a.vehicle_id vid, p.name, p.phone from partner_agreements a join partners p on p.id = a.partner_id where not a.is_deleted order by a.vehicle_id, (a.status = 'Active') desc, a.id desc`),
+      raw(sql`select distinct on (l.id) l.vehicle_id vid, l.registration, p.name, p.phone from partnership_accounts pa join truck_ledgers l on l.id = pa.truck_ledger_id join parties p on p.id = pa.partner_party_id where not pa.is_deleted order by l.id, pa.id desc`),
+    ]);
+    const vehicles = veh.map((v) => {
+      const k = plate(v.vehicleNumber);
+      const drivers: { name: string; phone: string; from: string }[] = [];
+      const add = (name: any, phone: any, from: string) => {
+        const n = String(name || "").trim();
+        if (n && !drivers.some((d) => d.name.toLowerCase() === n.toLowerCase())) drivers.push({ name: n, phone: String(phone || "").trim(), from });
+      };
+      for (const r of lg) if (r.vehicle_id === v.id || plate(r.registration) === k) add(r.driver_name, r.driver_phone, "Truck ledger · ٹرک کھاتہ");
+      for (const r of asg) if (r.vid === v.id) add(r.driver_name, r.mobile, "Assigned driver · مقرر");
+      for (const r of last) if (r.vid === v.id) add(r.driver_name, r.mobile, "Last trip · پچھلی ٹرپ");
+      for (const r of pship) if (r.vid === v.id || plate(r.registration) === k) add(r.name, r.phone, "Partner · شریک");
+      for (const r of lease) if (r.vid === v.id) add(r.name, r.phone, "Lease partner · لیز پارٹنر");
+      return { ...v, drivers };
+    });
+    res.json({ vehicles, drivers: drv, contractors: con, routes: rts });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

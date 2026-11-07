@@ -43,7 +43,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 interface Opts {
-  vehicles: { id: number; vehicleNumber: string }[];
+  vehicles: { id: number; vehicleNumber: string; drivers?: { name: string; phone: string; from: string }[] }[];
   drivers: { id: number; driverName: string; mobile: string }[];
   contractors: { id: number; company: string }[];
   routes: { id: number; origin: string; destination: string }[];
@@ -146,12 +146,33 @@ export default function TripDesk({
 
   // ---- new trip
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // the driver follows the truck (truck ledger, assigned, last trip, partner) until he is typed by hand
+  const [driverManual, setDriverManual] = useState(false);
+  const driversOfTruck = (truck: string) => opts.vehicles.find((v) => v.vehicleNumber && v.vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, "") === truck.toUpperCase().replace(/[^A-Z0-9]/g, ""))?.drivers || [];
+  const phoneOf = (name: string, given?: string) => given || opts.drivers.find((d) => d.driverName.toLowerCase() === name.trim().toLowerCase())?.mobile || "";
+  const onTruck = (v: string) =>
+    setForm((f) => {
+      if (driverManual) return { ...f, truck: v };
+      const d = driversOfTruck(v)[0];
+      return { ...f, truck: v, driverName: d ? d.name : "", driverPhone: d ? phoneOf(d.name, d.phone) : "" };
+    });
+  const pickDriver = (d: { name: string; phone: string }) => {
+    setDriverManual(false);
+    setForm((f) => ({ ...f, driverName: d.name, driverPhone: phoneOf(d.name, d.phone) }));
+  };
+  const autoDriver = () => {
+    setDriverManual(false);
+    const d = driversOfTruck(form.truck)[0];
+    setForm((f) => ({ ...f, driverName: d ? d.name : "", driverPhone: d ? phoneOf(d.name, d.phone) : "" }));
+  };
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const truckKnown = form.truck.trim() && opts.vehicles.some((v) => norm(v.vehicleNumber) === norm(form.truck));
   const driverMatch = opts.drivers.find((d) => d.driverName.toLowerCase() === form.driverName.trim().toLowerCase());
   const onDriverName = (v: string) => {
+    setDriverManual(true);
     const m = opts.drivers.find((d) => d.driverName.toLowerCase() === v.trim().toLowerCase());
-    setForm((f) => ({ ...f, driverName: v, driverPhone: m && !f.driverPhone ? m.mobile || "" : f.driverPhone }));
+    // the first hand-typed letter drops the phone that came with the truck's driver
+    setForm((f) => ({ ...f, driverName: v, driverPhone: m && (!f.driverPhone || !driverManual) ? m.mobile || "" : driverManual ? f.driverPhone : "" }));
   };
   // who paid the diesel: the driver out of the cash (usual when cash was given), the office / pump account, or the bank
   const dieselBy = form.dieselBy || (Number(form.cash) > 0 && Number(form.dieselAmount) <= Number(form.cash) ? "driver" : "office");
@@ -176,6 +197,7 @@ export default function TripDesk({
   };
   // the next trip of the same truck: truck, driver and the place it ended
   const newTripFrom = (j: Journey) => {
+    setDriverManual(false);
     setForm({ ...emptyForm(), truck: j.first.vehicleNumber || "", driverName: j.last.driverName || j.first.driverName || "", driverPhone: j.last.driverMobile || j.first.driverMobile || "", from: j.last.destination || "" });
     setOpenId(null);
     setShowNew(true);
@@ -198,7 +220,7 @@ export default function TripDesk({
         title="Trips"
         urdu="ٹرپس"
         subtitle="Click a trip to see its money, stops and receipts · ٹرپ پر کلک کریں"
-        actions={<Btn kind="primary" onClick={() => { setForm(emptyForm()); setShowNew(true); }} icon={<Plus />}>New trip · نئی ٹرپ</Btn>}
+        actions={<Btn kind="primary" onClick={() => { setDriverManual(false); setForm(emptyForm()); setShowNew(true); }} icon={<Plus />}>New trip · نئی ٹرپ</Btn>}
       />
 
       {moneyPending.length > 0 && (
@@ -284,13 +306,42 @@ export default function TripDesk({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={lbl}>Truck number * · ٹرک نمبر</label>
-                <input list="td-trucks" className={inp} value={form.truck} onChange={(e) => set("truck", e.target.value)} placeholder="e.g. TLE-730" autoFocus />
+                <input list="td-trucks" className={inp} value={form.truck} onChange={(e) => onTruck(e.target.value)} placeholder="e.g. TLE-730" autoFocus />
                 {form.truck.trim() && <div className={`text-[10px] mt-0.5 ${truckKnown ? "text-emerald-700" : "text-amber-600"}`}>{truckKnown ? "In the fleet ✓" : "A new truck will be added"}</div>}
               </div>
               <div>
                 <label className={lbl}>Driver * · ڈرائیور</label>
-                <input list="td-drivers" className={inp} value={form.driverName} onChange={(e) => onDriverName(e.target.value)} placeholder="Driver name" />
+                <input list="td-drivers" className={inp} value={form.driverName} onChange={(e) => onDriverName(e.target.value)} placeholder="Driver name — comes from the truck, or type it" />
                 {form.driverName.trim() && <div className={`text-[10px] mt-0.5 ${driverMatch ? "text-emerald-700" : "text-amber-600"}`}>{driverMatch ? "Known driver ✓" : "A new driver will be added"}</div>}
+                {(() => {
+                  const cands = driversOfTruck(form.truck);
+                  if (!form.truck.trim() || !truckKnown) return null;
+                  return (
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[10.5px]">
+                      {cands.length === 0 ? (
+                        <span className="text-amber-600">No driver saved for this truck — type one · اس ٹرک کا ڈرائیور محفوظ نہیں</span>
+                      ) : (
+                        <>
+                          <span className="text-slate-500">{driverManual ? "Typed by hand · ہاتھ سے" : "From the truck · ٹرک سے"}:</span>
+                          {cands.map((d) => (
+                            <button
+                              type="button"
+                              key={d.name}
+                              onClick={() => pickDriver(d)}
+                              title={d.from}
+                              className={`rounded-full border px-2 py-0.5 ${!driverManual && form.driverName.trim().toLowerCase() === d.name.toLowerCase() ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}
+                            >
+                              {d.name} <span className="text-slate-400">· {d.from.split(" · ")[0]}</span>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      {driverManual && cands.length > 0 && (
+                        <button type="button" onClick={autoDriver} className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[#24539B] hover:bg-slate-50">Use the truck's driver · خود سے</button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div>
                 <label className={lbl}>From * · کہاں سے</label>
