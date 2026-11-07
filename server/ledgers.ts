@@ -18,6 +18,7 @@ import { parseCashbookWorkbook } from "../src/lib/dataio/cashbook-workbook.ts";
 import { importParsedWorkbook, retireSyncedRecords } from "../src/lib/dataio/truck-workbook-import.ts";
 import { khataCandidates, planMerge } from "../src/lib/dataio/khata-merge.ts";
 import { notifyDriverOfLedgerEntry } from "./sms.ts";
+import { syncLeasesOfLedger } from "./lease_sync.ts";
 import { parseAndValidate, commitBatch, listWorkbookSheets } from "../src/lib/dataio/engine.ts";
 import { getEntity } from "../src/lib/dataio/registry.ts";
 import { matchSheetToEntity } from "./dataio.ts";
@@ -857,6 +858,8 @@ export async function recompute(ledgerId: number) {
     }
   }
   await db.update(schema.truckLedgers).set({ closingBalance: lastReal, updatedAt: new Date() }).where(eq(schema.truckLedgers.id, ledgerId));
+  // a lease that reads this ledger (still to pay = its minus) follows it
+  await syncLeasesOfLedger(ledgerId).catch(() => null);
   return lastReal;
 }
 

@@ -39,6 +39,7 @@ export default function PartnerInstallments({
   showFeedback: (t: "success" | "error", m: string) => void;
 }) {
   const ag = data.agreement;
+  const lr = data.ledgerRead; // set when the truck ledger carries the whole story: the balance is read from it
   const sch = data.schedule;
   const payments: any[] = data.payments || [];
   const share = ag.companySharePercent ?? 100;
@@ -148,16 +149,18 @@ export default function PartnerInstallments({
       <div className="px-4 py-2.5 border-b border-[#EEF1F5] flex flex-wrap items-center gap-2">
         <CalendarClock className="w-4 h-4 text-[#24539B]" />
         <span className="text-[13px] font-semibold text-[#1F2937]">Paying off the truck · قسطیں</span>
-        <span className="text-[12px] text-[#6B7280]">{payments.length} qist so far · each trip's earnings less its expenses pays the price</span>
+        <span className="text-[12px] text-[#6B7280]">{lr ? "worked out from the truck ledger by itself · ٹرک کھاتے سے خود" : `${payments.length} qist so far · each trip's earnings less its expenses pays the price`}</span>
         <span className="flex-1" />
         {!paidOff && (
           <>
             <button onClick={() => setForm(form === "cash" ? null : "cash")} className="inline-flex items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white text-[12.5px] px-3 py-1.5 hover:bg-[#F4F6FA]">
               <Wallet className="w-3.5 h-3.5" /> He paid cash · نقد دی
             </button>
-            <button onClick={() => (form === "trip" ? setForm(null) : openTrip())} className="inline-flex items-center gap-1 rounded-lg bg-[#24539B] text-white text-[12.5px] font-medium px-3 py-1.5 hover:bg-[#1E4480]">
-              <Truck className="w-3.5 h-3.5" /> Add a trip's earnings · ٹرپ کی کمائی
-            </button>
+            {!lr && (
+              <button onClick={() => (form === "trip" ? setForm(null) : openTrip())} className="inline-flex items-center gap-1 rounded-lg bg-[#24539B] text-white text-[12.5px] font-medium px-3 py-1.5 hover:bg-[#1E4480]">
+                <Truck className="w-3.5 h-3.5" /> Add a trip's earnings · ٹرپ کی کمائی
+              </button>
+            )}
           </>
         )}
       </div>
@@ -184,6 +187,24 @@ export default function PartnerInstallments({
           <span>{paidOff ? "Fully paid" : `The truck is 100% the company's until it is paid — then he becomes a 50% partner · ادائیگی پوری ہونے تک کمپنی 100% مالک`}</span>
         </div>
       </div>
+      {/* the balance is read from the truck ledger: nothing to type twice */}
+      {lr && (
+        <div className="px-4 py-2.5 border-b border-[#EEF1F5] bg-[#F5F9FF] text-[12px]" dir="auto">
+          <div className="font-medium text-[#1F3A6B] mb-1">Counted from the truck ledger by itself — nothing to type here · ٹرک کھاتے سے خود حساب</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums text-[#374151]">
+            <span>Income <b className="text-[#166534]">+{PKR(lr.income)}</b></span>
+            <span>Expenses <b className="text-[#B91C1C]">−{PKR(lr.expenses)}</b></span>
+            {lr.shakhsi > 0 && <span>Shakhsi (taken for home) <b className="text-[#B91C1C]">−{PKR(lr.shakhsi)}</b></span>}
+            {lr.qist > 0 && <span>Cash qist <b className="text-[#166534]">+{PKR(lr.qist)}</b></span>}
+            <span>against the price left to pay <b>{PKR(ag.openingBalance)}</b></span>
+          </div>
+          <div className={`mt-1 ${paidOff ? "text-[#166534] font-medium" : "text-[#92400E]"}`}>
+            {paidOff
+              ? `Price fully covered ✓ — HFK's ${PKR(ag.openingBalance)} is set aside from the earnings; the ledger still holds ${PKR(lr.surplus)} above it. Next: start the 50/50 partnership (Finance → Partners → Partner P&L). · قیمت پوری ادا`
+              : `Still to pay ${PKR(ag.currentBalance)} — it goes down by itself as income comes into this truck's ledger (trips, Daily Cash Book) and up with expenses and Shakhsi. · باقی`}
+          </div>
+        </div>
+      )}
       {/* the truck ledger: what he still had to pay at the start is its opening balance */}
       <div className="px-4 py-2 border-b border-[#EEF1F5] text-[12px] flex flex-wrap items-center gap-x-3 gap-y-1">
         <BookOpen className="w-3.5 h-3.5 text-[#24539B]" />
@@ -329,7 +350,11 @@ export default function PartnerInstallments({
       {/* every qist, oldest first, with what was left after it */}
       {payments.length === 0 ? (
         <div className="px-4 py-6 text-center text-[12.5px] text-[#6B7280]">
-          No qist yet. When the truck comes back from a trip, press <b>Add a trip's earnings</b> — earnings less expenses goes to the truck's price. · ابھی کوئی قسط نہیں
+          {lr ? (
+            <>No separate qist rows — what the truck earns in its ledger pays the price by itself; cash he hands over is typed as <b>He paid cash</b>. · الگ قسط نہیں، کھاتے سے خود</>
+          ) : (
+            <>No qist yet. When the truck comes back from a trip, press <b>Add a trip's earnings</b> — earnings less expenses goes to the truck's price. · ابھی کوئی قسط نہیں</>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto">

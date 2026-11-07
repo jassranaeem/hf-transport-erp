@@ -35,7 +35,7 @@ import { logAudit } from "../src/db/audit.ts";
 import { SocketServer } from "../src/sockets/socket.ts";
 import { selfApi } from "./self_api.ts";
 import { resolveManualLedgerId } from "./cash_book.ts";
-import { recalcLeaseBalance as recalcBalance } from "./lease_sync.ts";
+import { recalcLeaseBalance as recalcBalance, leaseLedgerView, syncLeaseFromLedger } from "./lease_sync.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -321,6 +321,8 @@ async function putKhataOpening(req: AuthRequest, ag: { id: number; vehicleId: nu
 
 router.get("/agreements", requireRole(READ_ROLES), async (_req: AuthRequest, res: Response) => {
   try {
+    // leases that read their truck ledger are brought in step with it first
+    for (const a of await rowsOf(sql`select id from partner_agreements where not is_deleted`)) await syncLeaseFromLedger(Number(a.id)).catch(() => null);
     const list = await db
       .select({
         agreement: schema.partnerAgreements,
@@ -441,6 +443,8 @@ router.post("/agreements/:id/khata-opening", requireRole(WRITE_ROLES), async (re
 router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRequest, res: Response) => {
   try {
     const id = parseInt(req.params.id);
+    // a lease whose truck ledger carries the whole story reads its balance from it (see lease_sync.ts)
+    const ledgerRead = await syncLeaseFromLedger(id).catch(() => null);
     const [ag] = await db
       .select({
         agreement: schema.partnerAgreements,
@@ -529,6 +533,7 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       installments,
       schedule,
       payments,
+      ledgerRead,
       khataLedgerId: khatas[0]?.id ?? null,
       // the truck ledger: its opening balance should be minus what was to pay at the start
       khata: khatas[0]
@@ -542,12 +547,12 @@ router.get("/agreements/:id/ledger", requireRole(READ_ROLES), async (req: AuthRe
       partnership: pship ? { id: pship.id, ledgerId: pship.truck_ledger_id, percent: pship.partner_percent, partnerName: pship.partner_name } : null,
       totals: {
         installments: installments.length,
-        totalInstallments,
+        totalInstallments: ledgerRead ? ledgerRead.paidCash : totalInstallments,
         settlements: settlements.length,
         totalDeclaredRevenue,
         totalExpenses,
         totalNet,
-        totalRecovered,
+        totalRecovered: ledgerRead ? ledgerRead.fromTrips : totalRecovered,
         totalPartnerRetained,
         outstanding: ag.agreement.currentBalance,
         recoveryPercent:
@@ -651,6 +656,8 @@ router.post("/agreements/:id/settlements", requireRole(WRITE_ROLES), async (req:
     const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
     if (!ag) return res.status(404).json({ error: "Agreement not found" });
     if (ag.status === "Settled") return res.status(400).json({ error: "Agreement is already fully settled" });
+    if (await leaseLedgerView(id))
+      return res.status(400).json({ error: "This lease reads the truck ledger by itself — income, expenses and Shakhsi are counted from there, nothing to add here · ٹرک کھاتے سے خود حساب ہوتا ہے" });
 
     const { grossRevenue, expenses, tripId, periodFrom, periodTo, notes } = req.body;
     if (grossRevenue == null) return res.status(400).json({ error: "grossRevenue is required" });

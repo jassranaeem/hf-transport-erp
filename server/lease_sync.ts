@@ -15,10 +15,97 @@ import { db, schema } from "../src/db/index.ts";
 
 const rowsOf = async (q: any) => ((await db.execute(q)) as any).rows as any[];
 
+/**
+ * A lease whose truck ledger carries the whole story reads its balance from that ledger — nothing is typed twice.
+ *
+ *   still to pay = the minus of the truck ledger  (opening −price, + income, − expenses, − Shakhsi, + Qist cash)
+ *
+ * It applies when the ledger's opening row is exactly "−what was to pay", no trip earnings were typed on the
+ * lease screen (those would be counted twice) and every cash instalment is a row of that ledger. A "Safi bachat"
+ * line is the profit handed out — not part of the price — so it is left out. Anything else keeps the old way
+ * (opening − trip earnings − instalments).
+ */
+export async function leaseLedgerView(id: number) {
+  const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
+  if (!ag || ag.isDeleted || !(ag.openingBalance > 0)) return null;
+  const [k] = await rowsOf(sql`select l.id from truck_ledgers l where not l.is_deleted and (l.vehicle_id = ${ag.vehicleId} or l.partner_agreement_id = ${id})
+    order by (l.partner_agreement_id = ${id}) desc nulls last, (select count(*) from truck_ledger_entries e where e.ledger_id = l.id and not e.is_deleted) desc limit 1`);
+  if (!k) return null;
+  const ledgerId = Number(k.id);
+  const [t] = await rowsOf(sql`select
+      coalesce(sum(received - paid) filter (where method = 'Opening'), 0)::bigint opening,
+      coalesce(sum(received - paid) filter (where coalesce(category, '') <> 'SafiBachat'), 0)::bigint bal,
+      coalesce(sum(received) filter (where method <> 'Opening' and category = 'Qist'), 0)::bigint qist,
+      coalesce(sum(received) filter (where method <> 'Opening' and coalesce(category, '') not in ('Qist', 'SafiBachat')), 0)::bigint income,
+      coalesce(sum(paid) filter (where method <> 'Opening' and coalesce(category, '') not in ('Shakhsi', 'SafiBachat', 'Qist')), 0)::bigint expenses,
+      coalesce(sum(paid) filter (where category = 'Shakhsi'), 0)::bigint shakhsi,
+      coalesce(sum(paid) filter (where category = 'SafiBachat'), 0)::bigint safi
+    from truck_ledger_entries where ledger_id = ${ledgerId} and not is_deleted`);
+  if (Number(t.opening) !== -ag.openingBalance) return null;
+  const [x] = await rowsOf(sql`select
+      (select count(*) from partner_settlements where agreement_id = ${id} and not is_deleted)::int s,
+      (select count(*) from partner_installments where agreement_id = ${id} and not is_deleted and khata_entry_id is null)::int loose`);
+  if (Number(x.s) > 0 || Number(x.loose) > 0) return null;
+  const balance = Number(t.bal);
+  const currentBalance = Math.max(0, -balance);
+  const recovered = ag.openingBalance - currentBalance;
+  const paidCash = Math.min(recovered, Number(t.qist));
+  return {
+    ledgerId,
+    balance,
+    currentBalance,
+    paidCash,
+    fromTrips: recovered - paidCash,
+    income: Number(t.income),
+    expenses: Number(t.expenses),
+    shakhsi: Number(t.shakhsi),
+    qist: Number(t.qist),
+    safi: Number(t.safi),
+    surplus: Math.max(0, balance), // what the truck's ledger holds above the price once it is paid
+  };
+}
+
+/** Bring a lease that reads its truck ledger in step with it (cheap; does nothing for the others). */
+export async function syncLeaseFromLedger(id: number, userId?: number) {
+  const v = await leaseLedgerView(id);
+  if (!v) return null;
+  const [ag] = await db.select({ b: schema.partnerAgreements.currentBalance }).from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
+  if (ag && ag.b !== v.currentBalance) await recalcLeaseBalance(id, userId);
+  return v;
+}
+
+/** Truck ledger changed: every lease that reads it follows. */
+export async function syncLeasesOfLedger(ledgerId: number) {
+  const ags = await rowsOf(sql`select a.id from partner_agreements a join truck_ledgers l on l.id = ${ledgerId}
+    where not a.is_deleted and (a.id = l.partner_agreement_id or (l.vehicle_id is not null and a.vehicle_id = l.vehicle_id))`);
+  for (const a of ags) await syncLeaseFromLedger(Number(a.id)).catch(() => null);
+}
+
 /** Balance = opening − truck earnings settled − instalments paid. Also opens / closes the agreement. */
 export async function recalcLeaseBalance(id: number, userId?: number) {
   const [ag] = await db.select().from(schema.partnerAgreements).where(eq(schema.partnerAgreements.id, id)).limit(1);
   if (!ag) return null;
+  const view = await leaseLedgerView(id);
+  if (view) {
+    // once the 50/50 partnership runs on the truck, the lease is history: its figures no longer move
+    if (ag.status === "Settled") {
+      const [pa] = await rowsOf(sql`select 1 from partnership_accounts pa join truck_ledgers l on l.id = pa.truck_ledger_id
+        where not pa.is_deleted and (l.partner_agreement_id = ${id} or l.vehicle_id = ${ag.vehicleId}) limit 1`);
+      if (pa) return { currentBalance: ag.currentBalance, settled: ag.openingBalance - ag.currentBalance, paid: 0 };
+    }
+    const currentBalance = view.currentBalance;
+    await db
+      .update(schema.partnerAgreements)
+      .set({
+        currentBalance,
+        status: currentBalance <= 0 ? "Settled" : ag.status === "Settled" ? "Active" : ag.status,
+        closeDate: currentBalance <= 0 ? ag.closeDate || new Date() : null,
+        updatedAt: new Date(),
+        updatedBy: userId,
+      })
+      .where(eq(schema.partnerAgreements.id, id));
+    return { currentBalance, settled: view.fromTrips, paid: view.paidCash };
+  }
   const [t] = await rowsOf(sql`select
       (select coalesce(sum(amount_to_company), 0) from partner_settlements where agreement_id = ${id} and not is_deleted)::int settled,
       (select coalesce(sum(amount), 0) from partner_installments where agreement_id = ${id} and not is_deleted)::int paid`);
