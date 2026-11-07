@@ -17,6 +17,7 @@ import { requireAuth, requireApproved, AuthRequest } from "../src/middleware/aut
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
 import { gpsDistanceKm } from "./gps_distance.ts";
+import { linkedRecords } from "./attachments.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -67,7 +68,18 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
     .where(inArray(schema.attachments.id, allIds));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
-  return groups.map((g) => {
+  // the same receipt on the records of ONE payment (a Cash Book entry and the rows it wrote, or the lines
+  // of one voucher — an In and an Out sharing a slip) is one receipt shown in several places, not a double entry
+  const real = await Promise.all(
+    groups.map(async (g) => {
+      const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
+      if (items.length < 2) return true;
+      const fam = await linkedRecords(items[0].entityType, items[0].entityId).catch(() => []);
+      const keys = new Set([`${items[0].entityType}:${items[0].entityId}`, ...fam.map((f) => `${f.entityType}:${f.entityId}`)]);
+      return !items.every((a) => keys.has(`${a.entityType}:${a.entityId}`));
+    }),
+  );
+  return groups.filter((_, i) => real[i]).map((g) => {
     const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
     const first = items[0];
     return {

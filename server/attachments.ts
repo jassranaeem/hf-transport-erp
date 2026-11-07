@@ -35,7 +35,9 @@ const ALLOWED_ENTITY_TYPES = new Set([
 // One payment is often written in more than one place: a Cash Book entry writes the truck's khata
 // row (or the party's, or the household's); money given on a trip is a khata row of that trip. A
 // receipt attached to any of them belongs to all of them — so it is shown on each, and attaching
-// the same file again inside that family is not a "duplicate slip".
+// the same file again inside that family is not a "duplicate slip". Lines saved together as one
+// Daily Cash Book voucher (an In and an Out of the same payment, say) are one family too: one receipt
+// covers the whole voucher.
 // ---------------------------------------------------------------------------------------------
 type Rec = { entityType: string; entityId: number; label: string };
 const rawRows = async (q: any) => ((await db.execute(q)) as any).rows as any[];
@@ -89,6 +91,23 @@ export async function linkedRecords(entityType: string, entityId: number): Promi
         add({ entityType: "truck_ledger_entry", entityId: e.id, label: `${e.category === "TripCash" ? "Cash to driver" : e.category} PKR ${Number(e.paid || e.received).toLocaleString()}${e.description ? ` · ${String(e.description).slice(0, 40)}` : ""}` });
         for (const c of await rawRows(sql`select id, entry_date from cash_transactions where derived_entry_id = ${e.id} and link_type = 'truck' and not is_deleted`))
           add({ entityType: "cash_transaction", entityId: c.id, label: `Cash Book ${day(c.entry_date)}` });
+      }
+    }
+  }
+
+  // the other lines of the same Daily Cash Book voucher (and the rows they wrote)
+  const cashIds = [...(entityType === "cash_transaction" ? [entityId] : []), ...out.filter((r) => r.entityType === "cash_transaction").map((r) => r.entityId)];
+  for (const cid of cashIds) {
+    const [c0] = await rawRows(sql`select voucher_key from cash_transactions where id = ${cid}`);
+    if (!c0?.voucher_key) continue;
+    for (const s of await rawRows(sql`select id, direction, amount, entry_date, link_type, derived_entry_id from cash_transactions
+        where voucher_key = ${c0.voucher_key} and id <> ${cid} and not is_deleted order by id`)) {
+      const what = `Same voucher · ${s.direction} PKR ${Number(s.amount).toLocaleString()}`;
+      add({ entityType: "cash_transaction", entityId: s.id, label: what });
+      if (s.derived_entry_id) {
+        if (s.link_type === "truck") add({ entityType: "truck_ledger_entry", entityId: s.derived_entry_id, label: `${what} (truck khata)` });
+        else if (s.link_type === "party") add({ entityType: "party_ledger_entry", entityId: s.derived_entry_id, label: `${what} (party ledger)` });
+        else if (s.link_type === "personal") add({ entityType: "personal_expenses", entityId: s.derived_entry_id, label: `${what} (Personal & Household)` });
       }
     }
   }

@@ -36,6 +36,7 @@ export default function AttachmentPanel({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dupWarn, setDupWarn] = useState<string | null>(null);
+  const [dupSoft, setDupSoft] = useState(false); // the copy is on another Cash Book / ledger entry: often one slip for an In and an Out
   const [info, setInfo] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,12 +74,13 @@ export default function AttachmentPanel({
     setBusy(true);
     setErr(null);
     setDupWarn(null);
+    setDupSoft(false);
     setInfo(null);
     try {
       for (const f of Array.from(files)) {
         const res: any = await uploadAttachment(entityType, entityId, f);
         if (res?.alreadyThere) {
-          setInfo(`"${f.name}" is already attached to this entry or to the same payment's other record — it shows here, nothing more to do. · یہ رسید پہلے سے لگی ہے`);
+          setInfo(`"${f.name}" is already attached to this entry, to the same payment's other record, or to another line of the same voucher — it shows here, nothing more to do. · یہ رسید پہلے سے لگی ہے`);
           continue;
         }
         if (res?.duplicate && Array.isArray(res.duplicateOf)) {
@@ -89,6 +91,8 @@ export default function AttachmentPanel({
                 others.map((d: any) => `${d.entityType} #${d.entityId} (${new Date(d.createdAt).toLocaleDateString()})`).join(", ") +
                 `. Possible duplicate slip? · ممکنہ دہری رسید؟`,
             );
+            // an identical copy on another Cash Book entry: often one slip for the In and the Out of one payment
+            setDupSoft(others.every((d: any) => d.entityType === "cash_transaction" || d.entityType === "truck_ledger_entry" || d.entityType === "party_ledger_entry" || d.entityType === "personal_expenses"));
           }
         } else if (res?.sameSlipCount > 0) {
           const others = (res.sameSlip || []).filter((d: any) => d.id !== res.id);
@@ -162,9 +166,19 @@ export default function AttachmentPanel({
       {err && <p className="text-[11px] text-red-600 mb-2">{err}</p>}
 
       {dupWarn && (
-        <div className="mb-2 rounded-lg border border-red-300 bg-red-600 text-white px-3 py-2 text-[11px] flex items-start gap-2" dir="auto">
-          <span className="font-bold">DUPLICATE</span>
-          <span className="flex-1">{dupWarn}</span>
+        <div
+          className={`mb-2 rounded-lg border px-3 py-2 text-[11px] flex items-start gap-2 ${dupSoft ? "border-amber-300 bg-amber-50 text-amber-900" : "border-red-300 bg-red-600 text-white"}`}
+          dir="auto"
+        >
+          <span className="font-bold">{dupSoft ? "SAME RECEIPT" : "DUPLICATE"}</span>
+          <span className="flex-1">
+            {dupWarn}
+            {dupSoft && (
+              <>
+                {" "}It was saved (nothing is blocked). If one receipt covers both the money In and the money Out of ONE payment, write them as one voucher in the Daily Cash Book (Add entry → “+ Receipt line / + Payment line”) and attach it once: it then shows on every line and raises no alert. · اگر ایک رسید دونوں کی ہے تو دونوں کو ایک واؤچر میں لکھیں اور رسید ایک بار لگائیں۔
+              </>
+            )}
+          </span>
           <button onClick={() => setDupWarn(null)} className="shrink-0" title="Dismiss">
             <X className="w-3.5 h-3.5" style={{ color: "#fff", stroke: "#fff" }} />
           </button>
