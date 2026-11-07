@@ -2455,6 +2455,7 @@ export const cashTransactions = pgTable("cash_transactions", {
   person: text("person"), // who it came from / went to
   description: text("description"),
   notes: text("notes"),
+  method: text("method").notNull().default("Cash"), // Cash | Online | Bank Transfer | Other — how it was paid / received
   sourceSheet: text("source_sheet"), // set when imported, null for hand-entered rows
   sourceRow: integer("source_row"), // row number within sourceSheet - lets re-importing the same file update instead of duplicate
   // the side (In / Out) the row was imported on. It never changes, so the user can switch an

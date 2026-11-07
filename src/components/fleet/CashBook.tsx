@@ -22,7 +22,20 @@ import { kindOf, bucketTotals, catLabel, INCOME_CATS, EXPENSE_CATS, KhataKind } 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BLANK = { direction: "Out", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+const BLANK = { direction: "Out", method: "Cash", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+// how it was paid / received
+const METHOD_OPTS: Array<[string, string]> = [
+  ["Cash", "Cash · نقد"],
+  ["Online", "Online · آن لائن"],
+  ["Bank Transfer", "Bank transfer · بینک"],
+  ["Other", "Other · دیگر"],
+];
+const METHOD_CHIP: Record<string, string> = {
+  Cash: "bg-[#F3F4F6] text-[#4B5563]",
+  Online: "bg-[#E0F2FE] text-[#075985]",
+  "Bank Transfer": "bg-[#EDE9FE] text-[#5B21B6]",
+  Other: "bg-[#FEF3C7] text-[#92400E]",
+};
 interface LinkOptions {
   trucks: { id: number; registration: string }[];
   parties: { id: number; name: string }[];
@@ -105,7 +118,7 @@ export default function CashBook({
       const last = ls[ls.length - 1];
       // a blank first line is simply turned the way it was asked for
       if (ls.length === 1 && !Number(last.amount) && !last.person && !last.description) return [{ ...last, direction }];
-      return [...ls, { ...BLANK, direction, person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
+      return [...ls, { ...BLANK, direction, method: last.method || "Cash", person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
     });
   const add = async () => {
     if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
@@ -133,7 +146,7 @@ export default function CashBook({
 
   const startEdit = (r: any) => {
     setEditId(r.id);
-    setEditForm({ direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
+    setEditForm({ method: r.method || "Cash", direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
   };
   const saveEdit = async () => {
     if (!editId) return;
@@ -330,6 +343,18 @@ export default function CashBook({
 
       <CashCountPanel date={date} showFeedback={showFeedback} onChanged={load} version={countVersion} />
 
+      {data?.byMethod && METHOD_OPTS.some(([m]) => (data.byMethod[m]?.n || 0) > 0 && m !== "Cash") && (
+        <div className="rounded-xl border border-[#E3E8EF] bg-white px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px]">
+          <b className="text-[#374151]">By how it was paid · طریقہ وار</b>
+          {METHOD_OPTS.filter(([m]) => (data.byMethod[m]?.n || 0) > 0).map(([m, l]) => (
+            <span key={m} className="tabular-nums">
+              <span className={`mr-1.5 rounded px-1.5 text-[10.5px] font-medium ${METHOD_CHIP[m]}`}>{l.split(" · ")[0]}</span>
+              In <b className="text-[#166534]">{PKR(data.byMethod[m].in)}</b> · Out <b className="text-[#B91C1C]">{PKR(data.byMethod[m].out)}</b>
+            </span>
+          ))}
+        </div>
+      )}
+
       <Card
         className="overflow-hidden"
         bodyClassName=""
@@ -408,7 +433,9 @@ export default function CashBook({
                     className={`group border-t border-[#F1F4F9] cursor-pointer border-l-[3px] ${r.direction === "In" ? "border-l-[#22C55E]" : "border-l-[#F87171]"} ${editId === r.id ? "bg-[#F4F7FC]" : "hover:bg-[#F8FAFC]"}`}
                     title="Click to open this entry's full detail · مکمل تفصیل کے لیے کلک کریں"
                   >
-                    <td className="px-3 py-2 whitespace-nowrap text-[#6B7280] tabular-nums align-top">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-[#6B7280] tabular-nums align-top">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
+                      <div className={`mt-0.5 inline-block rounded px-1.5 text-[10px] font-medium ${METHOD_CHIP[r.method || "Cash"] || METHOD_CHIP.Other}`}>{r.method || "Cash"}</div>
+                    </td>
                     <td className="px-3 py-2 align-top" dir="auto">
                       <div className="font-medium text-[#1F2937]">{r.person || r.description || "—"}</div>
                       {r.person && r.description && <div className="text-[12px] text-[#4B5563]" title={r.description}>{r.description}</div>}
@@ -564,6 +591,11 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
         </label>
         <label className={`${lbl} col-span-2 md:col-span-3`}>Description · تفصیل
           <input dir="auto" value={value.description} onChange={(e) => set("description", e.target.value)} className={inp} />
+        </label>
+        <label className={lbl}>How · طریقہ
+          <select value={value.method || "Cash"} onChange={(e) => set("method", e.target.value)} className={inp}>
+            {METHOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
         </label>
         <label className={lbl}>Notes
           <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className={inp} />
@@ -800,7 +832,7 @@ function FxBox({ onApply, onClose }: { onApply: (pkr: number, note: string) => v
 // ----------------------------------------------------------------------------------------------
 // the voucher grid: one line per entry, money received in the In box, money paid in the Out box
 
-const GRID = "md:grid-cols-[26px_minmax(0,1.25fr)_minmax(0,1.5fr)_minmax(0,1.05fr)_128px_128px_30px]";
+const GRID = "md:grid-cols-[26px_minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_118px_124px_124px_30px]";
 
 function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
   lines: any[];
@@ -815,6 +847,7 @@ function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
         <span>Person · کس کو / کس سے</span>
         <span>Description · تفصیل</span>
         <span>Goes to · کھاتہ</span>
+        <span>How · طریقہ</span>
         <span className="text-right text-[#166534]">In · وصول</span>
         <span className="text-right text-[#B91C1C]">Out · ادائیگی</span>
         <span />
@@ -869,6 +902,9 @@ function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate }
           <option value="party">Party Ledger · پارٹی</option>
           <option value="personal">Personal · ذاتی</option>
           <option value="zakat">Zakat · زکوٰۃ</option>
+        </select>
+        <select value={line.method || "Cash"} onChange={(e) => onChange({ method: e.target.value })} className={inp} aria-label="How it was paid or received" title="How it was paid / received · ادائیگی کا طریقہ">
+          {METHOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <div className="grid grid-cols-2 gap-2 md:contents">
           <input

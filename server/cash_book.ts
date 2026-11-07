@@ -71,6 +71,11 @@ router.use(requireAuth, requireApproved);
 const READ = ["Super Admin", "Admin", "Finance Manager", "Accountant", "Auditor"];
 const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
 const DIRECTIONS = ["In", "Out"];
+// how the money was paid / received (the names the truck, party and books code already know: Online and
+// Bank Transfer count as the bank side)
+export const METHODS = ["Cash", "Online", "Bank Transfer", "Other"];
+/** Personal & Household and Zakat keep their own shorter list of methods. */
+const personalMethod = (m: string) => (m === "Online" ? "Online" : m === "Bank Transfer" ? "Bank" : "Cash");
 // truck/party need a target id (which truck / which party); personal/zakat
 // are single global books, so there's nothing to pick.
 const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
@@ -110,6 +115,7 @@ function coerce(b: any): Record<string, unknown> {
   if (b.person !== undefined) patch.person = b.person ? String(b.person).trim() : null;
   if (b.description !== undefined) patch.description = b.description ? String(b.description) : null;
   if (b.notes !== undefined) patch.notes = b.notes ? String(b.notes) : null;
+  if (b.method !== undefined) patch.method = METHODS.includes(b.method) ? b.method : "Cash";
   if (b.linkType !== undefined) patch.linkType = b.linkType in LINK_TYPES ? b.linkType : null;
   if (b.linkTargetId !== undefined) patch.linkTargetId = b.linkTargetId ? parseInt(b.linkTargetId) : null;
   return patch;
@@ -224,6 +230,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
           paid: row.direction === "Out" ? row.amount : 0,
           direction: row.direction,
           description,
+          method: row.method,
           ...(category ? { category } : {}),
           updatedAt: new Date(),
         })
@@ -237,7 +244,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
           ledgerId,
           entryDate: row.entryDate,
           rawDate: row.entryDate.toISOString().slice(0, 10),
-          method: "Cash",
+          method: row.method,
           description,
           received: row.direction === "In" ? row.amount : 0,
           paid: row.direction === "Out" ? row.amount : 0,
@@ -259,7 +266,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
       if (!existing) return;
       await db
         .update(schema.partyLedgerEntries)
-        .set({ entryDate: row.entryDate, rawDate: row.entryDate.toISOString().slice(0, 10), debit, credit, description, updatedAt: new Date() })
+        .set({ entryDate: row.entryDate, rawDate: row.entryDate.toISOString().slice(0, 10), debit, credit, description, method: row.method, updatedAt: new Date() })
         .where(eq(schema.partyLedgerEntries.id, row.derivedEntryId));
       await recomputePartyLedger(existing.partyId);
     } else {
@@ -270,7 +277,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
           partyId,
           entryDate: row.entryDate,
           rawDate: row.entryDate.toISOString().slice(0, 10),
-          method: "Cash",
+          method: row.method,
           description,
           debit,
           credit,
@@ -301,6 +308,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
           ...(was && was.person && was.person === was.payee ? { person: null } : {}),
           ...(category ? { category } : {}),
           description,
+          method: personalMethod(row.method),
           updatedAt: new Date(),
         })
         .where(eq(schema.personalExpenses.id, row.derivedEntryId));
@@ -315,7 +323,7 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
           payee: row.person,
           description,
           amount: row.amount,
-          method: "Cash",
+          method: personalMethod(row.method),
           createdBy: userId,
         })
         .returning();
@@ -326,12 +334,12 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
     if (row.derivedEntryId) {
       await db
         .update(schema.zakatPayments)
-        .set({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, updatedAt: new Date() })
+        .set({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, method: personalMethod(row.method), updatedAt: new Date() })
         .where(eq(schema.zakatPayments.id, row.derivedEntryId));
     } else {
       const [entry] = await db
         .insert(schema.zakatPayments)
-        .values({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, method: "Cash", createdBy: userId })
+        .values({ entryDate: row.entryDate, amount: row.amount, recipient: row.person, description, method: personalMethod(row.method), createdBy: userId })
         .returning();
       await db.update(T).set({ derivedEntryId: entry.id }).where(eq(T.id, row.id));
     }
@@ -508,6 +516,17 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
       entries: entriesWithTargets.map((e) => ({ ...e, alsoIn: alsoIn.get(e.id) || [] })),
       totalIn,
       totalOut,
+      // what came in and went out, by how it was paid
+      byMethod: Object.fromEntries(
+        METHODS.map((m) => [
+          m,
+          {
+            in: entries.filter((e) => e.direction === "In" && (e.method || "Cash") === m).reduce((s, e) => s + e.amount, 0),
+            out: entries.filter((e) => e.direction === "Out" && (e.method || "Cash") === m).reduce((s, e) => s + e.amount, 0),
+            n: entries.filter((e) => (e.method || "Cash") === m).length,
+          },
+        ]),
+      ),
       closingBalance: openingBalance + totalIn - totalOut,
     });
   } catch (e: any) {
