@@ -10,7 +10,7 @@
  *  - GET /api/tracking/*      : network-first, fall back to the last good copy.
  *  - Everything else /api/*   : network-only (never served stale).
  */
-const SHELL_CACHE = "hf-shell-v2"; // v2: the page itself is fetched from the network first (a new deploy shows at once)
+const SHELL_CACHE = "hf-shell-v3"; // v3: HTML is never kept as a script/style (a poisoned copy made the app a white screen) and older caches are dropped
 const DATA_CACHE = "hf-data-v1";
 const SHELL_ASSETS = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
 
@@ -83,18 +83,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // app shell / assets: stale-while-revalidate
+  // app shell / assets: stale-while-revalidate — but only real files. A reply that is a web page (the server's
+  // fallback for a file that no longer exists) is never kept, and never served in place of a script / style.
+  const asFile = (res) => !!res && res.status === 200 && res.type === "basic" && !/text\/html/i.test(res.headers.get("content-type") || "");
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.match(request).then((hit) => {
+      const cached = asFile(hit) ? hit : null;
       const network = fetch(request)
         .then((res) => {
-          if (res && res.status === 200 && res.type === "basic") {
+          if (asFile(res)) {
             const copy = res.clone();
             caches.open(SHELL_CACHE).then((c) => c.put(request, copy));
           }
           return res;
         })
-        .catch(() => cached);
+        .catch(() => cached || Response.error());
       return cached || network;
     })
   );

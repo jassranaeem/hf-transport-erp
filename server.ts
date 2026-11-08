@@ -186,6 +186,11 @@ async function startServer() {
         },
       })
     );
+    // a file that does not exist (an old hashed script from before a deploy, say) must be a 404 — answering it
+    // with the page makes the browser read HTML as JavaScript and the whole screen stays white
+    app.get(/^\/(assets\/.*|.*\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|woff2?|ttf|webmanifest|json|txt))$/i, (_req, res) => {
+      res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found");
+    });
     app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
