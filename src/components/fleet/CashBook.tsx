@@ -26,6 +26,21 @@ const BLANK = { direction: "Out", method: "Cash", chequeNo: "", chequeBank: "", 
 const BANKS = ["HBL", "UBL", "MCB", "Allied Bank", "Meezan Bank", "Bank Alfalah", "Askari Bank", "Faysal Bank", "Habib Metro", "Bank of Punjab", "National Bank", "Soneri Bank", "Standard Chartered", "Bank Al Habib", "JS Bank", "Silk Bank", "Bank of Balochistan"];
 /** the same cheque number written twice (same direction) among the lines being entered */
 const chequeKeyOf = (no: string) => String(no || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+/** a phone photo is several MB: the reader only needs ~1600 px, so it is shrunk before it is sent */
+async function shrinkPicture(file: File, max = 1600): Promise<Blob> {
+  if (!String(file.type || "").startsWith("image/")) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise<Blob>((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("shrink"))), "image/jpeg", 0.88));
+  } catch {
+    return file;
+  }
+}
 const dmyD = (d: string) => `${String(d).slice(8, 10)}.${String(d).slice(5, 7)}.${String(d).slice(0, 4)}`;
 // how it was paid / received
 const METHOD_OPTS: Array<[string, string]> = [
@@ -532,7 +547,7 @@ export default function CashBook({
                         <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} onNavigate={onNavigate} />
                         <div className="mt-3">
                           {/* a receipt here also shows on the khata / party / trip row this entry wrote, and theirs here */}
-                          <AttachmentPanel entityType="cash_transaction" entityId={r.id} title="Receipts for this entry · رسیدیں" />
+                          <AttachmentPanel entityType="cash_transaction" entityId={r.id} title="Receipts for this entry · رسیدیں" onChanged={load} />
                         </div>
                       </td>
                     </tr>
@@ -961,6 +976,39 @@ function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (
     setPreview(u);
     return () => URL.revokeObjectURL(u);
   }, [line.chequeFile]);
+  // the picture is read (number + bank) as soon as it is chosen; what the clerk already typed by hand is kept
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const readPicture = async (file: File) => {
+    setReading(true);
+    setReadNote(null);
+    try {
+      const blob = await shrinkPicture(file);
+      const fd = new FormData();
+      fd.append("file", blob, file.name.replace(/\.[^.]+$/, "") + (blob.type === "image/jpeg" ? ".jpg" : file.name.slice(file.name.lastIndexOf("."))));
+      const r = await uploadFile("/api/cash-book/cheque-read", fd);
+      if (r?.ai === false) { setReadNote({ ok: false, text: r.message }); return; }
+      if (!r?.chequeNo && !r?.bank) {
+        setReadNote({ ok: false, text: r?.error ? `The cheque could not be read (${r.error}) — write the number · نمبر خود لکھیں` : "The number could not be read from this picture — write it, or take a clearer photo · نمبر نہیں پڑھا گیا" });
+        return;
+      }
+      onChange((x: any) => ({
+        ...x,
+        chequeNo: r.chequeNo && (!String(x.chequeNo || "").trim() || x.chequeAuto) ? r.chequeNo : x.chequeNo,
+        chequeAuto: r.chequeNo && (!String(x.chequeNo || "").trim() || x.chequeAuto) ? true : x.chequeAuto,
+        chequeBank: r.bank && (!String(x.chequeBank || "").trim() || x.chequeBankAuto) ? r.bank : x.chequeBank,
+        chequeBankAuto: r.bank && (!String(x.chequeBank || "").trim() || x.chequeBankAuto) ? true : x.chequeBankAuto,
+      }));
+      const bits = [r.chequeNo ? `no. ${r.chequeNo}` : null, r.bank || null, r.amount ? `PKR ${Number(r.amount).toLocaleString()}` : null].filter(Boolean).join(" · ");
+      const amt = Number(line.amount) || 0;
+      const diff = r.amount && amt && Number(r.amount) !== amt ? ` ⚠ the picture shows PKR ${Number(r.amount).toLocaleString()} but you wrote PKR ${amt.toLocaleString()}` : "";
+      setReadNote({ ok: !diff, text: `Read from the picture: ${bits} — please check · تصویر سے پڑھا، تسلی کر لیں${diff}` });
+    } catch (e: any) {
+      setReadNote({ ok: false, text: `The cheque could not be read (${e.message}) — write the number · نمبر خود لکھیں` });
+    } finally {
+      setReading(false);
+    }
+  };
   const sameHere = key
     ? lines.filter((x, j) => j !== index && x.method === "Cheque" && x.direction === line.direction && chequeKeyOf(x.chequeNo) === key && (!x.chequeBank || !line.chequeBank || String(x.chequeBank).toLowerCase() === String(line.chequeBank).toLowerCase())).length
     : 0;
@@ -973,7 +1021,7 @@ function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (
           Cheque no. * · چیک نمبر
           <input
             value={line.chequeNo || ""}
-            onChange={(e) => onChange({ chequeNo: e.target.value })}
+            onChange={(e) => onChange({ chequeNo: e.target.value, chequeAuto: false })}
             className={`${inp} font-semibold tabular-nums ${!key ? "border-[#F59E0B]" : ""}`}
             placeholder="e.g. 004512"
             inputMode="text"
@@ -982,7 +1030,7 @@ function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (
         </label>
         <label className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
           Bank · بینک
-          <input list="cb-banks" value={line.chequeBank || ""} onChange={(e) => onChange({ chequeBank: e.target.value })} className={inp} placeholder="optional" autoComplete="off" />
+          <input list="cb-banks" value={line.chequeBank || ""} onChange={(e) => onChange({ chequeBank: e.target.value, chequeBankAuto: false })} className={inp} placeholder="optional" autoComplete="off" />
           <datalist id="cb-banks">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
         </label>
         <div className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
@@ -990,13 +1038,18 @@ function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (
           <div className="flex items-center gap-2">
             <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F4F6FA]">
               {line.chequeFile ? "Change" : "Take / choose"}
-              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => onChange({ chequeFile: e.target.files?.[0] || null })} />
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0] || null; onChange({ chequeFile: f }); if (f) readPicture(f); e.target.value = ""; }} />
             </label>
             {preview ? <img src={preview} alt="cheque" className="h-9 w-14 rounded border border-[#CBD5E1] object-cover" /> : line.chequeFile ? <span className="text-[11px] text-[#374151] truncate">{line.chequeFile.name}</span> : <span className="text-[11px] font-normal text-[#6B7280]">saved with the entry</span>}
             {line.chequeFile && <button type="button" onClick={() => onChange({ chequeFile: null })} className="text-[11px] text-[#B91C1C] hover:underline">remove</button>}
           </div>
         </div>
       </div>
+      {(reading || readNote) && (
+        <div className={`mt-1.5 text-[12px] ${reading ? "text-[#155E75]" : readNote?.ok ? "text-[#166534]" : "text-[#92400E]"}`} dir="auto">
+          {reading ? "Reading the cheque… · چیک پڑھ رہا ہے…" : readNote?.text}
+        </div>
+      )}
       {bad && (
         <div className="mt-1.5 text-[12px] font-semibold text-[#B91C1C]" dir="auto">
           ⚠ Cheque {line.chequeNo} is already in the Cash Book

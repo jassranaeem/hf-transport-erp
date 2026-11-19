@@ -53,6 +53,7 @@ import { partnershipLedgerForPlate } from "./partnership.ts";
 import { ALL_TRUCK_CATS, SHAKHSI } from "../src/lib/khataKinds.ts";
 import { syncLeaseFromCash, leaseRoomForCash, alsoInFor } from "./lease_sync.ts";
 import { personalCategoryList } from "./personal_expenses.ts";
+import { aiStatus, aiJson } from "./ai/llm.ts";
 
 /**
  * The Personal & Household category chosen for an entry that also goes there: the name as it is in the
@@ -487,6 +488,85 @@ router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Re
   }
 });
 
+// ---- reading a cheque from its picture: number + bank (the user checks them; nothing is saved here) -------
+const BANK_NAMES: Array<[RegExp, string]> = [
+  [/habib\s*metro/i, "Habib Metro"],
+  [/bank\s*al[\s-]*habib|\bbah\b/i, "Bank Al Habib"],
+  [/habib\s*bank|\bhbl\b/i, "HBL"],
+  [/united\s*bank|\bubl\b/i, "UBL"],
+  [/muslim\s*commercial|\bmcb\b/i, "MCB"],
+  [/allied/i, "Allied Bank"],
+  [/meezan/i, "Meezan Bank"],
+  [/alfalah/i, "Bank Alfalah"],
+  [/askari/i, "Askari Bank"],
+  [/faysal/i, "Faysal Bank"],
+  [/punjab/i, "Bank of Punjab"],
+  [/national\s*bank|\bnbp\b/i, "National Bank"],
+  [/soneri/i, "Soneri Bank"],
+  [/standard\s*chartered/i, "Standard Chartered"],
+  [/\bjs\s*bank/i, "JS Bank"],
+  [/silk/i, "Silk Bank"],
+  [/balochistan/i, "Bank of Balochistan"],
+];
+const CHEQUE_READ_SYSTEM =
+  "You read photographs of Pakistani bank cheques for a transport company's accounts clerk. " +
+  "Answer with ONE JSON object and nothing else. Never guess: if something cannot be read clearly, use null.";
+const CHEQUE_READ_PROMPT =
+  "Read this cheque. Return JSON with exactly these keys: " +
+  '{"readable": true|false, ' +
+  '"chequeNo": the cheque serial number as digits only, keeping leading zeros (it is printed small near the top right corner and again at the START of the line of printed digits along the bottom edge — not the account number, not the branch code), ' +
+  '"bank": the bank name as printed (logo / heading), ' +
+  '"branch": branch name or null, ' +
+  '"amount": the amount in the figures box as a whole number (digits only) or null, ' +
+  '"date": the cheque date as YYYY-MM-DD or null, ' +
+  '"payee": the name after "Pay" or null}. ' +
+  "If the picture is not a cheque, set readable to false and everything else to null.";
+
+router.post("/cheque-read", requireRole(WRITE), workbookUpload.single("file"), async (req: AuthRequest, res: Response) => {
+  try {
+    const f = (req as any).file as { buffer: Buffer; mimetype: string } | undefined;
+    if (!f) return res.status(400).json({ error: "No picture received · تصویر نہیں ملی" });
+    const st = aiStatus();
+    if (!st.on) return res.json({ ai: false, message: "AI is off on this server, so the cheque cannot be read by itself — write the number · اے آئی بند ہے، نمبر خود لکھیں" });
+    if (!/^(image\/(png|jpe?g|webp|gif)|application\/pdf)$/i.test(f.mimetype)) return res.json({ ai: true, readable: false, message: "Only a photo (JPG / PNG) or a PDF can be read · صرف تصویر یا PDF" });
+    // the model is sometimes busy (503 / 429): try again a couple of times before giving up
+    let out: any;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        out = await aiJson({
+          feature: "cheque_read",
+          system: CHEQUE_READ_SYSTEM,
+          prompt: CHEQUE_READ_PROMPT,
+          files: [{ mime: f.mimetype.toLowerCase().replace("image/jpg", "image/jpeg"), data: f.buffer }],
+          maxTokens: 400,
+          userId: req.user?.id,
+        });
+        break;
+      } catch (e: any) {
+        if (attempt >= 2 || !/503|429|UNAVAILABLE|overloaded|high demand|timeout/i.test(String(e?.message))) throw e;
+        await new Promise((r) => setTimeout(r, 2500 * (attempt + 1)));
+      }
+    }
+    const no = String(out?.chequeNo ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 20);
+    const bankRaw = String(out?.bank ?? "").trim().slice(0, 80);
+    const bank = bankRaw ? BANK_NAMES.find(([re]) => re.test(bankRaw))?.[1] ?? bankRaw : "";
+    const amount = Math.round(Number(String(out?.amount ?? "").replace(/[^\d.]/g, ""))) || null;
+    res.json({
+      ai: true,
+      readable: out?.readable !== false && !!(no || bank),
+      chequeNo: no || null,
+      bank: bank || null,
+      bankRaw: bankRaw || null,
+      amount,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(String(out?.date || "")) ? String(out.date) : null,
+      payee: out?.payee ? String(out.payee).slice(0, 80) : null,
+    });
+  } catch (e: any) {
+    // the clerk can still write it by hand
+    res.json({ ai: true, readable: false, error: String(e?.message || e).slice(0, 200) });
+  }
+});
+
 // is this cheque number already in the Cash Book? (asked while the number is typed)
 router.get("/cheque-check", requireRole(READ), async (req: AuthRequest, res: Response) => {
   try {
@@ -549,8 +629,15 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
     const chequeDupById = new Map<number, any[]>();
     const chequeRows = entries.filter((e) => e.method === "Cheque");
     if (chequeRows.length) {
-      const fr = ((await db.execute(sql`select entity_id id, count(*)::int n from attachments
-        where entity_type = 'cash_transaction' and not is_deleted and entity_id in (${sql.join(chequeRows.map((e) => sql`${e.id}`), sql`, `)}) group by 1`)) as any).rows as any[];
+      // the entry's own pictures, and those on the truck / party / personal row it wrote (the same slip, seen from there)
+      const fr = ((await db.execute(sql`select e.id id, count(a.id)::int n from cash_transactions e
+        join attachments a on not a.is_deleted and (
+          (a.entity_type = 'cash_transaction' and a.entity_id = e.id)
+          or (e.derived_entry_id is not null and a.entity_id = e.derived_entry_id and (
+                (e.link_type = 'truck' and a.entity_type = 'truck_ledger_entry')
+             or (e.link_type = 'party' and a.entity_type = 'party_ledger_entry')
+             or (e.link_type = 'personal' and a.entity_type = 'personal_expenses'))))
+        where e.id in (${sql.join(chequeRows.map((e) => sql`${e.id}`), sql`, `)}) group by e.id`)) as any).rows as any[];
       for (const r of fr) chequeFiles.set(Number(r.id), Number(r.n));
       for (const e of chequeRows) {
         const d = await findChequeDuplicates(e.chequeNo, e.chequeBank, e.direction, e.id);

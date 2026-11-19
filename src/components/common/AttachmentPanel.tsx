@@ -24,11 +24,13 @@ export default function AttachmentPanel({
   entityId,
   readOnly = false,
   title = "Attachments & proof",
+  onChanged,
 }: {
   entityType: string;
   entityId: number;
   readOnly?: boolean;
   title?: string;
+  onChanged?: () => void; // called after a file is added or removed, so the page showing a picture count can refresh
 }) {
   const [items, setItems] = useState<Attachment[]>([]);
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
@@ -104,6 +106,7 @@ export default function AttachmentPanel({
         }
       }
       await load();
+      onChanged?.();
     } catch (e: any) {
       setErr(e.message || "Upload failed");
     } finally {
@@ -117,6 +120,7 @@ export default function AttachmentPanel({
     try {
       await enterpriseFetch(`/api/attachments/${id}`, { method: "DELETE" });
       setItems((x) => x.filter((i) => i.id !== id));
+      onChanged?.();
     } catch (e: any) {
       setErr(e.message || "Delete failed");
     }
