@@ -10,6 +10,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch, fetchBlobUrl } from "../../../client/api.ts";
+import { applyUpdate } from "../../lib/updateWatch.ts";
 import {
   AlertTriangle,
   ChevronDown,
@@ -171,7 +172,19 @@ export default function AlertsCenter({
                   <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "#fff", stroke: "#fff" }} />
                 )}
               </button>
-              {!a.ack && (
+              {a.type === "app_update" && (
+                <div className="px-3 py-2 bg-white border-t border-[#B00005] flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-[12rem] flex-1 text-[11px] text-[#4B5563]" dir="auto">The app reloads — save what you are typing first. · ری لوڈ ہو گی، پہلے جو لکھ رہے ہیں محفوظ کر لیں</span>
+                  <button
+                    onClick={() => void applyUpdate()}
+                    className="shrink-0 rounded-lg bg-[#24539B] px-4 py-1.5 text-[13px] font-bold text-white hover:bg-[#1E4480]"
+                    style={{ background: "#24539B", color: "#fff" }}
+                  >
+                    Update now · ابھی اپڈیٹ کریں
+                  </button>
+                </div>
+              )}
+              {!a.ack && a.type !== "app_update" && (
                 <div className="px-3 py-1.5 bg-white border-t border-[#B00005] flex justify-end">
                   <button
                     onClick={(e) => { e.stopPropagation(); act(a, "resolved"); }}

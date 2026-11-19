@@ -11,6 +11,8 @@
  * expiring vehicle / driver documents. Every alert carries a stable `key` so it
  * can be acknowledged, and `detail` / `links` so the UI can explain and jump.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { Router, Response } from "express";
 import { and, eq, sql, desc, asc, inArray, isNotNull, ne } from "drizzle-orm";
 import { requireAuth, requireApproved, AuthRequest } from "../src/middleware/auth.ts";
@@ -113,6 +115,46 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
  * cheque / invoice no.) recorded more than once = someone submitting the same
  * slip twice. Fires even when the attached photo bytes differ.
  */
+/**
+ * Which build is live: the hashed script named in the served index.html (production only).
+ * A page tells which build it runs in the x-app-build header; a page that sends none is older than this notice.
+ */
+let buildCache: { mtime: number; id: string | null } | null = null;
+function liveBuild(): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  try {
+    const p = path.join(process.cwd(), "dist", "index.html");
+    const st = fs.statSync(p);
+    if (buildCache && buildCache.mtime === st.mtimeMs) return buildCache.id;
+    const m = fs.readFileSync(p, "utf8").match(/<script[^>]+type="module"[^>]+src="([^"]*\/assets\/[^"]+)"/);
+    buildCache = { mtime: st.mtimeMs, id: m ? m[1] : null };
+    return buildCache.id;
+  } catch {
+    return null;
+  }
+}
+
+/** "A new version is out" for an app still on an older build. Not clearable: it goes when the app is updated. */
+function appUpdateAlerts(req: AuthRequest): Alert[] {
+  const live = liveBuild();
+  if (!live) return [];
+  const mine = String(req.headers["x-app-build"] || "");
+  if (mine === live) return [];
+  return [
+    {
+      key: `app_update:${live}`,
+      type: "app_update",
+      severity: "high",
+      module: "System",
+      title: "New version available — update now · نیا ورژن آ گیا ہے، اپڈیٹ کریں",
+      message:
+        "This app is running an older version, so some fixes are missing. Update: close the app completely and open it again — or press Ctrl+Shift+R. On a phone: close the app and open it again. · آپ کی ایپ پرانے ورژن پر ہے۔ ایپ مکمل بند کر کے دوبارہ کھولیں، یا Ctrl+Shift+R دبائیں۔ فون پر: ایپ بند کر کے دوبارہ کھولیں۔",
+      createdAt: new Date().toString(),
+      detail: { liveBuild: live, yourBuild: mine || null },
+    },
+  ];
+}
+
 /** The same cheque number in the Daily Cash Book more than once (same direction; two banks may share a number). */
 async function duplicateChequeAlerts(): Promise<Alert[]> {
   const rows = (
@@ -611,6 +653,9 @@ router.get("/", async (req: AuthRequest, res: Response) => {
       .filter((a) => includeAcked || !a.ack);
 
     alerts.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || (b.createdAt > a.createdAt ? 1 : -1));
+    // the update notice is always first, and never hidden by an acknowledgement (those are shared by everyone):
+    // it ends with the update
+    alerts.unshift(...appUpdateAlerts(req));
 
     const counts = { total: alerts.length, critical: 0, high: 0, medium: 0, low: 0 };
     const byType: Record<string, number> = {};

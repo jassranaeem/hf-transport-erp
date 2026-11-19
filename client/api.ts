@@ -5,6 +5,8 @@
  * so the session survives reloads, and sent as `Authorization: Bearer <token>`.
  */
 
+import { myBuild } from "../src/lib/updateWatch.ts";
+
 const TOKEN_KEY = "hf_erp_session";
 
 let overrideTokenFn: (() => Promise<string | null>) | null = null;
@@ -236,6 +238,10 @@ export async function enterpriseFetch(path: string, options: RequestInit = {}) {
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+
+  // which build of the app is asking: the server tells an older one (Alerts → "new version available")
+  const build = myBuild();
+  if (build) headers.set("x-app-build", build);
 
   const response = await fetch(path, {
     ...options,
