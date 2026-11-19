@@ -9,7 +9,7 @@
  *   /api/cash-book/:id                   edit / delete
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import { enterpriseFetch, uploadFile, uploadAttachment } from "../../../client/api.ts";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
 import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronLeft, ChevronRight, Upload } from "lucide-react";
@@ -22,18 +22,24 @@ import { kindOf, bucketTotals, catLabel, INCOME_CATS, EXPENSE_CATS, KhataKind } 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BLANK = { direction: "Out", method: "Cash", amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+const BLANK = { direction: "Out", method: "Cash", chequeNo: "", chequeBank: "", chequeFile: null as File | null, amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+const BANKS = ["HBL", "UBL", "MCB", "Allied Bank", "Meezan Bank", "Bank Alfalah", "Askari Bank", "Faysal Bank", "Habib Metro", "Bank of Punjab", "National Bank", "Soneri Bank", "Standard Chartered", "Bank Al Habib", "JS Bank", "Silk Bank", "Bank of Balochistan"];
+/** the same cheque number written twice (same direction) among the lines being entered */
+const chequeKeyOf = (no: string) => String(no || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+const dmyD = (d: string) => `${String(d).slice(8, 10)}.${String(d).slice(5, 7)}.${String(d).slice(0, 4)}`;
 // how it was paid / received
 const METHOD_OPTS: Array<[string, string]> = [
   ["Cash", "Cash · نقد"],
   ["Online", "Online · آن لائن"],
   ["Bank Transfer", "Bank transfer · بینک"],
+  ["Cheque", "Cheque · چیک"],
   ["Other", "Other · دیگر"],
 ];
 const METHOD_CHIP: Record<string, string> = {
   Cash: "bg-[#F3F4F6] text-[#4B5563]",
   Online: "bg-[#E0F2FE] text-[#075985]",
   "Bank Transfer": "bg-[#EDE9FE] text-[#5B21B6]",
+  Cheque: "bg-[#CFFAFE] text-[#155E75]",
   Other: "bg-[#FEF3C7] text-[#92400E]",
 };
 interface LinkOptions {
@@ -67,6 +73,7 @@ export default function CashBook({
   // one form, several lines (some In, some Out): they are saved together as a voucher
   const [lines, setLines] = useState<any[]>([BLANK]);
   const [saving, setSaving] = useState(false);
+  const [chequeWarn, setChequeWarn] = useState<string[]>([]); // cheque numbers that were already in the Cash Book
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [showImport, setShowImport] = useState(false);
@@ -124,15 +131,45 @@ export default function CashBook({
     if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
     const noCat = filledLines.findIndex((l) => l.linkType === "personal" && !l.linkCategory);
     if (noCat >= 0) { showFeedback("error", `${filledLines.length > 1 ? `Line ${noCat + 1}: ` : ""}choose the Personal & Household category (مد) · ذاتی کھاتے کی مد چنیں`); return; }
+    const noCheque = filledLines.findIndex((l) => l.method === "Cheque" && !chequeKeyOf(l.chequeNo));
+    if (noCheque >= 0) { showFeedback("error", `${filledLines.length > 1 ? `Line ${noCheque + 1}: ` : ""}write the cheque number · چیک نمبر لکھیں`); return; }
     setSaving(true);
     try {
       const at = `${date}T${new Date().toTimeString().slice(0, 8)}`;
+      const payload = filledLines.map(({ chequeFile, ...rest }) => rest);
+      let saved: any[] = [];
+      let dups: any[] = [];
+      let message = "";
+      let held = false;
       if (filledLines.length === 1) {
-        const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...filledLines[0], entryDate: at }) });
-        showFeedback("success", r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا");
+        const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...payload[0], entryDate: at }) });
+        held = !!r?.pendingApproval;
+        saved = held ? [] : [r];
+        dups = r?.chequeDuplicates?.length ? [{ entryId: r.id, chequeNo: r.chequeNo, duplicates: r.chequeDuplicates }] : [];
+        message = r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا";
       } else {
-        const r = await enterpriseFetch("/api/cash-book/voucher", { method: "POST", body: JSON.stringify({ lines: filledLines, entryDate: at }) });
-        showFeedback("success", r?.pendingApproval ? r.message : `Saved ${filledLines.length} lines together · In ${PKR(vIn)} · Out ${PKR(vOut)}${r?.lease ? ` · lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay` : ""} · محفوظ`);
+        const r = await enterpriseFetch("/api/cash-book/voucher", { method: "POST", body: JSON.stringify({ lines: payload, entryDate: at }) });
+        held = !!r?.pendingApproval;
+        saved = held ? [] : r?.entries || [];
+        dups = r?.chequeDuplicates || [];
+        message = r?.pendingApproval ? r.message : `Saved ${filledLines.length} lines together · In ${PKR(vIn)} · Out ${PKR(vOut)}${r?.lease ? ` · lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay` : ""} · محفوظ`;
+      }
+      // the cheque pictures go onto the entries just made
+      const upErr: string[] = [];
+      for (let i = 0; i < filledLines.length; i++) {
+        const f = filledLines[i].chequeFile as File | null;
+        if (f && saved[i]?.id) {
+          try { await uploadAttachment("cash_transaction", saved[i].id, f); } catch (er: any) { upErr.push(`${f.name}: ${er.message}`); }
+        }
+      }
+      if (held && filledLines.some((l) => l.chequeFile)) message += " · attach the cheque picture on the entry once it is approved · منظوری کے بعد چیک کی تصویر لگائیں";
+      if (upErr.length) message += ` · the cheque picture could not be saved (${upErr.join("; ")}) — attach it on the entry`;
+      if (dups.length) {
+        const lines2 = dups.map((d: any) => `Cheque ${d.chequeNo}: already entered on ${d.duplicates.map((x: any) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}${x.person ? ` · ${x.person}` : ""}`).join(", ")}`);
+        setChequeWarn(lines2);
+        showFeedback("error", `Saved — but ⚠ ${lines2.join(" | ")} · same cheque twice? It is in the Alerts · یہ چیک پہلے بھی درج ہے`);
+      } else {
+        showFeedback(upErr.length ? "error" : "success", message);
       }
       setLines([BLANK]);
       setShowAdd(false);
@@ -146,14 +183,18 @@ export default function CashBook({
 
   const startEdit = (r: any) => {
     setEditId(r.id);
-    setEditForm({ method: r.method || "Cash", direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
+    setEditForm({ method: r.method || "Cash", chequeNo: r.chequeNo || "", chequeBank: r.chequeBank || "", direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
   };
   const saveEdit = async () => {
     if (!editId) return;
     setSaving(true);
     try {
       const r = await enterpriseFetch(`/api/cash-book/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
-      showFeedback("success", r?.lease ? `Updated · the lease ${r.lease.number} now has ${PKR(r.lease.balance)} still to pay · درست` : "Updated · درست ہو گیا");
+      if (r?.chequeDuplicates?.length) {
+        const w = `Cheque ${r.chequeNo}: already entered on ${r.chequeDuplicates.map((x: any) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}`).join(", ")}`;
+        setChequeWarn([w]);
+        showFeedback("error", `Updated — but ⚠ ${w} · same cheque twice? · یہ چیک پہلے بھی درج ہے`);
+      } else showFeedback("success", r?.lease ? `Updated · the lease ${r.lease.number} now has ${PKR(r.lease.balance)} still to pay · درست` : "Updated · درست ہو گیا");
       setEditId(null);
       load();
     } catch (e: any) {
@@ -343,6 +384,16 @@ export default function CashBook({
 
       <CashCountPanel date={date} showFeedback={showFeedback} onChanged={load} version={countVersion} />
 
+      {chequeWarn.length > 0 && (
+        <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-[12.5px] text-[#991B1B] flex items-start gap-3" dir="auto">
+          <div className="flex-1">
+            <b>⚠ Same cheque entered twice? · ایک ہی چیک دوبارہ؟</b>
+            {chequeWarn.map((w) => <div key={w}>{w}</div>)}
+            <div className="text-[11.5px] text-[#B91C1C]">Both entries are saved. It is also in Alerts — delete the extra entry if it is a mistake. · الرٹس میں بھی ہے</div>
+          </div>
+          <button type="button" onClick={() => setChequeWarn([])} className="text-[#991B1B] hover:underline text-[12px]">Dismiss</button>
+        </div>
+      )}
       {data?.byMethod && METHOD_OPTS.some(([m]) => (data.byMethod[m]?.n || 0) > 0 && m !== "Cash") && (
         <div className="rounded-xl border border-[#E3E8EF] bg-white px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px]">
           <b className="text-[#374151]">By how it was paid · طریقہ وار</b>
@@ -435,6 +486,15 @@ export default function CashBook({
                   >
                     <td className="px-3 py-2 whitespace-nowrap text-[#6B7280] tabular-nums align-top">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
                       <div className={`mt-0.5 inline-block rounded px-1.5 text-[10px] font-medium ${METHOD_CHIP[r.method || "Cash"] || METHOD_CHIP.Other}`}>{r.method || "Cash"}</div>
+                      {r.method === "Cheque" && (
+                        <div className="mt-0.5 text-[10.5px] leading-tight whitespace-normal">
+                          <div className="font-semibold text-[#155E75]">#{r.chequeNo}{r.chequeBank ? ` · ${r.chequeBank}` : ""}</div>
+                          {r.files > 0 ? <span className="text-[#166534]">picture ✓</span> : <span className="text-[#B91C1C]">no picture · تصویر نہیں</span>}
+                          {r.chequeDuplicates?.length > 0 && (
+                            <div className="text-[#B91C1C] font-semibold">⚠ same cheque also on {r.chequeDuplicates.map((x: any) => dmyD(x.date)).join(", ")}</div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 align-top" dir="auto">
                       <div className="font-medium text-[#1F2937]">{r.person || r.description || "—"}</div>
@@ -597,6 +657,17 @@ function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, c
             {METHOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
+        {value.method === "Cheque" && (
+          <>
+            <label className={lbl}>Cheque no. * · چیک نمبر
+              <input value={value.chequeNo || ""} onChange={(e) => set("chequeNo", e.target.value)} className={`${inp} font-semibold tabular-nums`} autoComplete="off" />
+            </label>
+            <label className={lbl}>Bank · بینک
+              <input list="cb-banks-e" value={value.chequeBank || ""} onChange={(e) => set("chequeBank", e.target.value)} className={inp} autoComplete="off" />
+              <datalist id="cb-banks-e">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
+            </label>
+          </>
+        )}
         <label className={lbl}>Notes
           <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className={inp} />
         </label>
@@ -859,6 +930,7 @@ function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
             line={ln}
             onChange={(patch) => setLines((ls) => ls.map((x, j) => (j === i ? (typeof patch === "function" ? patch(x) : { ...x, ...patch }) : x)))}
             onRemove={lines.length > 1 ? () => setLines((ls) => ls.filter((_, j) => j !== i)) : undefined}
+            allLines={lines}
             linkOptions={linkOptions}
             onNavigate={onNavigate}
           />
@@ -868,9 +940,78 @@ function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
   );
 }
 
-function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate }: {
+/** cheque number + bank + picture of one voucher line, with a live "this cheque is already in the Cash Book" check */
+function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (patch: any) => void; lines: any[]; index: number }) {
+  const [dups, setDups] = useState<any[]>([]);
+  const [preview, setPreview] = useState<string | null>(null);
+  const key = chequeKeyOf(line.chequeNo);
+  useEffect(() => {
+    if (!key) { setDups([]); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      enterpriseFetch(`/api/cash-book/cheque-check?no=${encodeURIComponent(line.chequeNo)}&bank=${encodeURIComponent(line.chequeBank || "")}&direction=${line.direction === "In" ? "In" : "Out"}`)
+        .then((r) => { if (alive) setDups(r?.duplicates || []); })
+        .catch(() => { if (alive) setDups([]); });
+    }, 450);
+    return () => { alive = false; clearTimeout(t); };
+  }, [key, line.chequeBank, line.direction]);
+  useEffect(() => {
+    if (!line.chequeFile || !String(line.chequeFile.type || "").startsWith("image/")) { setPreview(null); return; }
+    const u = URL.createObjectURL(line.chequeFile);
+    setPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [line.chequeFile]);
+  const sameHere = key
+    ? lines.filter((x, j) => j !== index && x.method === "Cheque" && x.direction === line.direction && chequeKeyOf(x.chequeNo) === key && (!x.chequeBank || !line.chequeBank || String(x.chequeBank).toLowerCase() === String(line.chequeBank).toLowerCase())).length
+    : 0;
+  const inp = "border border-[#CBD5E1] rounded-lg px-2.5 py-1.5 text-[13px] text-[#111827] bg-white w-full min-w-0";
+  const bad = dups.length > 0 || sameHere > 0;
+  return (
+    <div className={`mt-2 rounded-lg border px-3 py-2 md:ml-[34px] ${bad ? "border-[#FCA5A5] bg-[#FEF2F2]" : "border-[#A5F3FC] bg-[#F0FDFF]"}`}>
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-start">
+        <label className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Cheque no. * · چیک نمبر
+          <input
+            value={line.chequeNo || ""}
+            onChange={(e) => onChange({ chequeNo: e.target.value })}
+            className={`${inp} font-semibold tabular-nums ${!key ? "border-[#F59E0B]" : ""}`}
+            placeholder="e.g. 004512"
+            inputMode="text"
+            autoComplete="off"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Bank · بینک
+          <input list="cb-banks" value={line.chequeBank || ""} onChange={(e) => onChange({ chequeBank: e.target.value })} className={inp} placeholder="optional" autoComplete="off" />
+          <datalist id="cb-banks">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
+        </label>
+        <div className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Cheque picture · چیک کی تصویر
+          <div className="flex items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F4F6FA]">
+              {line.chequeFile ? "Change" : "Take / choose"}
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => onChange({ chequeFile: e.target.files?.[0] || null })} />
+            </label>
+            {preview ? <img src={preview} alt="cheque" className="h-9 w-14 rounded border border-[#CBD5E1] object-cover" /> : line.chequeFile ? <span className="text-[11px] text-[#374151] truncate">{line.chequeFile.name}</span> : <span className="text-[11px] font-normal text-[#6B7280]">saved with the entry</span>}
+            {line.chequeFile && <button type="button" onClick={() => onChange({ chequeFile: null })} className="text-[11px] text-[#B91C1C] hover:underline">remove</button>}
+          </div>
+        </div>
+      </div>
+      {bad && (
+        <div className="mt-1.5 text-[12px] font-semibold text-[#B91C1C]" dir="auto">
+          ⚠ Cheque {line.chequeNo} is already in the Cash Book
+          {dups.length > 0 && ` — ${dups.map((x) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}${x.person ? ` · ${x.person}` : ""}`).join(", ")}`}
+          {sameHere > 0 && " — and on another line of this voucher"}. Same cheque? · یہ چیک پہلے درج ہے
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate, allLines }: {
   index: number;
   line: any;
+  allLines: any[];
   onChange: (patch: any) => void;
   onRemove?: () => void;
   linkOptions: LinkOptions;
@@ -930,6 +1071,8 @@ function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate }
           <span />
         )}
       </div>
+
+      {line.method === "Cheque" && <ChequeFields line={line} onChange={onChange} lines={allLines} index={index} />}
 
       <div className="mt-1 flex flex-wrap items-center gap-3 text-[11.5px] md:pl-[34px]">
         <button type="button" onClick={() => setMore((v) => !v)} className="text-[#24539B] hover:underline">{more ? "− Less" : "+ Note / $→PKR · نوٹ / ڈالر"}</button>

@@ -31,7 +31,7 @@ interface Alert {
   title: string;
   message: string;
   detail?: any;
-  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number } }[];
+  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number; date?: string } }[];
   count?: number;
   createdAt: string;
 }
@@ -113,6 +113,60 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
  * cheque / invoice no.) recorded more than once = someone submitting the same
  * slip twice. Fires even when the attached photo bytes differ.
  */
+/** The same cheque number in the Daily Cash Book more than once (same direction; two banks may share a number). */
+async function duplicateChequeAlerts(): Promise<Alert[]> {
+  const rows = (
+    (await db.execute(sql`select id, direction, amount, person, cheque_no, cheque_bank, to_char(entry_date, 'YYYY-MM-DD') as day,
+        ltrim(regexp_replace(upper(coalesce(cheque_no, '')), '[^A-Z0-9]', '', 'g'), '0') k
+      from cash_transactions where not is_deleted and method = 'Cheque' and coalesce(trim(cheque_no), '') <> '' order by id`)) as any
+  ).rows as any[];
+  const groups = new Map<string, any[]>();
+  for (const r of rows) {
+    if (!r.k) continue;
+    const gk = `${r.direction}|${r.k}`;
+    groups.set(gk, [...(groups.get(gk) || []), r]);
+  }
+  const bank = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const out: Alert[] = [];
+  for (const [gk, items] of groups) {
+    if (items.length < 2) continue;
+    // entries that could be the same cheque: no bank written on one of them, or the same bank
+    const parent = items.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++) {
+        const a = bank(items[i].cheque_bank);
+        const b = bank(items[j].cheque_bank);
+        if (!a || !b || a === b) parent[find(i)] = find(j);
+      }
+    const comps = new Map<number, any[]>();
+    items.forEach((r, i) => comps.set(find(i), [...(comps.get(find(i)) || []), r]));
+    for (const comp of comps.values()) {
+      if (comp.length < 2) continue;
+      const first = comp[0];
+      const ids = comp.map((c) => Number(c.id));
+      const days = [...new Set(comp.map((c) => String(c.day)))];
+      out.push({
+        key: `duplicate_cheque:${gk}:${ids.join(",")}`,
+        type: "duplicate_cheque",
+        severity: "high",
+        module: "Cash Book",
+        title: `Cheque ${first.cheque_no} entered ${comp.length}× (${first.direction === "In" ? "received" : "paid"})`,
+        message: `The same cheque number is in the Daily Cash Book ${comp.length} times — ${comp.map((c) => `${c.day} PKR ${Number(c.amount).toLocaleString()}`).join(", ")}. A cheque is cashed once: one of these may be a double entry. · ایک ہی چیک نمبر ${comp.length} بار درج ہے۔`,
+        count: comp.length,
+        createdAt: new Date().toString(),
+        detail: {
+          direction: first.direction,
+          chequeNo: first.cheque_no,
+          entries: comp.map((c) => ({ id: Number(c.id), date: String(c.day), amount: Number(c.amount), person: c.person, bank: c.cheque_bank })),
+        },
+        links: days.map((d) => ({ label: `Open the Cash Book · ${d}`, wb: "finance", sheet: "cash_book", focus: { date: d } })),
+      });
+    }
+  }
+  return out;
+}
+
 async function duplicateEntryAlerts(): Promise<Alert[]> {
   const out: Alert[] = [];
 
@@ -538,15 +592,16 @@ async function docExpiryAlerts(): Promise<Alert[]> {
 // ------------------------------------------------------------------- routes
 router.get("/", async (req: AuthRequest, res: Response) => {
   try {
-    const [dupes, dupEntries, theft, review, dues, docs] = await Promise.all([
+    const [dupes, dupCheques, dupEntries, theft, review, dues, docs] = await Promise.all([
       duplicateReceiptAlerts().catch((e) => (console.error("[alerts] dupes", e), [])),
+      duplicateChequeAlerts().catch((e) => (console.error("[alerts] dupCheques", e), [])),
       duplicateEntryAlerts().catch((e) => (console.error("[alerts] dupEntries", e), [])),
       fuelTheftAlerts().catch((e) => (console.error("[alerts] theft", e), [])),
       ledgerReviewAlerts().catch((e) => (console.error("[alerts] review", e), [])),
       dueAlerts().catch((e) => (console.error("[alerts] dues", e), [])),
       docExpiryAlerts().catch((e) => (console.error("[alerts] docs", e), [])),
     ]);
-    let alerts: Alert[] = [...dupes, ...dupEntries, ...theft, ...review, ...dues, ...docs];
+    let alerts: Alert[] = [...dupes, ...dupCheques, ...dupEntries, ...theft, ...review, ...dues, ...docs];
 
     const acks = await db.select().from(schema.alertAcks);
     const ackBy = new Map(acks.map((a) => [a.alertKey, a]));

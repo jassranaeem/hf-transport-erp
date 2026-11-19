@@ -73,9 +73,9 @@ const WRITE = ["Super Admin", "Admin", "Finance Manager", "Accountant"];
 const DIRECTIONS = ["In", "Out"];
 // how the money was paid / received (the names the truck, party and books code already know: Online and
 // Bank Transfer count as the bank side)
-export const METHODS = ["Cash", "Online", "Bank Transfer", "Other"];
-/** Personal & Household and Zakat keep their own shorter list of methods. */
-const personalMethod = (m: string) => (m === "Online" ? "Online" : m === "Bank Transfer" ? "Bank" : "Cash");
+export const METHODS = ["Cash", "Online", "Bank Transfer", "Cheque", "Other"];
+/** Personal & Household and Zakat keep their own shorter list of methods (a cheque goes through the bank). */
+const personalMethod = (m: string) => (m === "Online" ? "Online" : m === "Bank Transfer" || m === "Cheque" ? "Bank" : "Cash");
 // truck/party need a target id (which truck / which party); personal/zakat
 // are single global books, so there's nothing to pick.
 const LINK_TYPES: Record<string, { needsTarget: boolean }> = {
@@ -116,9 +116,41 @@ function coerce(b: any): Record<string, unknown> {
   if (b.description !== undefined) patch.description = b.description ? String(b.description) : null;
   if (b.notes !== undefined) patch.notes = b.notes ? String(b.notes) : null;
   if (b.method !== undefined) patch.method = METHODS.includes(b.method) ? b.method : "Cash";
+  if (b.chequeNo !== undefined) patch.chequeNo = b.chequeNo ? String(b.chequeNo).trim().slice(0, 40) || null : null;
+  if (b.chequeBank !== undefined) patch.chequeBank = b.chequeBank ? String(b.chequeBank).trim().slice(0, 60) || null : null;
+  // only a cheque carries a cheque number / bank
+  if (patch.method !== undefined && patch.method !== "Cheque") {
+    patch.chequeNo = null;
+    patch.chequeBank = null;
+  }
   if (b.linkType !== undefined) patch.linkType = b.linkType in LINK_TYPES ? b.linkType : null;
   if (b.linkTargetId !== undefined) patch.linkTargetId = b.linkTargetId ? parseInt(b.linkTargetId) : null;
   return patch;
+}
+
+// ---- cheques: the number is what identifies one; the same number twice (same direction, same bank or bank not
+// written) is the same cheque entered again ----------------------------------------------------------------
+const chequeKey = (no: unknown) => String(no ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+const bankKey = (b: unknown) => String(b ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const chequeProblem = (method: string | undefined | null, no: string | null | undefined) =>
+  method === "Cheque" && !chequeKey(no) ? "write the cheque number · چیک نمبر لکھیں" : null;
+
+/** Other Cash Book entries that carry this same cheque (same direction; banks that are written must match). */
+export async function findChequeDuplicates(no: unknown, bank: unknown, direction: string, excludeId?: number) {
+  const key = chequeKey(no);
+  if (!key) return [];
+  const rows = (
+    (await db.execute(sql`select id, to_char(entry_date, 'YYYY-MM-DD') as day, amount, direction, person, description, cheque_no, cheque_bank
+      from cash_transactions
+      where not is_deleted and method = 'Cheque' and direction = ${direction}
+        and ltrim(regexp_replace(upper(coalesce(cheque_no, '')), '[^A-Z0-9]', '', 'g'), '0') = ${key}
+        ${excludeId ? sql`and id <> ${excludeId}` : sql``}
+      order by id`)) as any
+  ).rows as any[];
+  const bk = bankKey(bank);
+  return rows
+    .filter((r) => !bk || !bankKey(r.cheque_bank) || bankKey(r.cheque_bank) === bk)
+    .map((r) => ({ id: Number(r.id), date: String(r.day), amount: Number(r.amount), direction: String(r.direction), person: r.person as string | null, description: r.description as string | null, chequeNo: r.cheque_no as string, chequeBank: r.cheque_bank as string | null }));
 }
 
 function dayBounds(dateStr: string) {
@@ -211,7 +243,8 @@ async function syncLink(row: typeof T.$inferSelect, userId: number | undefined, 
   const cfg = LINK_TYPES[row.linkType];
   if (!cfg || (cfg.needsTarget && !row.linkTargetId)) return;
 
-  const description = row.description || row.person || (row.direction === "In" ? "Cash book income" : "Cash book expense");
+  const baseDescription = row.description || row.person || (row.direction === "In" ? "Cash book income" : "Cash book expense");
+  const description = row.method === "Cheque" && row.chequeNo ? `${baseDescription} · Cheque ${row.chequeNo}` : baseDescription;
   if (row.linkType === "truck") {
     // linkTargetId is the TRUCK (vehicleId), never a specific truck_ledgers row: a truck can have many
     // legacy ledgers (one per old Excel sheet it was ever imported from), all showing the same plate, so
@@ -454,6 +487,17 @@ router.get("/link-options", requireRole(READ), async (_req: AuthRequest, res: Re
   }
 });
 
+// is this cheque number already in the Cash Book? (asked while the number is typed)
+router.get("/cheque-check", requireRole(READ), async (req: AuthRequest, res: Response) => {
+  try {
+    const direction = req.query.direction === "In" ? "In" : "Out";
+    const duplicates = await findChequeDuplicates(req.query.no, req.query.bank, direction, Number(req.query.exclude) || undefined);
+    res.json({ duplicates });
+  } catch (e: any) {
+    res.status(500).json({ error: dbError(e) });
+  }
+});
+
 router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) => {
   try {
     const dateStr = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ""))
@@ -500,8 +544,23 @@ router.get("/day", requireRole(READ), async (req: AuthRequest, res: Response) =>
       ? await db.select({ id: schema.personalExpenses.id, category: schema.personalExpenses.category }).from(schema.personalExpenses).where(inArray(schema.personalExpenses.id, personalIds))
       : [];
     const personalCatById = new Map(personalRows.map((p) => [p.id, p.category]));
+    // cheques: how many pictures each has, and whether the same cheque number is entered elsewhere too
+    const chequeFiles = new Map<number, number>();
+    const chequeDupById = new Map<number, any[]>();
+    const chequeRows = entries.filter((e) => e.method === "Cheque");
+    if (chequeRows.length) {
+      const fr = ((await db.execute(sql`select entity_id id, count(*)::int n from attachments
+        where entity_type = 'cash_transaction' and not is_deleted and entity_id in (${sql.join(chequeRows.map((e) => sql`${e.id}`), sql`, `)}) group by 1`)) as any).rows as any[];
+      for (const r of fr) chequeFiles.set(Number(r.id), Number(r.n));
+      for (const e of chequeRows) {
+        const d = await findChequeDuplicates(e.chequeNo, e.chequeBank, e.direction, e.id);
+        if (d.length) chequeDupById.set(e.id, d);
+      }
+    }
     const entriesWithTargets = entries.map((e) => ({
       ...e,
+      files: chequeFiles.get(e.id) ?? 0,
+      chequeDuplicates: chequeDupById.get(e.id) || [],
       personalCategory: e.linkType === "personal" && e.derivedEntryId ? personalCatById.get(e.derivedEntryId) ?? null : null,
       resolvedLedgerId: e.linkType === "truck" && e.derivedEntryId ? truckLedgerById.get(e.derivedEntryId) ?? null : null,
       truckCategory: e.linkType === "truck" && e.derivedEntryId ? truckCatById.get(e.derivedEntryId) ?? null : null,
@@ -578,6 +637,8 @@ router.post("/voucher", requireRole(WRITE), async (req: AuthRequest, res: Respon
       const at = `Line ${i + 1}: `;
       const patch = coerce({ ...l, entryDate: l.entryDate ?? req.body?.entryDate });
       if (!patch.amount) return res.status(400).json({ error: `${at}amount is required` });
+      const chequeNeed = chequeProblem(patch.method as string | undefined, patch.chequeNo as string | null | undefined);
+      if (chequeNeed) return res.status(400).json({ error: `${at}${chequeNeed}` });
       if (patch.direction === undefined) patch.direction = "Out";
       if (patch.entryDate === undefined) patch.entryDate = new Date();
       if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
@@ -612,9 +673,15 @@ router.post("/voucher", requireRole(WRITE), async (req: AuthRequest, res: Respon
       const [fresh] = await db.select().from(T).where(eq(T.id, row.id)).limit(1);
       await audit(req, "CREATE", row.id, null, fresh);
       const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
-      created.push({ ...fresh, lease });
+      const chequeDuplicates = fresh.method === "Cheque" ? await findChequeDuplicates(fresh.chequeNo, fresh.chequeBank, fresh.direction, fresh.id) : [];
+      created.push({ ...fresh, lease, chequeDuplicates });
     }
-    res.json({ voucherKey: key, entries: created, lease: created.map((c) => c.lease).find(Boolean) ?? null });
+    res.json({
+      voucherKey: key,
+      entries: created,
+      lease: created.map((c) => c.lease).find(Boolean) ?? null,
+      chequeDuplicates: created.filter((c) => c.chequeDuplicates.length).map((c) => ({ entryId: c.id, chequeNo: c.chequeNo, duplicates: c.chequeDuplicates })),
+    });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }
@@ -624,6 +691,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
   try {
     const patch = coerce(req.body || {});
     if (!patch.amount) return res.status(400).json({ error: "Amount is required" });
+    const chequeNeed = chequeProblem(patch.method as string | undefined, patch.chequeNo as string | null | undefined);
+    if (chequeNeed) return res.status(400).json({ error: chequeNeed });
     if (patch.direction === undefined) patch.direction = "Out";
     if (patch.entryDate === undefined) patch.entryDate = new Date();
     if (typeof patch.linkType === "string" && LINK_TYPES[patch.linkType]?.needsTarget && !patch.linkTargetId) {
@@ -653,7 +722,8 @@ router.post("/", requireRole(WRITE), async (req: AuthRequest, res: Response) => 
     await audit(req, "CREATE", row.id, null, fresh);
     // a Qist received on a lease truck also counts toward what he still has to pay
     const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
-    res.json({ ...fresh, lease });
+    const chequeDuplicates = fresh.method === "Cheque" ? await findChequeDuplicates(fresh.chequeNo, fresh.chequeBank, fresh.direction, fresh.id) : [];
+    res.json({ ...fresh, lease, chequeDuplicates });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }
@@ -667,6 +737,10 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
     const patch = coerce(req.body || {});
     const effectiveLinkType = "linkType" in patch ? (patch.linkType as string | null) : old.linkType;
     const effectiveTargetId = "linkTargetId" in patch ? patch.linkTargetId : old.linkTargetId;
+    {
+      const chequeNeed = chequeProblem(("method" in patch ? patch.method : old.method) as string, ("chequeNo" in patch ? patch.chequeNo : old.chequeNo) as string | null);
+      if (chequeNeed) return res.status(400).json({ error: chequeNeed });
+    }
     if (effectiveLinkType && LINK_TYPES[effectiveLinkType]?.needsTarget && !effectiveTargetId) {
       return res.status(400).json({ error: "Pick which truck or party this belongs to · کونسا ٹرک یا پارٹی، منتخب کریں" });
     }
@@ -703,7 +777,8 @@ router.put("/:id(\\d+)", requireRole(WRITE), async (req: AuthRequest, res: Respo
     const [fresh] = await db.select().from(T).where(eq(T.id, id)).limit(1);
     await audit(req, "UPDATE", id, old, fresh);
     const lease = await syncLeaseFromCash(fresh, req.user?.id).catch(() => null);
-    res.json({ ...fresh, lease });
+    const chequeDuplicates = fresh.method === "Cheque" ? await findChequeDuplicates(fresh.chequeNo, fresh.chequeBank, fresh.direction, fresh.id) : [];
+    res.json({ ...fresh, lease, chequeDuplicates });
   } catch (e: any) {
     res.status(500).json({ error: dbError(e) });
   }

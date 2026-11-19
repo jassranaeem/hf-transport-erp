@@ -33,7 +33,7 @@ interface AlertRow {
   title: string;
   message: string;
   detail?: any;
-  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number } }[];
+  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number; date?: string } }[];
   count?: number;
   createdAt: string;
   ack?: { status: string; note: string | null } | null;
@@ -42,6 +42,7 @@ interface AlertRow {
 const TYPE_ICON: Record<string, any> = {
   duplicate_receipt: FileWarning,
   duplicate_entry: FileWarning,
+  duplicate_cheque: FileWarning,
   fuel_theft: Fuel,
   ledger_review: AlertTriangle,
   dues_overdue: Clock,
@@ -63,7 +64,7 @@ export default function AlertsCenter({
 }: {
   showFeedback: (t: "success" | "error", m: string) => void;
   compact?: boolean;
-  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number }) => void;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; date?: string }) => void;
 }) {
   const [data, setData] = useState<{ alerts: AlertRow[]; counts: any; byType: any } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -264,6 +265,24 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         </div>
         <p className="text-[10px] text-[#6B7280] mt-1">
           If it was attached twice by mistake, remove one copy from its entry · اگر غلطی سے دو بار لگی ہے تو ایک کاپی ہٹا دیں۔
+        </p>
+      </div>
+    );
+  }
+  if (alert.type === "duplicate_cheque" && Array.isArray(d.entries)) {
+    return (
+      <div className="space-y-1 text-[11px]">
+        <Row k="Cheque no. · چیک نمبر" v={d.chequeNo} />
+        <Row k="Direction" v={d.direction === "In" ? "Received · وصول" : "Paid · ادا"} />
+        {d.entries.map((e: any) => (
+          <div key={e.id} className="flex items-center justify-between gap-2 border border-[#FFC2C3] bg-[#FFF1F1] rounded px-2 py-1">
+            <span>{String(e.date).split("-").reverse().join(".")}{e.person ? ` · ${e.person}` : ""}{e.bank ? ` · ${e.bank}` : ""}</span>
+            <b className="tabular-nums">PKR {Number(e.amount).toLocaleString()}</b>
+          </div>
+        ))}
+        <p className="text-[10px] text-[#6B7280] pt-1" dir="auto">
+          A cheque number is used once. Open the Cash Book and delete the extra entry — or, if two different banks
+          share the number, write the bank on both entries. · ایک چیک ایک بار؛ اضافی اندراج حذف کریں یا دونوں پر بینک لکھیں۔
         </p>
       </div>
     );
