@@ -7,8 +7,9 @@ import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import {
   BookOpen, Search, AlertTriangle, Plus, Loader2, TrendingUp, TrendingDown,
   ChevronDown, ChevronRight, Handshake, Upload, FileSpreadsheet, CheckCircle, RefreshCw,
-  Pencil, Trash2,
+  Pencil, Trash2, Printer,
 } from "lucide-react";
+import { openTruckStatement } from "../../lib/truckStatement.ts";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import { DayStripRow, dayOf, DayFigures } from "../common/DayStrip.tsx";
 import TruckSheetImport from "./TruckSheetImport.tsx";
@@ -98,6 +99,7 @@ export default function TruckLedgers({
   const [reviewOnly, setReviewOnly] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [editingDriver, setEditingDriver] = useState(false);
   const [driverForm, setDriverForm] = useState({ driverName: "", driverPhone: "" });
   const [savingDriver, setSavingDriver] = useState(false);
@@ -168,6 +170,29 @@ export default function TruckLedgers({
   };
 
   const [period, setPeriod] = useState<Period>(ALL);
+  // the statement: every entry of the chosen dates (whatever kind is filtered on screen), as its own document
+  const printStatement = async () => {
+    if (!detail) return;
+    // the window is opened first (a click is what lets a pop-up open) and filled when the data is here
+    const w = window.open("", "_blank");
+    if (!w) { showFeedback("error", "Allow pop-ups for this site, then press the button again · پاپ اپ کی اجازت دیں"); return; }
+    w.document.write("<!doctype html><meta charset='utf-8'><title>Statement</title><body style='font-family:Arial,sans-serif;padding:28px;color:#13294B'>Preparing the statement… · گوشوارہ تیار ہو رہا ہے…</body>");
+    setPrinting(true);
+    try {
+      const params = new URLSearchParams(periodParams(period));
+      params.set("limit", "5000");
+      const [full, company] = await Promise.all([
+        enterpriseFetch(`/api/ledgers/${detail.ledger.id}?${params}`),
+        enterpriseFetch("/api/enterprise/company-profile").catch(() => ({})),
+      ]);
+      openTruckStatement(full, company, w);
+    } catch (e: any) {
+      w.close();
+      showFeedback("error", e.message);
+    } finally {
+      setPrinting(false);
+    }
+  };
   const loadDetail = (id: number) => {
     setLoading(true);
     const params = new URLSearchParams(periodParams(period));
@@ -640,6 +665,7 @@ export default function TruckLedgers({
                 </div>
                 <div className="flex items-center gap-2">
                   <Btn kind="primary" onClick={() => setShowAdd((s) => !s)} icon={<Plus />}>Add entry · اندراج</Btn>
+                  <Btn onClick={printStatement} disabled={printing} icon={printing ? <Loader2 className="animate-spin" /> : <Printer />} title="A full, professional statement of this truck's khata for the dates chosen — print or save as PDF · مکمل گوشوارہ">Statement PDF · گوشوارہ</Btn>
                   <Btn kind="danger" size="md" onClick={deleteLedger} title="Delete this whole ledger (sheet) and all its entries" icon={<Trash2 />} />
                 </div>
               </div>
