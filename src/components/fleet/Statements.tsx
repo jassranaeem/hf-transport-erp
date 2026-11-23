@@ -13,6 +13,7 @@ const fmt = (v: number) => (v < 0 ? `(${Math.abs(Math.round(v)).toLocaleString("
 const dmy = (d: string) => (d ? d.split("-").reverse().join(".") : "");
 const TABS = [
   { k: "pnl", l: "Profit & Loss · نفع نقصان" },
+  { k: "expenses", l: "Expenses by type · خرچ کی قسم وار" },
   { k: "trucks", l: "Each truck · ہر ٹرک" },
   { k: "months", l: "By month · مہینہ وار" },
   { k: "bs", l: "Balance Sheet · بیلنس شیٹ" },
@@ -39,10 +40,12 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
   const [status, setStatus] = useState<any>(null);
   const [lockDate, setLockDate] = useState("");
   const [openTruck, setOpenTruck] = useState<string | null>(null);
+  const [expSort, setExpSort] = useState("__total"); // "Expenses by type": which column the trucks are ordered by
+  const [expQ, setExpQ] = useState("");
 
   const url =
     tab === "pnl" ? `/api/statements/pnl?from=${range.from}&to=${range.to}` :
-    tab === "trucks" ? `/api/statements/pnl-trucks?from=${range.from}&to=${range.to}` :
+    tab === "trucks" || tab === "expenses" ? `/api/statements/pnl-trucks?from=${range.from}&to=${range.to}` :
     tab === "months" ? `/api/statements/pnl-months?from=${range.from}&to=${range.to}` :
     tab === "bs" ? `/api/statements/balance-sheet?asOf=${asOf}` :
     tab === "cf" ? `/api/statements/cash-flow?from=${range.from}&to=${range.to}` :
@@ -89,8 +92,8 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
         period: tab === "bs" ? `as on ${dmy(asOf)}` : `${dmy(range.from)} – ${dmy(range.to)}`,
         company,
         bodyHtml: printableCopy(el),
-        extraHead: appStylesHtml(),
-        orientation: "portrait",
+        extraHead: appStylesHtml() + (tab === "expenses" ? "<style>@media print { .overflow-x-auto { overflow: visible !important; } .exp-matrix { font-size: 9px !important; } .exp-matrix th, .exp-matrix td { padding: 3px 4px !important; } }</style>" : ""),
+        orientation: tab === "expenses" ? "landscape" : "portrait",
         ref: `STM-${tab.toUpperCase()}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
       });
     }, (m) => showFeedback("error", m));
@@ -143,6 +146,82 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
           <Total label={data.profit >= 0 ? "Profit · منافع" : "Loss · نقصان"} amount={data.profit} strong tone={data.profit >= 0 ? "good" : "bad"} />
         </Sheet>
       )}
+
+      {data && tab === "expenses" && (() => {
+        const trucks: any[] = data.trucks || [];
+        const heads = new Map<string, { code: string; name: string; total: number }>();
+        for (const t of trucks) for (const l of t.lines) if (l.type === "Expense") { const h = heads.get(l.code) || { code: l.code, name: l.name, total: 0 }; h.total += l.amount; heads.set(l.code, h); }
+        const headList = [...heads.values()].sort((a, b) => b.total - a.total);
+        const grand = headList.reduce((s, h) => s + h.total, 0);
+        const q = expQ.trim().toLowerCase();
+        const rows = trucks
+          .map((t) => { const by: Record<string, number> = {}; for (const l of t.lines) if (l.type === "Expense") by[l.code] = (by[l.code] || 0) + l.amount; return { label: String(t.label), key: t.truck || "office", by, total: Number(t.expenses) || 0 }; })
+          .filter((r) => r.total && (!q || r.label.toLowerCase().includes(q)));
+        rows.sort((a, b) => (expSort === "__total" ? b.total - a.total : (b.by[expSort] || 0) - (a.by[expSort] || 0)) || a.label.localeCompare(b.label));
+        const colTotal = (code: string) => rows.reduce((s, r) => s + (r.by[code] || 0), 0);
+        const filteredTotal = rows.reduce((s, r) => s + r.total, 0);
+        const th = "px-2 py-2 text-right whitespace-nowrap";
+        return (
+          <>
+            <div className="text-[12px] text-[#4B5563]" dir="auto">
+              Every kind of expense, added up — for the whole business, and for each truck. Click a heading to put the trucks in order of that expense. · ہر قسم کا خرچ، پورے کاروبار کا اور ہر ٹرک کا۔ ترتیب کے لیے عنوان پر کلک کریں۔
+            </div>
+            <Sheet>
+              <Head title={`All expenses by type · تمام خرچ قسم وار — total ${fmt(grand)}`} />
+              {headList.map((h) => (
+                <div key={h.code} className="px-3 py-2 border-t border-[#F3F4F6] text-[12.5px]">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 break-words"><span className="text-[#9CA3AF] mr-2">{h.code}</span>{h.name}</span>
+                    <span className="shrink-0 tabular-nums font-semibold">{fmt(h.total)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="flex-1 h-2 rounded bg-[#EEF2F7] overflow-hidden"><span className="block h-full" style={{ width: `${grand ? Math.max(1, Math.round((h.total / grand) * 100)) : 0}%`, backgroundColor: "#24539B" }} /></span>
+                    <span className="w-10 text-right text-[11px] text-[#6B7280] tabular-nums">{grand ? Math.round((h.total / grand) * 100) : 0}%</span>
+                  </div>
+                </div>
+              ))}
+              <Total label="Total expenses · کل خرچ" amount={grand} strong />
+            </Sheet>
+
+            <div className="no-print flex flex-wrap items-center gap-2 text-xs">
+              <input id="exp-q" value={expQ} onChange={(e) => setExpQ(e.target.value)} placeholder="Find a truck… · ٹرک تلاش" className="border rounded-lg px-2 py-1.5 w-52" />
+              <span className="text-[#6B7280]">{rows.length} trucks · ordered by {expSort === "__total" ? "total expense" : headList.find((h) => h.code === expSort)?.name}</span>
+            </div>
+            <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
+              <table className="exp-matrix w-full text-[12px]">
+                <thead className="text-[#6B7280] bg-[#F9FAFB]">
+                  <tr>
+                    <th className="text-left px-3 py-2 sticky left-0 bg-[#F9FAFB]">Truck · ٹرک</th>
+                    {headList.map((h) => (
+                      <th key={h.code} onClick={() => setExpSort(h.code)} title={`${h.code} · ${h.name} — click to order by this`} className={`${th} cursor-pointer hover:text-[#24539B] ${expSort === h.code ? "text-[#24539B]" : ""}`}>{h.name}{expSort === h.code ? " ▼" : ""}</th>
+                    ))}
+                    <th onClick={() => setExpSort("__total")} className={`${th} cursor-pointer font-semibold ${expSort === "__total" ? "text-[#24539B]" : ""}`}>Total · کل{expSort === "__total" ? " ▼" : ""}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.key} className="border-t border-[#F3F4F6]">
+                      <td className="px-3 py-1.5 font-semibold whitespace-nowrap sticky left-0 bg-white">{r.label}</td>
+                      {headList.map((h) => <td key={h.code} className="px-2 text-right tabular-nums">{r.by[h.code] ? fmt(r.by[h.code]) : ""}</td>)}
+                      <td className="px-2 text-right tabular-nums font-semibold">{fmt(r.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-[#E5E7EB] font-semibold bg-[#F9FAFB]">
+                    <td className="px-3 py-2 sticky left-0 bg-[#F9FAFB]">All trucks · سب</td>
+                    {headList.map((h) => <td key={h.code} className="px-2 text-right tabular-nums">{fmt(colTotal(h.code))}</td>)}
+                    <td className="px-2 text-right tabular-nums">{fmt(filteredTotal)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="text-[11px] text-[#6B7280]" dir="auto">
+              The figures come from the books (the same as Profit &amp; Loss). “Truck expenses — not classified” is money written under the kind “Other” — open that entry and choose its real kind (Diesel, Garage …) and it moves to the right column. · “غیر درجہ بند” وہ خرچ ہے جس کی قسم “Other” لکھی ہے، اصل قسم چن لیں۔
+            </div>
+          </>
+        );
+      })()}
 
       {data && tab === "trucks" && (
         <div className="rounded-xl border border-[#E3E8EF] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-x-auto">
