@@ -152,7 +152,7 @@ export default function AgreementDocument({ agreementId, onClose, showFeedback }
     <div className="fixed inset-0 z-50 bg-[rgba(15,23,42,.45)] flex items-start justify-center overflow-y-auto p-4 print:p-0 print:bg-white print:static">
       <style>{`
         @media print {
-          @page { size: A4; margin: 14mm; }
+          @page { size: A4; margin: 14mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: counter(page) " / " counter(pages); font: 8px Arial, sans-serif; color: #6B7280; } }
           body * { visibility: hidden !important; }
           #agreement-doc, #agreement-doc * { visibility: visible !important; }
           #agreement-doc { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }

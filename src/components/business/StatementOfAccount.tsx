@@ -8,6 +8,7 @@ import { Printer, X, Loader2, Mail, MessageCircle } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { waLink, pkr, dmy } from "../../lib/share.ts";
 import { Btn } from "../ui/kit.tsx";
+import { printPartyStatement } from "../../lib/printPartyStatement.ts";
 
 const iso = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const money = (n: number) => Math.round(Math.abs(n || 0)).toLocaleString("en-PK");
@@ -110,7 +111,7 @@ export default function StatementOfAccount({
             </>
           )}
           <div className="flex-1" />
-          <Btn kind="primary" onClick={() => window.print()} disabled={!st} icon={<Printer />} title="Opens the print window — choose “Save as PDF” to get the file">
+          <Btn kind="primary" onClick={() => void printPartyStatement(st, period, (m) => showFeedback("error", m))} disabled={!st} icon={<Printer />} title="Opens the print window — choose “Save as PDF” to get the file">
             Print / PDF
           </Btn>
           <a

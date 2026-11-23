@@ -18,6 +18,7 @@ import { getEntity, listEntities, ENTITIES } from "../src/lib/dataio/registry.ts
 import {
   buildTemplateWorkbook,
   buildExportWorkbook,
+  buildExportTable,
   parseAndValidate,
   commitBatch,
   fetchAllForExport,
@@ -173,6 +174,19 @@ router.get("/:entity/template", async (req: AuthRequest, res: Response) => {
     res.send(Buffer.from(buf));
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to build template" });
+  }
+});
+
+// the sheet as data for a printed / PDF copy: every column and row, ids replaced by names
+router.get("/:entity/print", async (req: AuthRequest, res: Response) => {
+  const entity = getEntity(req.params.entity);
+  if (!entity) return res.status(404).json({ error: "Unknown entity" });
+  try {
+    const rows = await fetchAllForExport(entity);
+    const t = await buildExportTable(entity, rows);
+    res.json({ label: entity.label, description: entity.description || null, ...t });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Could not prepare the print" });
   }
 });
 

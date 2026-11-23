@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { Download, Upload, FileSpreadsheet, Loader2, X, CheckCircle, AlertTriangle, ChevronDown, Printer } from "lucide-react";
 import { enterpriseFetch, downloadFile, uploadFile } from "../../../client/api.ts";
+import { printEntitySheet } from "../../lib/printEntity.ts";
 
 /**
  * Compact per-module Import / Export control. Drop into any module header:
@@ -102,10 +103,10 @@ export default function ModuleDataIO({
             </button>
             <div className="my-1 border-t border-slate-100" />
             <button
-              onClick={() => { setMenuOpen(false); window.print(); }}
+              onClick={() => { setMenuOpen(false); void printEntitySheet(entityKey, name, (m) => window.alert(m)); }}
               className="flex w-full items-center gap-1.5 text-left px-3 py-1.5 hover:bg-slate-50"
             >
-              <Printer className="w-3.5 h-3.5" /> Print / Save as PDF
+              <Printer className="w-3.5 h-3.5" /> Print / Save as PDF (all rows)
             </button>
           </div>
         )}

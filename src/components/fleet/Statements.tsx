@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { FileBarChart, Loader2, Printer, Lock, Unlock, CheckCircle2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { enterpriseFetch } from "../../../client/api.ts";
+import { openPrint, fetchCompany, shellHtml, printableCopy, appStylesHtml } from "../../lib/printDoc.ts";
 
 type Feedback = (type: "success" | "error", message: string) => void;
 const fmt = (v: number) => (v < 0 ? `(${Math.abs(Math.round(v)).toLocaleString("en-US")})` : Math.round(v).toLocaleString("en-US"));
@@ -74,15 +75,35 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
     }
   };
 
+  // the report as it is on screen, on the company letterhead (heading + buttons left out)
+  const printReport = () =>
+    void openPrint(async () => {
+      const company = await fetchCompany();
+      const el = document.querySelector(".statements-page");
+      if (!el) throw new Error("Nothing to print");
+      const name = TABS.find((t) => t.k === tab)!.l;
+      return shellHtml({
+        title: name.split(" · ")[0].toUpperCase(),
+        titleUrdu: name.split(" · ")[1],
+        fileTitle: `${name.split(" · ")[0]} — ${tab === "bs" ? `as on ${dmy(asOf)}` : `${dmy(range.from)} to ${dmy(range.to)}`}`,
+        period: tab === "bs" ? `as on ${dmy(asOf)}` : `${dmy(range.from)} – ${dmy(range.to)}`,
+        company,
+        bodyHtml: printableCopy(el),
+        extraHead: appStylesHtml(),
+        orientation: "portrait",
+        ref: `STM-${tab.toUpperCase()}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
+      });
+    }, (m) => showFeedback("error", m));
+
   return (
     <div className="p-3 space-y-4 statements-page">
       <style>{`@media print { .no-print { display: none !important; } .statements-page { padding: 0 !important; } }`}</style>
-      <div className="flex flex-wrap items-end gap-3">
+      <div data-noprint className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-0 basis-64">
           <h2 className="text-[19px] font-semibold text-[#111827] flex items-center gap-2 leading-tight"><FileBarChart className="w-5 h-5 text-[#24539B]" /> Statements <span className="text-[#9CA3AF] font-normal text-sm">· حسابات</span></h2>
           <p className="text-[12px] text-[#6B7280]" dir="auto">The year's accounts from the books — for the owners, the bank and the chartered accountant. · سال کے حسابات، کتاب سے۔</p>
         </div>
-        <button onClick={() => window.print()} className="no-print inline-flex items-center gap-1.5 text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5"><Printer className="w-3.5 h-3.5" /> Print · پرنٹ</button>
+        <button onClick={printReport} className="no-print inline-flex items-center gap-1.5 text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5"><Printer className="w-3.5 h-3.5" /> Print · پرنٹ</button>
       </div>
 
       <div className="no-print flex flex-wrap gap-1">
@@ -107,7 +128,7 @@ export default function Statements({ showFeedback }: { showFeedback: Feedback })
         {loading && <Loader2 className="w-4 h-4 animate-spin text-[#6B7280]" />}
       </div>
 
-      <div className="text-[12px] font-semibold text-[#1E3A6E]">
+      <div data-noprint className="text-[12px] font-semibold text-[#1E3A6E]">
         HFK Enterprises (Pvt) Ltd — {TABS.find((t) => t.k === tab)!.l.split(" · ")[0]} — {tab === "bs" ? `as on ${dmy(asOf)}` : `${dmy(range.from)} to ${dmy(range.to)}`}
       </div>
 

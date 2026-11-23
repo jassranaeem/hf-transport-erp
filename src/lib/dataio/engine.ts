@@ -266,6 +266,29 @@ export function buildTemplateWorkbook(entity: EntitySpec): ExcelJS.Workbook {
 // export
 // -------------------------------------------------------------------------
 
+/** The same columns and values as the Excel export, as plain data — for the printed / PDF copy of a sheet. */
+export async function buildExportTable(
+  entity: EntitySpec,
+  rows: Record<string, any>[]
+): Promise<{ columns: Array<{ key: string; header: string; type: string }>; rows: Record<string, any>[] }> {
+  const refMaps = new Map<string, RefMap>();
+  for (const f of entity.fields) {
+    if (f.ref && !refMaps.has(f.ref.entity)) refMaps.set(f.ref.entity, await loadRefMap(f.ref.entity));
+  }
+  const fields = entity.fields.filter((f) => !f.readonly);
+  const out = rows.map((row) => {
+    const o: Record<string, any> = {};
+    for (const f of fields) {
+      let v = row[f.field];
+      if (f.ref && v != null) v = refMaps.get(f.ref.entity)?.idToKey.get(Number(v)) ?? v;
+      else if (f.type === "json" && v != null && typeof v === "object") v = JSON.stringify(v);
+      o[f.field] = v ?? null;
+    }
+    return o;
+  });
+  return { columns: fields.map((f) => ({ key: f.field, header: f.column, type: f.type })), rows: out };
+}
+
 export async function buildExportWorkbook(
   entity: EntitySpec,
   rows: Record<string, any>[]

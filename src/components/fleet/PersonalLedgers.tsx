@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
 import { Loader2, Printer, BookOpen, Wallet, Users, X, Plus, Eye, Paperclip, Pencil, Trash2, Settings2 } from "lucide-react";
 import PersonalCategories from "./PersonalCategories.tsx";
+import { printPersonalLedger } from "../../lib/printPersonal.ts";
 import { EntryForm, EntryDetail, blankEntry, entryToForm, uploadEntryFiles } from "./PersonalEntryForm.tsx";
 
 const PKR = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString("en-US");
@@ -181,15 +182,7 @@ export default function PersonalLedgers({
 
   const print = () => {
     if (!ledger) return;
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const esc = (s: any) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] as string);
-    const rows = ledger.rows
-      .map((r: any) => `<tr><td>${dmy(r.entryDate)}</td><td>${esc(r.description)}</td><td>${esc(r.payee)}</td><td>${esc(r.person)}</td><td>${esc(r.method)}</td><td style="text-align:right">${r.direction === "expense" ? r.amount.toLocaleString("en-US") : ""}</td><td style="text-align:right">${r.direction === "income" ? r.amount.toLocaleString("en-US") : ""}</td><td style="text-align:right">${r.running.toLocaleString("en-US")}</td></tr>`)
-      .join("");
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(ledger.name)}</title><body style="font-family:Arial,sans-serif;margin:24px"><h2>Personal ledger — ${esc(ledger.name)}</h2><p>${esc(label)} · ${esc(ledger.balanceLabel)}</p><table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%;font-size:12px"><tr><th>Date</th><th>Description</th><th>Payee</th><th>Person</th><th>Method</th><th>Spent</th><th>Funds in</th><th>Balance</th></tr><tr><td colspan="7"><b>Opening</b></td><td style="text-align:right"><b>${ledger.opening.toLocaleString("en-US")}</b></td></tr>${rows}<tr><td colspan="5"><b>Total</b></td><td style="text-align:right"><b>${ledger.spent.toLocaleString("en-US")}</b></td><td style="text-align:right"><b>${ledger.funds.toLocaleString("en-US")}</b></td><td style="text-align:right"><b>${ledger.closing.toLocaleString("en-US")}</b></td></tr></table></body>`);
-    w.document.close();
-    w.print();
+    void printPersonalLedger(ledger, String(label || "All dates"), (m) => showFeedback("error", m));
   };
 
   const shown = (list?.categories || []).filter((c) => !onlyUsed || c.count > 0 || c.opening !== 0);

@@ -16,6 +16,7 @@ import {
   Sparkles, ListChecks, Tags, MessageSquare, FileText, BellRing, UserCheck, Copy, Printer, Trash2,
 } from "lucide-react";
 import { enterpriseFetch, uploadFile } from "../../../client/api.ts";
+import { openPrint, fetchCompany, shellHtml, esc as escP } from "../../lib/printDoc.ts";
 
 type Feedback = (type: "success" | "error", message: string) => void;
 type Nav = (wb: string, sheet: string, focus?: any) => void;
@@ -836,12 +837,14 @@ function Report({ aiOn, showFeedback }: { aiOn: boolean; showFeedback: Feedback 
   };
   const print = () => {
     if (!cur) return;
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] as string);
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(cur.title || "Report")}</title><body style="font-family:Arial,sans-serif;max-width:760px;margin:24px auto;line-height:1.6"><h2>HFK Enterprises (Pvt) Ltd — ${esc(cur.title || "")}</h2><pre style="white-space:pre-wrap;font-family:inherit">${esc(cur.narrative || "")}</pre></body>`);
-    w.document.close();
-    w.print();
+    void openPrint(async () => {
+      const company = await fetchCompany();
+      const body = String(cur.narrative || "")
+        .split(/\n{2,}/)
+        .map((para: string) => `<p dir="auto" style="margin:0 0 10px;white-space:pre-wrap;line-height:1.75;font-size:11.5px">${escP(para)}</p>`)
+        .join("");
+      return shellHtml({ title: String(cur.title || "Accountant's report").toUpperCase(), titleUrdu: "اکاؤنٹنٹ کی رپورٹ", fileTitle: String(cur.title || "Accountant's report"), period: cur.month || month || undefined, company, bodyHtml: body, orientation: "portrait", ref: `AIR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}` });
+    }, (m) => showFeedback("error", m));
   };
   const d = cur?.data;
   return (
