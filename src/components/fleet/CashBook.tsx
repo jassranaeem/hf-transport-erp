@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { enterpriseFetch, uploadFile, uploadAttachment } from "../../../client/api.ts";
 import ModuleDataIO from "../common/ModuleDataIO.tsx";
 import AttachmentPanel from "../common/AttachmentPanel.tsx";
-import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronLeft, ChevronRight, Upload } from "lucide-react";
+import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronLeft, ChevronRight, Upload, Paperclip, FileText } from "lucide-react";
 import { PageHeader, Btn, Card, KpiStrip, SidePanel, Empty } from "../ui/kit.tsx";
 import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
 import { CashCountPanel, CashSummary } from "./CashCount.tsx";
@@ -22,7 +22,7 @@ import { kindOf, bucketTotals, catLabel, INCOME_CATS, EXPENSE_CATS, KhataKind } 
 const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
 const today = () => new Date().toISOString().slice(0, 10);
 
-const BLANK = { direction: "Out", method: "Cash", chequeNo: "", chequeBank: "", chequeFile: null as File | null, amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+const BLANK = { direction: "Out", method: "Cash", chequeNo: "", chequeBank: "", chequeFile: null as File | null, files: [] as File[], amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
 const BANKS = ["HBL", "UBL", "MCB", "Allied Bank", "Meezan Bank", "Bank Alfalah", "Askari Bank", "Faysal Bank", "Habib Metro", "Bank of Punjab", "National Bank", "Soneri Bank", "Standard Chartered", "Bank Al Habib", "JS Bank", "Silk Bank", "Bank of Balochistan"];
 /** the same cheque number written twice (same direction) among the lines being entered */
 const chequeKeyOf = (no: string) => String(no || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
@@ -151,7 +151,7 @@ export default function CashBook({
     setSaving(true);
     try {
       const at = `${date}T${new Date().toTimeString().slice(0, 8)}`;
-      const payload = filledLines.map(({ chequeFile, ...rest }) => rest);
+      const payload = filledLines.map(({ chequeFile, files, ...rest }) => rest);
       let saved: any[] = [];
       let dups: any[] = [];
       let message = "";
@@ -169,22 +169,38 @@ export default function CashBook({
         dups = r?.chequeDuplicates || [];
         message = r?.pendingApproval ? r.message : `Saved ${filledLines.length} lines together · In ${PKR(vIn)} · Out ${PKR(vOut)}${r?.lease ? ` · lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay` : ""} · محفوظ`;
       }
-      // the cheque pictures go onto the entries just made
+      // the receipts chosen in the form (and the cheque picture) go onto the entries just made
       const upErr: string[] = [];
+      const dupFiles: string[] = [];
+      const sameTwice: string[] = [];
+      let attached = 0;
+      let wanted = 0;
       for (let i = 0; i < filledLines.length; i++) {
-        const f = filledLines[i].chequeFile as File | null;
-        if (f && saved[i]?.id) {
-          try { await uploadAttachment("cash_transaction", saved[i].id, f); } catch (er: any) { upErr.push(`${f.name}: ${er.message}`); }
+        const picks: File[] = [...(filledLines[i].chequeFile ? [filledLines[i].chequeFile as File] : []), ...((filledLines[i].files as File[]) || [])];
+        wanted += picks.length;
+        if (!saved[i]?.id) continue;
+        for (const f of picks) {
+          try {
+            const res: any = await uploadAttachment("cash_transaction", saved[i].id, f);
+            if (res?.alreadyThere) { sameTwice.push(f.name); continue; } // the very same file is already on this entry
+            attached++;
+            if (res?.duplicate && Array.isArray(res.duplicateOf) && res.duplicateOf.some((d: any) => d.id !== res.id && !(d.entityType === "cash_transaction" && saved.some((e: any) => e.id === d.entityId)))) dupFiles.push(f.name);
+          } catch (er: any) {
+            upErr.push(`${f.name}: ${er.message}`);
+          }
         }
       }
-      if (held && filledLines.some((l) => l.chequeFile)) message += " · attach the cheque picture on the entry once it is approved · منظوری کے بعد چیک کی تصویر لگائیں";
-      if (upErr.length) message += ` · the cheque picture could not be saved (${upErr.join("; ")}) — attach it on the entry`;
+      if (held && wanted) message += " · attach the receipts on the entry once it is approved · منظوری کے بعد رسیدیں لگائیں";
+      else if (attached) message += ` · ${attached} receipt${attached === 1 ? "" : "s"} attached · رسید لگ گئی`;
+      if (sameTwice.length) message += ` · the same file was chosen twice (${sameTwice.join(", ")}) — kept once · ایک ہی فائل دو بار، ایک رکھی`;
+      if (upErr.length) message += ` · ⚠ could not attach (${upErr.join("; ")}) — open the entry and attach it`;
+      if (dupFiles.length) message += ` · ⚠ the same file is already attached to another entry: ${dupFiles.join(", ")} (see Alerts) · یہی فائل پہلے بھی لگی ہے`;
       if (dups.length) {
         const lines2 = dups.map((d: any) => `Cheque ${d.chequeNo}: already entered on ${d.duplicates.map((x: any) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}${x.person ? ` · ${x.person}` : ""}`).join(", ")}`);
         setChequeWarn(lines2);
         showFeedback("error", `Saved — but ⚠ ${lines2.join(" | ")} · same cheque twice? It is in the Alerts · یہ چیک پہلے بھی درج ہے`);
       } else {
-        showFeedback(upErr.length ? "error" : "success", message);
+        showFeedback(upErr.length || dupFiles.length ? "error" : "success", message);
       }
       setLines([BLANK]);
       setShowAdd(false);
@@ -955,6 +971,41 @@ function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
   );
 }
 
+/** Receipts chosen while the entry is being made: saved with it (no need to open the entry afterwards). */
+function ReceiptPicker({ files, onChange }: { files: File[]; onChange: (f: File[]) => void }) {
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const u = files.map((f) => (String(f.type).startsWith("image/") ? URL.createObjectURL(f) : ""));
+    setUrls(u);
+    return () => u.forEach((x) => x && URL.revokeObjectURL(x));
+  }, [files]);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1 text-[12px] font-medium text-[#374151] hover:bg-[#F4F6FA]" title="Photo of the slip, a PDF… — it is saved together with this entry · رسید کی تصویر، اندراج کے ساتھ ہی محفوظ ہو گی">
+        <Paperclip className="w-3.5 h-3.5" /> {files.length ? "Add another · اور" : "Attach receipt · رسید لگائیں"}
+        <input
+          type="file"
+          multiple
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+          className="hidden"
+          onChange={(e) => {
+            const add = Array.from((e.target.files || []) as FileList) as File[];
+            if (add.length) onChange([...files, ...add]);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {files.map((f, i) => (
+        <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-[#CBD5E1] bg-white py-0.5 pl-1 pr-2">
+          {urls[i] ? <img src={urls[i]} alt="" className="h-6 w-8 rounded object-cover" /> : <FileText className="h-4 w-4 text-[#6B7280]" />}
+          <span className="max-w-[150px] truncate text-[11px] text-[#374151]">{f.name}</span>
+          <button type="button" onClick={() => onChange(files.filter((_, j) => j !== i))} className="text-[13px] leading-none text-[#B91C1C]" title="Remove · ہٹائیں">×</button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** cheque number + bank + picture of one voucher line, with a live "this cheque is already in the Cash Book" check */
 function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (patch: any) => void; lines: any[]; index: number }) {
   const [dups, setDups] = useState<any[]>([]);
@@ -1129,6 +1180,7 @@ function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate, 
 
       <div className="mt-1 flex flex-wrap items-center gap-3 text-[11.5px] md:pl-[34px]">
         <button type="button" onClick={() => setMore((v) => !v)} className="text-[#24539B] hover:underline">{more ? "− Less" : "+ Note / $→PKR · نوٹ / ڈالر"}</button>
+        <ReceiptPicker files={line.files || []} onChange={(files) => onChange({ files })} />
       </div>
 
       {hasDetail && (
