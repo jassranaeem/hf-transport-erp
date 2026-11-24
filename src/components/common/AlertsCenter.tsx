@@ -10,6 +10,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { enterpriseFetch, fetchBlobUrl } from "../../../client/api.ts";
+import { applyUpdate } from "../../lib/updateWatch.ts";
 import {
   AlertTriangle,
   ChevronDown,
@@ -33,7 +34,7 @@ interface AlertRow {
   title: string;
   message: string;
   detail?: any;
-  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number } }[];
+  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number; date?: string } }[];
   count?: number;
   createdAt: string;
   ack?: { status: string; note: string | null } | null;
@@ -42,6 +43,7 @@ interface AlertRow {
 const TYPE_ICON: Record<string, any> = {
   duplicate_receipt: FileWarning,
   duplicate_entry: FileWarning,
+  duplicate_cheque: FileWarning,
   fuel_theft: Fuel,
   ledger_review: AlertTriangle,
   dues_overdue: Clock,
@@ -50,10 +52,10 @@ const TYPE_ICON: Record<string, any> = {
 };
 
 const SEV_BG: Record<string, string> = {
-  critical: "#991B1B",
-  high: "#DC2626",
-  medium: "#EA580C",
-  low: "#B45309",
+  critical: "#8C0004",
+  high: "#D70006",
+  medium: "#6B7280",
+  low: "#4B5563",
 };
 
 export default function AlertsCenter({
@@ -63,7 +65,7 @@ export default function AlertsCenter({
 }: {
   showFeedback: (t: "success" | "error", m: string) => void;
   compact?: boolean;
-  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number }) => void;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; date?: string }) => void;
 }) {
   const [data, setData] = useState<{ alerts: AlertRow[]; counts: any; byType: any } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -114,12 +116,12 @@ export default function AlertsCenter({
     <div className={compact ? "flex flex-col h-full min-h-0" : "space-y-3"}>
       <div className="flex items-center gap-2 flex-wrap shrink-0">
         {!compact && <h2 className="text-base font-bold">Alerts</h2>}
-        <span className="text-[11px] rounded-full bg-[#DC2626] text-white font-bold px-2 py-0.5">
+        <span className="text-[11px] rounded-full bg-[#D70006] text-white font-bold px-2 py-0.5">
           {c.total} total
         </span>
-        {c.critical > 0 && <Chip n={c.critical} label="critical" bg="#991B1B" />}
-        {c.high > 0 && <Chip n={c.high} label="high" bg="#DC2626" />}
-        {c.medium > 0 && <Chip n={c.medium} label="medium" bg="#EA580C" />}
+        {c.critical > 0 && <Chip n={c.critical} label="critical" bg="#8C0004" />}
+        {c.high > 0 && <Chip n={c.high} label="high" bg="#D70006" />}
+        {c.medium > 0 && <Chip n={c.medium} label="medium" bg="#6B7280" />}
         <div className="flex-1" />
         <label className="text-[11px] flex items-center gap-1 text-[#4B5563]">
           <input type="checkbox" checked={includeAcked} onChange={(e) => setIncludeAcked(e.target.checked)} />
@@ -127,7 +129,7 @@ export default function AlertsCenter({
         </label>
         <button
           onClick={load}
-          className="flex items-center gap-1 text-xs border border-[#E5E7EB] rounded-lg px-2 py-1 bg-white hover:bg-[#F0FAF4]"
+          className="flex items-center gap-1 text-xs border border-[#E5E7EB] rounded-lg px-2 py-1 bg-white hover:bg-[#F2F5FA]"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
         </button>
@@ -135,7 +137,7 @@ export default function AlertsCenter({
 
       <div className={`space-y-2 ${compact ? "flex-1 min-h-0 overflow-y-auto pr-1" : ""}`}>
         {!loading && alerts.length === 0 && (
-          <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D] px-3 py-4 text-sm flex items-center gap-2">
+          <div className="rounded-lg border border-[#C9D7EC] bg-[#F2F5FA] text-[#1E4480] px-3 py-4 text-sm flex items-center gap-2">
             <Check className="w-4 h-4" /> All clear — no alerts · سب ٹھیک ہے، کوئی انتباہ نہیں
           </div>
         )}
@@ -143,11 +145,11 @@ export default function AlertsCenter({
           const Icon = TYPE_ICON[a.type] || AlertTriangle;
           const isOpen = open === a.key;
           return (
-            <div key={a.key} className="rounded-lg overflow-hidden border border-[#B91C1C]">
+            <div key={a.key} className="rounded-lg overflow-hidden border border-[#B00005]">
               <button
                 onClick={() => setOpen(isOpen ? null : a.key)}
                 className="w-full text-left px-3 py-2 flex items-start gap-2"
-                style={{ background: SEV_BG[a.severity] || "#DC2626", color: "#fff" }}
+                style={{ background: SEV_BG[a.severity] || "#D70006", color: "#fff" }}
               >
                 <Icon className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#fff", stroke: "#fff" }} />
                 <span className="min-w-0 flex-1">
@@ -170,16 +172,40 @@ export default function AlertsCenter({
                   <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "#fff", stroke: "#fff" }} />
                 )}
               </button>
+              {a.type === "app_update" && (
+                <div className="px-3 py-2 bg-white border-t border-[#B00005] flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-[12rem] flex-1 text-[11px] text-[#4B5563]" dir="auto">The app reloads — save what you are typing first. · ری لوڈ ہو گی، پہلے جو لکھ رہے ہیں محفوظ کر لیں</span>
+                  <button
+                    onClick={() => void applyUpdate()}
+                    className="shrink-0 rounded-lg bg-[#24539B] px-4 py-1.5 text-[13px] font-bold text-white hover:bg-[#1E4480]"
+                    style={{ background: "#24539B", color: "#fff" }}
+                  >
+                    Update now · ابھی اپڈیٹ کریں
+                  </button>
+                </div>
+              )}
+              {!a.ack && a.type !== "app_update" && (
+                <div className="px-3 py-1.5 bg-white border-t border-[#B00005] flex justify-end">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); act(a, "resolved"); }}
+                    disabled={busy === a.key}
+                    title="Clear this alert · یہ الرٹ صاف کریں"
+                    className="flex items-center gap-1 text-[11px] font-semibold text-[#4B5563] hover:text-[#B00005] disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" /> Clear · صاف کریں
+                  </button>
+                </div>
+              )}
 
               {isOpen && (
-                <div className="bg-white p-3 text-xs space-y-3 border-t border-[#B91C1C]">
+                <div className="bg-white p-3 text-xs space-y-3 border-t border-[#B00005]">
                   <AlertProof alert={a} />
                   <div className="flex flex-wrap gap-2 pt-1 border-t border-[#F3F4F6]">
                     {(a.links || []).map((l, i) => (
                       <button
                         key={i}
                         onClick={() => onNavigate?.(l.wb, l.sheet, l.focus)}
-                        className="flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-white px-2 py-1 hover:bg-[#F0FAF4]"
+                        className="flex items-center gap-1 rounded-md border border-[#E5E7EB] bg-white px-2 py-1 hover:bg-[#F2F5FA]"
                       >
                         <ExternalLink className="w-3 h-3" /> {l.label}
                       </button>
@@ -189,7 +215,7 @@ export default function AlertsCenter({
                       <button
                         onClick={() => unAck(a)}
                         disabled={busy === a.key}
-                        className="rounded-md border border-[#E5E7EB] px-2 py-1 hover:bg-[#F0FAF4]"
+                        className="rounded-md border border-[#E5E7EB] px-2 py-1 hover:bg-[#F2F5FA]"
                       >
                         Un-acknowledge
                       </button>
@@ -198,14 +224,14 @@ export default function AlertsCenter({
                         <button
                           onClick={() => act(a, "ack")}
                           disabled={busy === a.key}
-                          className="rounded-md border border-[#E5E7EB] px-2 py-1 hover:bg-[#F0FAF4] flex items-center gap-1"
+                          className="rounded-md border border-[#E5E7EB] px-2 py-1 hover:bg-[#F2F5FA] flex items-center gap-1"
                         >
                           <Check className="w-3 h-3" /> Acknowledge
                         </button>
                         <button
                           onClick={() => act(a, "resolved")}
                           disabled={busy === a.key}
-                          className="rounded-md bg-[#16A34A] text-white px-2 py-1 flex items-center gap-1"
+                          className="rounded-md bg-[#24539B] text-white px-2 py-1 flex items-center gap-1"
                         >
                           <ShieldCheck className="w-3 h-3" /> Mark resolved
                         </button>
@@ -239,7 +265,7 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         <p className="font-semibold mb-1" dir="auto">This exact file is attached in these places · یہ فائل اِن جگہوں پر لگی ہے:</p>
         <div className="space-y-1">
           {d.copies.map((cp: any) => (
-            <div key={cp.id} className="flex items-center justify-between gap-2 border border-[#FECACA] bg-[#FEF2F2] rounded px-2 py-1">
+            <div key={cp.id} className="flex items-center justify-between gap-2 border border-[#FFC2C3] bg-[#FFF1F1] rounded px-2 py-1">
               <span className="min-w-0">
                 <span className="font-medium truncate block">{cp.fileName}</span>
                 <span className="text-[10px] text-[#6B7280]">
@@ -252,6 +278,24 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         </div>
         <p className="text-[10px] text-[#6B7280] mt-1">
           If it was attached twice by mistake, remove one copy from its entry · اگر غلطی سے دو بار لگی ہے تو ایک کاپی ہٹا دیں۔
+        </p>
+      </div>
+    );
+  }
+  if (alert.type === "duplicate_cheque" && Array.isArray(d.entries)) {
+    return (
+      <div className="space-y-1 text-[11px]">
+        <Row k="Cheque no. · چیک نمبر" v={d.chequeNo} />
+        <Row k="Direction" v={d.direction === "In" ? "Received · وصول" : "Paid · ادا"} />
+        {d.entries.map((e: any) => (
+          <div key={e.id} className="flex items-center justify-between gap-2 border border-[#FFC2C3] bg-[#FFF1F1] rounded px-2 py-1">
+            <span>{String(e.date).split("-").reverse().join(".")}{e.person ? ` · ${e.person}` : ""}{e.bank ? ` · ${e.bank}` : ""}</span>
+            <b className="tabular-nums">PKR {Number(e.amount).toLocaleString()}</b>
+          </div>
+        ))}
+        <p className="text-[10px] text-[#6B7280] pt-1" dir="auto">
+          A cheque number is used once. Open the Cash Book and delete the extra entry — or, if two different banks
+          share the number, write the bank on both entries. · ایک چیک ایک بار؛ اضافی اندراج حذف کریں یا دونوں پر بینک لکھیں۔
         </p>
       </div>
     );
@@ -283,13 +327,16 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         </div>
 
         {cc && cc.overdrawLitres != null ? (
-          <div className="rounded-md border border-[#FECACA] bg-[#FEF2F2] p-2">
+          <div className="rounded-md border border-[#FFC2C3] bg-[#FFF1F1] p-2">
             <p className="font-semibold text-[11px] mb-1" dir="auto">Calculation — why is it suspicious? · حساب</p>
             <table className="w-full text-[11px]">
               <tbody>
                 <CalcRow k="Fuel drawn · ڈلوایا" v={`${cc.litres} L`} />
                 <CalcRow k="Rate · ریٹ" v={`${pkr(cc.ratePerL)} / L  →  ${pkr(cc.valuePKR)}`} />
-                <CalcRow k="Distance to next fill (odometer) · اگلے فِل تک سفر" v={`${cc.legKm} km`} />
+                <CalcRow
+                  k={cc.legSource === "gps" ? "Distance to next fill (GPS trail) · اگلے فِل تک سفر" : "Distance to next fill (odometer) · اگلے فِل تک سفر"}
+                  v={`${cc.legKm} km${cc.legSource === "gps" ? " · from GPS, no odometer on file" : ""}`}
+                />
                 <CalcRow k="Benchmark (loaded truck) · معیار" v={`${cc.benchmarkKmpl} km / litre`} />
                 <CalcRow k="Expected fuel = km ÷ benchmark" v={`${cc.legKm} ÷ ${cc.benchmarkKmpl} = ${cc.expectedLitres} L`} />
                 <CalcRow
@@ -325,7 +372,7 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         {d.parties.slice(0, 25).map((p: any) => (
           <div key={p.id} className="flex items-center justify-between border-b border-[#F3F4F6] py-1">
             <span dir="auto">{p.name}{p.phone ? ` · ${p.phone}` : ""}{p.daysSince != null ? ` · ${p.daysSince}d idle` : ""}</span>
-            <span className={`font-bold tabular-nums ${p.balance > 0 ? "text-[#15803D]" : "text-[#B91C1C]"}`}>
+            <span className={`font-bold tabular-nums ${p.balance > 0 ? "text-[#1E4480]" : "text-[#B00005]"}`}>
               PKR {Math.abs(p.balance).toLocaleString()}
             </span>
           </div>
@@ -339,7 +386,7 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         {d.sample.map((s: any) => (
           <div key={s.id} className="border-b border-[#F3F4F6] py-1">
             <span className="block" dir="auto">{s.description || "—"}</span>
-            {s.reason && <span className="text-[10px] text-[#B45309]">{s.reason}</span>}
+            {s.reason && <span className="text-[10px] text-[#4B5563]">{s.reason}</span>}
           </div>
         ))}
       </div>
@@ -351,7 +398,7 @@ function AlertProof({ alert }: { alert: AlertRow }) {
         {d.items.map((it: any, i: number) => (
           <div key={i} className="flex items-center justify-between border-b border-[#F3F4F6] py-1">
             <span>{it.vehicle || it.driver} — {it.doc}</span>
-            <span className={it.past ? "text-[#B91C1C] font-bold" : "text-[#B45309]"}>
+            <span className={it.past ? "text-[#B00005] font-bold" : "text-[#4B5563]"}>
               {it.past ? "EXPIRED " : "expires "}
               {new Date(it.expiry).toLocaleDateString()}
             </span>
@@ -375,7 +422,7 @@ function Row({ k, v }: { k: string; v: any }) {
 
 function CalcRow({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
-    <tr className={bold ? "font-bold text-[#B91C1C]" : ""}>
+    <tr className={bold ? "font-bold text-[#B00005]" : ""}>
       <td className="py-0.5 pr-2 align-top text-[#4B5563]" dir="auto">{k}</td>
       <td className="py-0.5 text-right tabular-nums whitespace-nowrap" dir="auto">{v}</td>
     </tr>
@@ -394,7 +441,7 @@ function ReceiptLink({ url }: { url: string }) {
     };
   }, [url]);
   return href ? (
-    <a href={href} target="_blank" rel="noreferrer" className="text-[#2563EB] underline shrink-0">
+    <a href={href} target="_blank" rel="noreferrer" className="text-[#24539B] underline shrink-0">
       view
     </a>
   ) : (

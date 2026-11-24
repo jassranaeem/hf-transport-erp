@@ -84,16 +84,16 @@ export default function InvoiceDocument({ invoiceId, onClose }: { invoiceId: num
   const received = Number(inv?.advanceReceived || 0) + Math.max(0, Number(inv?.paidAmount || 0) - Number(inv?.advanceReceived || 0));
   const overdue = inv ? new Date(inv.dueDate).getTime() < Date.now() && Number(inv.outstandingBalance) > 0 : false;
   const stamp =
-    inv?.status === "Paid" ? { text: "PAID", color: "#15803D" } :
-    inv?.status === "Partially Paid" ? { text: "PART-PAID", color: "#B45309" } :
-    overdue ? { text: "OVERDUE", color: "#B91C1C" } :
+    inv?.status === "Paid" ? { text: "PAID", color: "#1E4480" } :
+    inv?.status === "Partially Paid" ? { text: "PART-PAID", color: "#4B5563" } :
+    overdue ? { text: "OVERDUE", color: "#B00005" } :
     { text: "UNPAID", color: "#64748B" };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-start justify-center overflow-y-auto p-4 print:p-0 print:bg-white print:static">
       <style>{`
         @media print {
-          @page { size: A4; margin: 14mm; }
+          @page { size: A4; margin: 14mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: counter(page) " / " counter(pages); font: 8px Arial, sans-serif; color: #6B7280; } }
           body * { visibility: hidden !important; }
           #invoice-doc, #invoice-doc * { visibility: visible !important; }
           #invoice-doc { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }

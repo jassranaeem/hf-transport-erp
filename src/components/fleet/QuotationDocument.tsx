@@ -68,7 +68,7 @@ export default function QuotationDocument({ quotationId, onClose }: { quotationI
     <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-start justify-center overflow-y-auto p-4 print:p-0 print:bg-white print:static">
       <style>{`
         @media print {
-          @page { size: A4; margin: 14mm; }
+          @page { size: A4; margin: 14mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: counter(page) " / " counter(pages); font: 8px Arial, sans-serif; color: #6B7280; } }
           body * { visibility: hidden !important; }
           #quote-doc, #quote-doc * { visibility: visible !important; }
           #quote-doc { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
@@ -92,7 +92,7 @@ export default function QuotationDocument({ quotationId, onClose }: { quotationI
           <div id="quote-doc" className="relative bg-white rounded-xl shadow-xl p-8 text-slate-800 text-[13px] leading-relaxed">
             {q.isExpired && (
               <div
-                className="absolute right-8 top-24 border-4 border-[#B91C1C] text-[#B91C1C] rounded-lg px-3 py-1 text-lg font-extrabold tracking-widest opacity-70 rotate-[-14deg] select-none"
+                className="absolute right-8 top-24 border-4 border-[#B00005] text-[#B00005] rounded-lg px-3 py-1 text-lg font-extrabold tracking-widest opacity-70 rotate-[-14deg] select-none"
                 style={{ printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }}
               >
                 EXPIRED
@@ -128,8 +128,8 @@ export default function QuotationDocument({ quotationId, onClose }: { quotationI
             </div>
 
             {/* validity banner — the whole point of this document */}
-            <div className={`mt-4 rounded-lg border-2 px-4 py-2.5 flex items-center gap-3 ${q.isExpired ? "border-[#FCA5A5] bg-[#FEF2F2]" : "border-[#16A34A] bg-[#F0FDF4]"}`}>
-              <Clock className={`w-5 h-5 shrink-0 ${q.isExpired ? "text-[#B91C1C]" : "text-[#15803D]"}`} />
+            <div className={`mt-4 rounded-lg border-2 px-4 py-2.5 flex items-center gap-3 ${q.isExpired ? "border-[#FF9294] bg-[#FFF1F1]" : "border-[#24539B] bg-[#F2F5FA]"}`}>
+              <Clock className={`w-5 h-5 shrink-0 ${q.isExpired ? "text-[#B00005]" : "text-[#1E4480]"}`} />
               <div className="text-[12.5px]">
                 <span className="font-bold">
                   {q.isExpired

@@ -1,0 +1,1284 @@
+/**
+ * Daily Cash Book — log every cash in/out for the day (who, how much), and
+ * see the running balance update live. Each day runs midnight to midnight;
+ * the opening balance is just the running total of everything before today,
+ * so nothing needs to be re-entered each morning.
+ *
+ *   /api/cash-book/day?date=YYYY-MM-DD   one day's opening/entries/closing
+ *   /api/cash-book                       create
+ *   /api/cash-book/:id                   edit / delete
+ */
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { enterpriseFetch, uploadFile, uploadAttachment } from "../../../client/api.ts";
+import ModuleDataIO from "../common/ModuleDataIO.tsx";
+import AttachmentPanel from "../common/AttachmentPanel.tsx";
+import { Wallet, RefreshCw, Loader2, Plus, Pencil, Trash2, CheckCircle, X, ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, ChevronLeft, ChevronRight, Upload, Paperclip, FileText } from "lucide-react";
+import { PageHeader, Btn, Card, KpiStrip, SidePanel, Empty } from "../ui/kit.tsx";
+import { useNewestFirst, inOrder, DateHead } from "../common/NewestFirst.tsx";
+import { CashCountPanel, CashSummary } from "./CashCount.tsx";
+import KhataKindPicker, { KhataBuckets, KhataKindValue } from "./KhataKindPicker.tsx";
+import { kindOf, bucketTotals, catLabel, INCOME_CATS, EXPENSE_CATS, KhataKind } from "../../lib/khataKinds.ts";
+
+const PKR = (n: number) => "PKR " + Math.round(Math.abs(n || 0)).toLocaleString();
+const today = () => new Date().toISOString().slice(0, 10);
+
+const BLANK = { direction: "Out", method: "Cash", chequeNo: "", chequeBank: "", chequeFile: null as File | null, files: [] as File[], amount: "", person: "", description: "", notes: "", linkType: "", linkTargetId: "", linkCategory: "" };
+const BANKS = ["HBL", "UBL", "MCB", "Allied Bank", "Meezan Bank", "Bank Alfalah", "Askari Bank", "Faysal Bank", "Habib Metro", "Bank of Punjab", "National Bank", "Soneri Bank", "Standard Chartered", "Bank Al Habib", "JS Bank", "Silk Bank", "Bank of Balochistan"];
+/** the same cheque number written twice (same direction) among the lines being entered */
+const chequeKeyOf = (no: string) => String(no || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+/** a phone photo is several MB: the reader only needs ~1600 px, so it is shrunk before it is sent */
+async function shrinkPicture(file: File, max = 1600): Promise<Blob> {
+  if (!String(file.type || "").startsWith("image/")) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise<Blob>((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error("shrink"))), "image/jpeg", 0.88));
+  } catch {
+    return file;
+  }
+}
+const dmyD = (d: string) => `${String(d).slice(8, 10)}.${String(d).slice(5, 7)}.${String(d).slice(0, 4)}`;
+// how it was paid / received
+const METHOD_OPTS: Array<[string, string]> = [
+  ["Cash", "Cash · نقد"],
+  ["Online", "Online · آن لائن"],
+  ["Bank Transfer", "Bank transfer · بینک"],
+  ["Cheque", "Cheque · چیک"],
+  ["Other", "Other · دیگر"],
+];
+const METHOD_CHIP: Record<string, string> = {
+  Cash: "bg-[#F3F4F6] text-[#4B5563]",
+  Online: "bg-[#E0F2FE] text-[#075985]",
+  "Bank Transfer": "bg-[#EDE9FE] text-[#5B21B6]",
+  Cheque: "bg-[#CFFAFE] text-[#155E75]",
+  Other: "bg-[#FEF3C7] text-[#92400E]",
+};
+interface LinkOptions {
+  trucks: { id: number; registration: string }[];
+  parties: { id: number; name: string }[];
+  personalCategories?: { name: string; nameUr?: string | null }[]; // the Personal & Household ledgers
+  loading?: boolean; // the truck / party list is being fetched
+  error?: string; // why it could not be (shown, with a Try again)
+  reload?: () => void;
+}
+
+export default function CashBook({
+  showFeedback,
+  onNavigate,
+  focusDate,
+}: {
+  focusDate?: string; // open on this day (a link from the books check)
+  showFeedback: (t: "success" | "error", m: string) => void;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  const [date, setDate] = useState(focusDate || today());
+  useEffect(() => {
+    if (focusDate) setDate(focusDate);
+  }, [focusDate]);
+  const [links, setLinks] = useState<LinkOptions>({ trucks: [], parties: [], loading: true });
+  const [data, setData] = useState<any>(null);
+  const [countVersion, setCountVersion] = useState(0); // re-read the count when the day's entries change
+  const [newestFirst, toggleNewest] = useNewestFirst();
+  const [loading, setLoading] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  // one form, several lines (some In, some Out): they are saved together as a voucher
+  const [lines, setLines] = useState<any[]>([BLANK]);
+  const [saving, setSaving] = useState(false);
+  const [chequeWarn, setChequeWarn] = useState<string[]>([]); // cheque numbers that were already in the Cash Book
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+  const [showImport, setShowImport] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importPreview, setImportPreview] = useState<any>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    enterpriseFetch(`/api/cash-book/day?date=${date}`)
+      .then((r) => {
+        setData(r);
+        setCountVersion((v) => v + 1);
+      })
+      .catch((e) => showFeedback("error", e.message))
+      .finally(() => setLoading(false));
+  }, [date, showFeedback]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    loadLinks();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the trucks and parties to pick from — asked for again if the server was asleep or the request failed
+  // (it used to be asked once, and a failure left the list empty with no word of why)
+  const loadLinks = useCallback(async () => {
+    setLinks((l) => ({ ...l, loading: true, error: undefined }));
+    let err = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await enterpriseFetch("/api/cash-book/link-options");
+        setLinks({ trucks: r.trucks || [], parties: r.parties || [], personalCategories: r.personalCategories || [] });
+        return;
+      } catch (e: any) {
+        err = e?.message || "Could not load the list";
+        if (attempt < 2) await new Promise((res) => setTimeout(res, 3000));
+      }
+    }
+    setLinks((l) => ({ ...l, loading: false, error: err }));
+  }, []);
+  const linkOptions: LinkOptions = { ...links, reload: loadLinks };
+
+  const filledLines = lines.filter((l) => Number(l.amount) > 0);
+  const vIn = filledLines.filter((l) => l.direction === "In").reduce((s, l) => s + Number(l.amount), 0);
+  const vOut = filledLines.filter((l) => l.direction !== "In").reduce((s, l) => s + Number(l.amount), 0);
+  // the next line starts from the last one: same person / truck / party, the other direction
+  const addLine = (direction: "In" | "Out") =>
+    setLines((ls) => {
+      const last = ls[ls.length - 1];
+      // a blank first line is simply turned the way it was asked for
+      if (ls.length === 1 && !Number(last.amount) && !last.person && !last.description) return [{ ...last, direction }];
+      return [...ls, { ...BLANK, direction, method: last.method || "Cash", person: last.person, linkType: last.linkType, linkTargetId: last.linkTargetId }];
+    });
+  const add = async () => {
+    if (!filledLines.length) { showFeedback("error", "Enter an amount · رقم درج کریں"); return; }
+    const noCat = filledLines.findIndex((l) => l.linkType === "personal" && !l.linkCategory);
+    if (noCat >= 0) { showFeedback("error", `${filledLines.length > 1 ? `Line ${noCat + 1}: ` : ""}choose the Personal & Household category (مد) · ذاتی کھاتے کی مد چنیں`); return; }
+    const noCheque = filledLines.findIndex((l) => l.method === "Cheque" && !chequeKeyOf(l.chequeNo));
+    if (noCheque >= 0) { showFeedback("error", `${filledLines.length > 1 ? `Line ${noCheque + 1}: ` : ""}write the cheque number · چیک نمبر لکھیں`); return; }
+    setSaving(true);
+    try {
+      const at = `${date}T${new Date().toTimeString().slice(0, 8)}`;
+      const payload = filledLines.map(({ chequeFile, files, ...rest }) => rest);
+      let saved: any[] = [];
+      let dups: any[] = [];
+      let message = "";
+      let held = false;
+      if (filledLines.length === 1) {
+        const r = await enterpriseFetch("/api/cash-book", { method: "POST", body: JSON.stringify({ ...payload[0], entryDate: at }) });
+        held = !!r?.pendingApproval;
+        saved = held ? [] : [r];
+        dups = r?.chequeDuplicates?.length ? [{ entryId: r.id, chequeNo: r.chequeNo, duplicates: r.chequeDuplicates }] : [];
+        message = r?.pendingApproval ? r.message : r?.lease ? `Saved · also counted in the lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay · محفوظ` : "Saved · محفوظ ہو گیا";
+      } else {
+        const r = await enterpriseFetch("/api/cash-book/voucher", { method: "POST", body: JSON.stringify({ lines: payload, entryDate: at }) });
+        held = !!r?.pendingApproval;
+        saved = held ? [] : r?.entries || [];
+        dups = r?.chequeDuplicates || [];
+        message = r?.pendingApproval ? r.message : `Saved ${filledLines.length} lines together · In ${PKR(vIn)} · Out ${PKR(vOut)}${r?.lease ? ` · lease ${r.lease.number}: ${PKR(r.lease.balance)} still to pay` : ""} · محفوظ`;
+      }
+      // the receipts chosen in the form (and the cheque picture) go onto the entries just made
+      const upErr: string[] = [];
+      const dupFiles: string[] = [];
+      const sameTwice: string[] = [];
+      let attached = 0;
+      let wanted = 0;
+      for (let i = 0; i < filledLines.length; i++) {
+        const picks: File[] = [...(filledLines[i].chequeFile ? [filledLines[i].chequeFile as File] : []), ...((filledLines[i].files as File[]) || [])];
+        wanted += picks.length;
+        if (!saved[i]?.id) continue;
+        for (const f of picks) {
+          try {
+            const res: any = await uploadAttachment("cash_transaction", saved[i].id, f);
+            if (res?.alreadyThere) { sameTwice.push(f.name); continue; } // the very same file is already on this entry
+            attached++;
+            if (res?.duplicate && Array.isArray(res.duplicateOf) && res.duplicateOf.some((d: any) => d.id !== res.id && !(d.entityType === "cash_transaction" && saved.some((e: any) => e.id === d.entityId)))) dupFiles.push(f.name);
+          } catch (er: any) {
+            upErr.push(`${f.name}: ${er.message}`);
+          }
+        }
+      }
+      if (held && wanted) message += " · attach the receipts on the entry once it is approved · منظوری کے بعد رسیدیں لگائیں";
+      else if (attached) message += ` · ${attached} receipt${attached === 1 ? "" : "s"} attached · رسید لگ گئی`;
+      if (sameTwice.length) message += ` · the same file was chosen twice (${sameTwice.join(", ")}) — kept once · ایک ہی فائل دو بار، ایک رکھی`;
+      if (upErr.length) message += ` · ⚠ could not attach (${upErr.join("; ")}) — open the entry and attach it`;
+      if (dupFiles.length) message += ` · ⚠ the same file is already attached to another entry: ${dupFiles.join(", ")} (see Alerts) · یہی فائل پہلے بھی لگی ہے`;
+      if (dups.length) {
+        const lines2 = dups.map((d: any) => `Cheque ${d.chequeNo}: already entered on ${d.duplicates.map((x: any) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}${x.person ? ` · ${x.person}` : ""}`).join(", ")}`);
+        setChequeWarn(lines2);
+        showFeedback("error", `Saved — but ⚠ ${lines2.join(" | ")} · same cheque twice? It is in the Alerts · یہ چیک پہلے بھی درج ہے`);
+      } else {
+        showFeedback(upErr.length || dupFiles.length ? "error" : "success", message);
+      }
+      setLines([BLANK]);
+      setShowAdd(false);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (r: any) => {
+    setEditId(r.id);
+    setEditForm({ method: r.method || "Cash", chequeNo: r.chequeNo || "", chequeBank: r.chequeBank || "", direction: r.direction, amount: r.amount || "", person: r.person || "", description: r.description || "", notes: r.notes || "", linkType: r.linkType || "", linkTargetId: r.linkTargetId || "", linkCategory: r.truckCategory || r.personalCategory || "" });
+  };
+  const saveEdit = async () => {
+    if (!editId) return;
+    setSaving(true);
+    try {
+      const r = await enterpriseFetch(`/api/cash-book/${editId}`, { method: "PUT", body: JSON.stringify(editForm) });
+      if (r?.chequeDuplicates?.length) {
+        const w = `Cheque ${r.chequeNo}: already entered on ${r.chequeDuplicates.map((x: any) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}`).join(", ")}`;
+        setChequeWarn([w]);
+        showFeedback("error", `Updated — but ⚠ ${w} · same cheque twice? · یہ چیک پہلے بھی درج ہے`);
+      } else showFeedback("success", r?.lease ? `Updated · the lease ${r.lease.number} now has ${PKR(r.lease.balance)} still to pay · درست` : "Updated · درست ہو گیا");
+      setEditId(null);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const del = async (id: number) => {
+    if (!window.confirm("Delete this entry? · یہ اندراج حذف کریں؟")) return;
+    try {
+      await enterpriseFetch(`/api/cash-book/${id}`, { method: "DELETE" });
+      showFeedback("success", "Deleted · حذف ہو گیا");
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    }
+  };
+
+  const previewImport = async (file: File) => {
+    setImportFile(file);
+    setImportPreview(null);
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await uploadFile("/api/cash-book/import/preview", fd);
+      setImportPreview(r);
+    } catch (e: any) {
+      showFeedback("error", e.message);
+      setImportFile(null);
+    } finally {
+      setImportBusy(false);
+      if (importRef.current) importRef.current.value = "";
+    }
+  };
+  const commitImport = async () => {
+    if (!importFile) return;
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      const r = await uploadFile("/api/cash-book/import", fd);
+      showFeedback("success", r.message);
+      setImportPreview(null);
+      setImportFile(null);
+      setShowImport(false);
+      load();
+    } catch (e: any) {
+      showFeedback("error", e.message);
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  // running position as each entry happened, for the "yahan gaya itna reh gaya" feel
+  let running = data?.openingBalance ?? 0;
+  const withRunning = (data?.entries || []).map((e: any) => {
+    running = e.direction === "In" ? running + e.amount : running - e.amount;
+    return { ...e, runningAfter: running };
+  });
+
+  const LINK_LABEL: Record<string, string> = { truck: "Truck", party: "Party", personal: "Personal & Household", zakat: "Zakat" };
+  const linkNote = (r: any) => {
+    if (r.linkType === "truck") return linkOptions.trucks.find((t) => t.id === r.linkTargetId)?.registration;
+    if (r.linkType === "party") return linkOptions.parties.find((p) => p.id === r.linkTargetId)?.name;
+    return null;
+  };
+
+  const shiftDay = (n: number) => {
+    const d = new Date(`${date}T12:00:00`);
+    d.setDate(d.getDate() + n);
+    setDate(d.toISOString().slice(0, 10));
+  };
+  const dayName = new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Daily Cash Book"
+        urdu="روزانہ کیش بک"
+        subtitle={<span dir="auto">What came in and what went out — the balance updates by itself · جو آیا اور جو گیا، بیلنس خود بنتا ہے</span>}
+        actions={
+          <>
+            <Btn kind="ghost" onClick={load} disabled={loading} title="Refresh · تازہ کریں" icon={loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} />
+            <Btn onClick={() => setShowImport(true)} icon={<FileSpreadsheet />} title="Import the dual cash-book Excel (Daliy work.xlsx)">Daily-work Excel</Btn>
+            <ModuleDataIO entityKey="cash_transactions" label="Cash Book" onImported={load} />
+            <Btn kind="primary" onClick={() => { setShowAdd((s) => !s); setEditId(null); }} icon={<Plus />}>Add entry · نیا اندراج</Btn>
+          </>
+        }
+      />
+
+      {/* the day being looked at */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center rounded-lg border border-[#CBD5E1] bg-white overflow-hidden">
+          <button onClick={() => shiftDay(-1)} title="Previous day · پچھلا دن" className="px-2.5 py-2 text-[#4B5563] hover:bg-[#F4F6FA]"><ChevronLeft className="w-4 h-4" /></button>
+          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} className="border-0 border-x border-[#E3E8EF] rounded-none px-2 py-1.5 text-[13px]" style={{ boxShadow: "none" }} />
+          <button onClick={() => shiftDay(1)} title="Next day · اگلا دن" className="px-2.5 py-2 text-[#4B5563] hover:bg-[#F4F6FA]"><ChevronRight className="w-4 h-4" /></button>
+        </div>
+        {date !== today() && <Btn size="sm" kind="ghost" onClick={() => setDate(today())}>Today · آج</Btn>}
+        <span className="text-[13px] text-[#4B5563]">{dayName}</span>
+      </div>
+
+      {showImport && (
+        <SidePanel title="Import daily-work Excel · ایکسل سے" subtitle="The dual cash-book format, e.g. “Daliy work.xlsx”" width="lg" onClose={() => setShowImport(false)}>
+          <Card bodyClassName="p-4 space-y-3">
+            <p className="text-[13px] text-[#4B5563] leading-relaxed" dir="auto">
+              Date / Truck / Received / Description / Credit ‖ Date / Truck / Paid / Description / Debit — every row creates one
+              “In” and one “Out” entry. You see what will be added before anything is saved. · ہر قطار سے ایک "In" اور ایک "Out" اندراج بنتا ہے۔
+            </p>
+            <Btn kind="primary" onClick={() => importRef.current?.click()} disabled={importBusy} icon={importBusy ? <Loader2 className="animate-spin" /> : <Upload />}>Choose .xlsx file</Btn>
+            <input ref={importRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => e.target.files?.[0] && previewImport(e.target.files[0])} />
+          </Card>
+          {importPreview && (
+            <Card title="Before you import · پہلے دیکھ لیں" bodyClassName="p-4 text-[12.5px] space-y-3">
+              <KpiStrip
+                items={[
+                  { label: "Rows found", value: importPreview.rowCount },
+                  { label: "Total in · آیا", value: PKR(importPreview.totalIn), tone: "good" },
+                  { label: "Total out · گیا", value: PKR(importPreview.totalOut), tone: "bad" },
+                ]}
+              />
+              {importPreview.skippedSheets?.length > 0 && (
+                <div className="text-[12px] text-amber-800">Skipped sheets (no recognizable data): {importPreview.skippedSheets.join(", ")}</div>
+              )}
+              {importPreview.alreadyThere?.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900 space-y-1" dir="auto">
+                  <div className="font-semibold">
+                    {importPreview.alreadyThere.length} of these rows are already in the Cash Book — they will NOT be added again · یہ لائنیں پہلے سے موجود ہیں
+                  </div>
+                  <ul className="list-disc pl-4">
+                    {importPreview.alreadyThere.slice(0, 12).map((r: any, i: number) => (
+                      <li key={i}>
+                        {r.rawDate || ""} · {r.direction} · {PKR(r.amount)} · {r.description}
+                      </li>
+                    ))}
+                  </ul>
+                  <div>
+                    Will be imported: <b>{importPreview.newCount}</b> entries — In {PKR(importPreview.newIn)}, Out {PKR(importPreview.newOut)} · صرف نئی لائنیں شامل ہوں گی
+                  </div>
+                </div>
+              )}
+              <Btn kind="primary" onClick={commitImport} disabled={importBusy} icon={importBusy ? <Loader2 className="animate-spin" /> : <CheckCircle />}>Confirm import</Btn>
+            </Card>
+          )}
+        </SidePanel>
+      )}
+
+      {showAdd && (
+        <div className="rounded-xl border border-[#C9D7EC] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] overflow-hidden">
+          <div className="px-4 py-3 bg-[#F7F9FD] border-b border-[#E3E8EF] flex flex-wrap items-center gap-x-4 gap-y-1">
+            <div className="text-[14px] font-semibold text-[#1F2937]">Cash voucher · کیش واؤچر — {dmyDate(date)}</div>
+            <div className="text-[12px] text-[#6B7280]" dir="auto">
+              One line per entry; money received goes in the <b className="text-[#166534]">In</b> box, money paid in the <b className="text-[#B91C1C]">Out</b> box. Add as many lines as you like and save them together. ·
+              ہر لائن ایک اندراج: آمد «In» میں، ادائیگی «Out» میں
+            </div>
+          </div>
+          <VoucherGrid lines={lines} setLines={setLines} linkOptions={linkOptions} onNavigate={onNavigate} />
+          <div className="px-4 py-3 border-t border-[#E3E8EF] bg-[#F8FAFC] flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => addLine("In")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] text-[#166534] text-[12.5px] font-semibold px-3 py-1.5 hover:bg-[#DCFCE7]"><Plus className="w-3.5 h-3.5" /> Receipt line · وصول</button>
+            <button type="button" onClick={() => addLine("Out")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C] text-[12.5px] font-semibold px-3 py-1.5 hover:bg-[#FEE2E2]"><Plus className="w-3.5 h-3.5" /> Payment line · ادائیگی</button>
+            <div className="flex-1" />
+            {filledLines.length > 0 && (
+              <div className="text-[12px] tabular-nums text-[#4B5563]" dir="auto">
+                In <b className="text-[#166534]">{PKR(vIn)}</b> · Out <b className="text-[#B91C1C]">{PKR(vOut)}</b> · net <b>{vIn - vOut < 0 ? "−" : ""}{PKR(vIn - vOut)}</b>
+                {data ? <> · closing after saving <b className={data.closingBalance + vIn - vOut < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}>{data.closingBalance + vIn - vOut < 0 ? "−" : ""}{PKR(data.closingBalance + vIn - vOut)}</b></> : null}
+              </div>
+            )}
+            <Btn onClick={() => { setShowAdd(false); setLines([BLANK]); }} icon={<X />}>Cancel</Btn>
+            <Btn kind="primary" onClick={add} disabled={saving} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>
+              Save{filledLines.length > 1 ? ` ${filledLines.length} lines` : ""} · محفوظ کریں
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      {data && (
+        <KpiStrip
+          items={[
+            { label: "Opening · صبح کا بیلنس", value: PKR(data.openingBalance) },
+            { label: "Total in · کل آیا", value: PKR(data.totalIn), tone: "good" },
+            { label: "Total out · کل گیا", value: PKR(data.totalOut), tone: "bad" },
+            { label: "Closing · باقی بچا", value: (data.closingBalance < 0 ? "−" : "") + PKR(data.closingBalance), tone: data.closingBalance >= 0 ? undefined : "bad", sub: "opening + in − out" },
+          ]}
+        />
+      )}
+
+      <CashCountPanel date={date} showFeedback={showFeedback} onChanged={load} version={countVersion} />
+
+      {chequeWarn.length > 0 && (
+        <div className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-[12.5px] text-[#991B1B] flex items-start gap-3" dir="auto">
+          <div className="flex-1">
+            <b>⚠ Same cheque entered twice? · ایک ہی چیک دوبارہ؟</b>
+            {chequeWarn.map((w) => <div key={w}>{w}</div>)}
+            <div className="text-[11.5px] text-[#B91C1C]">Both entries are saved. It is also in Alerts — delete the extra entry if it is a mistake. · الرٹس میں بھی ہے</div>
+          </div>
+          <button type="button" onClick={() => setChequeWarn([])} className="text-[#991B1B] hover:underline text-[12px]">Dismiss</button>
+        </div>
+      )}
+      {data?.byMethod && METHOD_OPTS.some(([m]) => (data.byMethod[m]?.n || 0) > 0 && m !== "Cash") && (
+        <div className="rounded-xl border border-[#E3E8EF] bg-white px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px]">
+          <b className="text-[#374151]">By how it was paid · طریقہ وار</b>
+          {METHOD_OPTS.filter(([m]) => (data.byMethod[m]?.n || 0) > 0).map(([m, l]) => (
+            <span key={m} className="tabular-nums">
+              <span className={`mr-1.5 rounded px-1.5 text-[10.5px] font-medium ${METHOD_CHIP[m]}`}>{l.split(" · ")[0]}</span>
+              In <b className="text-[#166534]">{PKR(data.byMethod[m].in)}</b> · Out <b className="text-[#B91C1C]">{PKR(data.byMethod[m].out)}</b>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <Card
+        className="overflow-hidden"
+        bodyClassName=""
+        title={
+          <span className="flex items-center gap-3">
+            Entries · اندراجات <span className="text-[12px] font-normal text-[#9CA3AF]">{withRunning.length}</span>
+            <span className="font-normal"><DateHead newestFirst={newestFirst} onToggle={toggleNewest} label="Order" /></span>
+          </span>
+        }
+        actions={
+          withRunning.length > 0 ? (
+            <Btn
+              size="sm"
+              kind="danger"
+              icon={<Trash2 />}
+              title="Delete every entry of this day (to import the day's sheet again cleanly)"
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    `Delete ALL ${withRunning.length} entries of ${date}? Their links in Truck / Party Ledgers are removed too. Use this to import the day's sheet again cleanly. · اس دن کی تمام ${withRunning.length} انٹریاں حذف کریں؟`,
+                  )
+                )
+                  return;
+                try {
+                  const r = await enterpriseFetch(`/api/cash-book/day?date=${date}`, { method: "DELETE" });
+                  showFeedback("success", `${r.message} · حذف ہو گئیں`);
+                  load();
+                } catch (e: any) {
+                  showFeedback("error", e.message);
+                }
+              }}
+            >
+              Clear this day
+            </Btn>
+          ) : undefined
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-[#F8FAFC] text-[#4B5563] text-[11.5px]">
+              <tr className="border-b border-[#E3E8EF]">
+                <th className="text-left px-3 py-2 w-[78px]">Time</th>
+                <th className="text-left px-3 py-2">Particulars · تفصیل <span className="font-normal text-[#9CA3AF]">(who · what · where it went)</span></th>
+                <th className="text-right px-3 py-2 w-[130px] text-[#166534]">Receipts · In · وصول</th>
+                <th className="text-right px-3 py-2 w-[130px] text-[#B91C1C]">Payments · Out · ادائیگی</th>
+                <th className="text-right px-3 py-2 w-[130px]">Balance · بیلنس</th>
+                <th className="px-2 w-[64px]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data && (
+                <tr className="bg-[#F8FAFC] border-b border-[#E3E8EF] text-[#374151]">
+                  <td className="px-3 py-1.5" colSpan={4}><b>Opening balance · صبح کا بیلنس</b></td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{data.openingBalance < 0 ? "−" : ""}{PKR(data.openingBalance)}</td>
+                  <td />
+                </tr>
+              )}
+              {inOrder(withRunning, newestFirst).map((r: any, i: number, list: any[]) => (
+                <React.Fragment key={r.id}>
+                  {r.voucherKey && list[i - 1]?.voucherKey !== r.voucherKey && (() => {
+                    const g = list.filter((x: any) => x.voucherKey === r.voucherKey);
+                    const gin = g.filter((x: any) => x.direction === "In").reduce((s: number, x: any) => s + x.amount, 0);
+                    const gout = g.filter((x: any) => x.direction !== "In").reduce((s: number, x: any) => s + x.amount, 0);
+                    return (
+                      <tr className="bg-[#F5F3FF] border-t border-[#DDD6FE]">
+                        <td colSpan={6} className="px-3 py-1 text-[11.5px] text-[#5B21B6]" dir="auto">
+                          <div className="sticky left-0" style={{ width: "min(640px, calc(100vw - 6rem))" }}>
+                            <b>Voucher · {g.length} lines · ایک ساتھ</b> <span className="tabular-nums">· In {PKR(gin)} · Out {PKR(gout)} · net {gin - gout < 0 ? "−" : ""}{PKR(gin - gout)}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                  <tr
+                    onClick={() => (editId === r.id ? setEditId(null) : startEdit(r))}
+                    className={`group border-t border-[#F1F4F9] cursor-pointer border-l-[3px] ${r.direction === "In" ? "border-l-[#22C55E]" : "border-l-[#F87171]"} ${editId === r.id ? "bg-[#F4F7FC]" : "hover:bg-[#F8FAFC]"}`}
+                    title="Click to open this entry's full detail · مکمل تفصیل کے لیے کلک کریں"
+                  >
+                    <td className="px-3 py-2 whitespace-nowrap text-[#6B7280] tabular-nums align-top">{r.entryDate ? new Date(r.entryDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
+                      <div className={`mt-0.5 inline-block rounded px-1.5 text-[10px] font-medium ${METHOD_CHIP[r.method || "Cash"] || METHOD_CHIP.Other}`}>{r.method || "Cash"}</div>
+                      {r.method === "Cheque" && (
+                        <div className="mt-0.5 text-[10.5px] leading-tight whitespace-normal">
+                          <div className="font-semibold text-[#155E75]">#{r.chequeNo}{r.chequeBank ? ` · ${r.chequeBank}` : ""}</div>
+                          {r.files > 0 ? <span className="text-[#166534]">picture ✓</span> : <span className="text-[#B91C1C]">no picture · تصویر نہیں</span>}
+                          {r.chequeDuplicates?.length > 0 && (
+                            <div className="text-[#B91C1C] font-semibold">⚠ same cheque also on {r.chequeDuplicates.map((x: any) => dmyD(x.date)).join(", ")}</div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 align-top" dir="auto">
+                      <div className="font-medium text-[#1F2937]">{r.person || r.description || "—"}</div>
+                      {r.person && r.description && <div className="text-[12px] text-[#4B5563]" title={r.description}>{r.description}</div>}
+                      {r.linkType && (r.resolvedLedgerId || r.resolvedPartyId) ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (r.resolvedLedgerId) onNavigate?.("khata", "truck_ledgers", { ledgerId: r.resolvedLedgerId, entryId: r.derivedEntryId });
+                            else if (r.resolvedPartyId) onNavigate?.("khata", "parties", { partyId: r.resolvedPartyId, entryId: r.derivedEntryId });
+                          }}
+                          title="Open this entry in its ledger · اس اندراج کو اس کے کھاتے میں کھولیں"
+                          className="block text-[11px] text-[#24539B] hover:underline"
+                        >
+                          ↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}{r.truckCategory && r.truckCategory !== "Other" ? ` · ${catLabel(r.truckCategory)}` : ""} · open →
+                        </button>
+                      ) : r.linkType ? (
+                        <div className="text-[11px] text-[#24539B]">↔ {LINK_LABEL[r.linkType] || r.linkType}{linkNote(r) ? `: ${linkNote(r)}` : ""}{r.personalCategory ? `: ${r.personalCategory}` : ""}</div>
+                      ) : null}
+                      {r.alsoIn?.length > 0 && (
+                        <div className="text-[11px] text-[#92400E]" title="This entry also shows in these modules · یہ اندراج ان میں بھی نظر آتا ہے">also in: {r.alsoIn.join(" · ")}</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold align-top text-[#166534] bg-[#F7FDF9]">{r.direction === "In" ? PKR(r.amount) : ""}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold align-top text-[#B91C1C] bg-[#FFF8F8]">{r.direction !== "In" ? PKR(r.amount) : ""}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums align-top ${r.runningAfter < 0 ? "text-[#B91C1C]" : "text-[#111827]"}`}>{r.runningAfter < 0 ? "−" : ""}{PKR(r.runningAfter)}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap text-right align-top opacity-40 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => { e.stopPropagation(); startEdit(r); }} title="Edit" className="text-[#6B7280] hover:text-[#24539B] p-1 rounded hover:bg-white"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); del(r.id); }} title="Delete" className="text-[#6B7280] hover:text-red-600 p-1 rounded hover:bg-white"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </td>
+                  </tr>
+                  {editId === r.id && (
+                    <tr className="bg-[#F4F7FC]">
+                      <td colSpan={6} className="px-4 pb-4 pt-1">
+                        <EntryForm value={editForm} onChange={setEditForm} onSubmit={saveEdit} saving={saving} onCancel={() => setEditId(null)} submitLabel="Save changes" compact linkOptions={linkOptions} onNavigate={onNavigate} />
+                        <div className="mt-3">
+                          {/* a receipt here also shows on the khata / party / trip row this entry wrote, and theirs here */}
+                          <AttachmentPanel entityType="cash_transaction" entityId={r.id} title="Receipts for this entry · رسیدیں" onChanged={load} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+              {withRunning.length === 0 && (
+                <tr>
+                  <td colSpan={6}>
+                    <Empty icon={<Wallet />} title={`No entries for ${date} yet`} hint="ابھی کوئی اندراج نہیں — “Add entry” سے شروع کریں" />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            {data && withRunning.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-[#CBD5E1] bg-[#F8FAFC] font-semibold text-[#111827]">
+                  <td className="px-3 py-2" colSpan={2}>Total of the day · دن کا کل</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#166534]">{PKR(data.totalIn)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#B91C1C]">{PKR(data.totalOut)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${data.closingBalance < 0 ? "text-[#B91C1C]" : "text-[#13294B]"}`} title="Closing balance · باقی بچا">
+                    {data.closingBalance < 0 ? "−" : ""}{PKR(data.closingBalance)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </Card>
+
+      <CashSummary showFeedback={showFeedback} onPickDay={setDate} />
+    </div>
+  );
+}
+
+function EntryForm({ value, onChange, onSubmit, saving, onCancel, submitLabel, compact, linkOptions, title, onNavigate, hideActions }: {
+  value: any; onChange: (v: any) => void; onSubmit: () => void; saving: boolean; onCancel: () => void; submitLabel: string; compact?: boolean; linkOptions: LinkOptions; title?: string; hideActions?: boolean;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  const set = (k: string, v: any) => onChange({ ...value, [k]: v });
+  // a truck picked: its khata's detail, and the same "what is this money" choice as Truck Ledger
+  const truckId = value.linkType === "truck" && value.linkTargetId ? Number(value.linkTargetId) : null;
+  const { truck, truckErr } = useTruckInfo(truckId);
+  const kv = kvOf(value);
+  // In / Out flipped by hand: keep the kind when it still fits, else plain "Other"
+  const setDirection = (d: "In" | "Out") => {
+    if (!truckId || d === value.direction) return set("direction", d);
+    const k: KhataKind = kv.kind;
+    const fits = k === "shakhsi" || k === "safi" || k === "capital" || (d === "In" ? INCOME_CATS : EXPENSE_CATS).includes(kv.category);
+    onChange({ ...value, direction: d, linkCategory: fits ? value.linkCategory : "Other" });
+  };
+  // foreign money: $1,100 × 284 → PKR 312,400, with the rate written into the description
+  const [fx, setFx] = useState<{ open: boolean; code: string; amount: string; rate: string; source: string }>({ open: false, code: "USD", amount: "", rate: "", source: "" });
+  // choose a currency → today's rate comes by itself (yours if you typed one for today, else the internet's)
+  const pickFx = (code: string) => {
+    setFx((f) => ({ ...f, code, rate: "", source: "getting today's rate…" }));
+    enterpriseFetch(`/api/currency/live?code=${code}`)
+      .then((r) => setFx((f) => (f.code === code ? { ...f, rate: String(r.rate), source: r.source === "yours" ? "your rate for today" : r.source === "internet" ? "today's internet rate — change it if you got another" : r.warning || "last saved rate" } : f)))
+      .catch((e) => setFx((f) => ({ ...f, source: e.message })));
+  };
+  const openFx = () => {
+    const opening = !fx.open;
+    setFx((f) => ({ ...f, open: opening }));
+    if (opening && !fx.rate) pickFx(fx.code);
+  };
+  const fxPkr = Math.round((Number(fx.amount) || 0) * (Number(fx.rate) || 0));
+  const applyFx = () => {
+    if (!fxPkr) return;
+    const note = `(${fx.code} ${Number(fx.amount).toLocaleString()} × ${Number(fx.rate).toLocaleString()})`;
+    onChange({ ...value, amount: String(fxPkr), description: `${String(value.description || "").replace(/\s*\([A-Z]{3} [\d,.]+ × [\d,.]+\)$/, "")} ${note}`.trim() });
+    setFx((f) => ({ ...f, open: false }));
+  };
+  const lbl = "flex flex-col gap-1 text-[11.5px] font-medium text-[#4B5563]";
+  const inp = "border border-[#CBD5E1] rounded-lg px-3 py-2 text-[13px] text-[#111827] bg-white";
+  return (
+    <div className={`rounded-xl border border-[#C9D7EC] p-4 ${compact ? "bg-white" : "bg-[#F7F9FD]"}`}>
+      {title && <div className="text-[13px] font-semibold text-[#1F2937] mb-3">{title}</div>}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className={lbl}>
+          In / Out
+          <div className="grid grid-cols-2 rounded-lg border border-[#CBD5E1] bg-white p-0.5">
+            {([["Out", "Out · ادا"], ["In", "In · وصول"]] as const).map(([v, l]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setDirection(v)}
+                className={`rounded-md py-1.5 text-[12.5px] ${value.direction === v ? (v === "In" ? "bg-[#166534] text-white font-semibold" : "bg-[#B91C1C] text-white font-semibold") : "text-[#4B5563]"}`}
+                style={value.direction === v ? { backgroundColor: v === "In" ? "#166534" : "#B91C1C", color: "#fff" } : undefined}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className={lbl}>
+          <span className="flex items-center justify-between">Amount (PKR) · رقم <button type="button" onClick={openFx} className="text-[11px] text-[#24539B] hover:underline font-normal" title="Dollar / Toman / Afghani → PKR">$ → PKR</button></span>
+          <input inputMode="numeric" value={value.amount} onChange={(e) => set("amount", e.target.value.replace(/[^\d]/g, ""))} className={`${inp} font-semibold tabular-nums`} autoFocus={!compact} placeholder="0" />
+        </label>
+        {fx.open && (
+          <div className="col-span-2 md:col-span-4 rounded-lg border border-[#C9D7EC] bg-white p-3 flex flex-wrap items-end gap-2">
+            <label className={lbl}>Currency
+              <select value={fx.code} onChange={(e) => pickFx(e.target.value)} className={inp}>
+                {["USD", "TMN", "IRR", "AFN", "AED", "SAR", "CNY", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className={lbl}>Amount<input inputMode="decimal" value={fx.amount} onChange={(e) => setFx({ ...fx, amount: e.target.value })} className={`${inp} w-28`} placeholder="1100" /></label>
+            <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value, source: "your rate" })} className={`${inp} w-28`} placeholder="…" /></label>
+            <div className="text-[13px] pb-2">= <b className="tabular-nums">PKR {fxPkr.toLocaleString()}</b></div>
+            <Btn size="sm" kind="primary" onClick={applyFx} disabled={!fxPkr}>Use this</Btn>
+            <span className="text-[11px] text-[#9CA3AF] basis-full">{fx.source}{fx.source ? " · " : ""}The description will note the conversion. All rates: Finance → Currency Rates.</span>
+          </div>
+        )}
+        <label className={`${lbl} col-span-2`}>Person · کس کو / کس سے
+          <input dir="auto" value={value.person} onChange={(e) => set("person", e.target.value)} className={inp} placeholder="e.g. driver, pump, customer" />
+        </label>
+        <label className={`${lbl} col-span-2 md:col-span-3`}>Description · تفصیل
+          <input dir="auto" value={value.description} onChange={(e) => set("description", e.target.value)} className={inp} />
+        </label>
+        <label className={lbl}>How · طریقہ
+          <select value={value.method || "Cash"} onChange={(e) => set("method", e.target.value)} className={inp}>
+            {METHOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        {value.method === "Cheque" && (
+          <>
+            <label className={lbl}>Cheque no. * · چیک نمبر
+              <input value={value.chequeNo || ""} onChange={(e) => set("chequeNo", e.target.value)} className={`${inp} font-semibold tabular-nums`} autoComplete="off" />
+            </label>
+            <label className={lbl}>Bank · بینک
+              <input list="cb-banks-e" value={value.chequeBank || ""} onChange={(e) => set("chequeBank", e.target.value)} className={inp} autoComplete="off" />
+              <datalist id="cb-banks-e">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
+            </label>
+          </>
+        )}
+        <label className={lbl}>Notes
+          <input dir="auto" value={value.notes} onChange={(e) => set("notes", e.target.value)} className={inp} />
+        </label>
+        <label className={`${lbl} col-span-2`}>Also add to · بھی شامل کریں
+          <select value={value.linkType} onChange={(e) => onChange({ ...value, linkType: e.target.value, linkTargetId: "", linkCategory: "" })} className={inp}>
+            <option value="">Just Cash Book · صرف کیش بک</option>
+            <option value="truck">Truck Ledger · ٹرک کھاتہ</option>
+            <option value="party">Party Ledger · پارٹی کھاتہ</option>
+            <option value="personal">Personal &amp; Household · ذاتی کھاتہ</option>
+            <option value="zakat">Zakat · زکوٰۃ</option>
+          </select>
+        </label>
+        {value.linkType === "truck" && (
+          <label className={`${lbl} col-span-2`}>Which truck · کونسا ٹرک
+            <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className={inp}>
+              <option value="">{linkOptions.loading ? "Loading the trucks…" : linkOptions.trucks.length ? "— choose —" : "— no trucks —"}</option>
+              {linkOptions.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration}</option>)}
+            </select>
+            {linkOptions.error ? (
+              <span className="text-[11.5px] font-normal text-[#B91C1C]" dir="auto">
+                The truck list could not be loaded: {linkOptions.error}{" "}
+                <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+              </span>
+            ) : !linkOptions.loading && linkOptions.trucks.length === 0 ? (
+              <span className="text-[11.5px] font-normal text-[#92400E]" dir="auto">No trucks are saved yet — add them in Fleet → Vehicles · ابھی کوئی ٹرک محفوظ نہیں</span>
+            ) : null}
+          </label>
+        )}
+        {truckId && (
+          <div className="col-span-2 md:col-span-4 space-y-3">
+            {truckErr ? (
+              <div className="text-[12px] text-[#B91C1C]">{truckErr}</div>
+            ) : !truck ? (
+              <div className="text-[12px] text-[#6B7280] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Opening the truck's khata…</div>
+            ) : (
+              <TruckSnapshot t={truck} onOpen={onNavigate && truck.ledgerId ? () => onNavigate("khata", "truck_ledgers", { ledgerId: truck.ledgerId }) : undefined} />
+            )}
+            <div className="rounded-lg border border-[#E3E8EF] bg-white p-3">
+              <KhataKindPicker
+                value={kv}
+                onChange={(n) => onChange({ ...value, linkCategory: n.category, direction: n.direction })}
+                isPartnership={!!truck?.sharedWithPartner}
+                showQist={truck?.lease?.status === "Active"}
+                onOpenPartnerPnl={onNavigate && truck?.ledgerId ? () => onNavigate("finance", "partner_pnl", { ledgerId: truck.ledgerId }) : undefined}
+              />
+            </div>
+          </div>
+        )}
+        {value.linkType === "personal" && (
+          <label className={`${lbl} col-span-2`}>Personal category · ذاتی مد
+            <PersonalCategoryPicker value={value.linkCategory} onChange={(v) => set("linkCategory", v)} linkOptions={linkOptions} className={inp} />
+          </label>
+        )}
+        {value.linkType === "party" && (
+          <label className={`${lbl} col-span-2`}>Which party · کونسی پارٹی
+            <select value={value.linkTargetId} onChange={(e) => set("linkTargetId", e.target.value)} className={inp}>
+              <option value="">{linkOptions.loading ? "Loading the parties…" : linkOptions.parties.length ? "— choose —" : "— no parties —"}</option>
+              {linkOptions.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {linkOptions.error && (
+              <span className="text-[11.5px] font-normal text-[#B91C1C]" dir="auto">
+                The party list could not be loaded: {linkOptions.error}{" "}
+                <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+              </span>
+            )}
+          </label>
+        )}
+      </div>
+      {!hideActions && (
+      <div className="flex items-center gap-2 mt-3">
+        <Btn kind="primary" onClick={onSubmit} disabled={saving || (kv.kind === "shakhsi" && !!truckId && !!truck?.sharedWithPartner)} icon={saving ? <Loader2 className="animate-spin" /> : <CheckCircle />}>{submitLabel}</Btn>
+        <Btn onClick={onCancel} icon={<X />}>Cancel</Btn>
+      </div>
+      )}
+    </div>
+  );
+}
+
+/** The picked truck at a glance: its khata balance, the five totals, the last rows. */
+function TruckSnapshot({ t, onOpen }: { t: any; onOpen?: () => void }) {
+  const pkr = (n: number) => (n < 0 ? "−" : "") + "PKR " + Math.abs(Math.round(n || 0)).toLocaleString();
+  return (
+    <div className="rounded-lg border border-[#C9D7EC] bg-white">
+      <div className="px-3 py-2.5 flex flex-wrap items-start gap-x-4 gap-y-1 border-b border-[#EEF1F5]">
+        <div className="flex-1 min-w-[180px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[15px] font-semibold text-[#111827]">{t.registration}</span>
+            {t.sharedWithPartner && <span className="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[10.5px] font-semibold">Partnership · شراکت</span>}
+            {t.lease && t.lease.status !== "Settled" && (
+              <span className="rounded-full bg-[#FEF3C7] text-[#92400E] px-2 py-0.5 text-[10.5px] font-semibold" dir="auto">
+                Lease {t.lease.number}{t.lease.partner ? ` · ${t.lease.partner}` : ""} · left {pkr(t.lease.balance)}
+              </span>
+            )}
+          </div>
+          <div className="text-[11.5px] text-[#6B7280]" dir="auto">
+            {t.driverName ? `Driver: ${t.driverName}` : "Driver not set"}
+            {t.lastDay ? ` · last entry ${t.lastDay.split("-").reverse().join(".")}` : ""}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[11px] text-[#6B7280]">Khata balance · کھاتہ بیلنس</div>
+          <div className={`text-[16px] font-semibold tabular-nums ${t.balance < 0 ? "text-[#B91C1C]" : "text-[#111827]"}`}>{pkr(t.balance)}</div>
+          {onOpen && <button type="button" onClick={onOpen} className="text-[11px] text-[#24539B] hover:underline">Open the khata →</button>}
+        </div>
+      </div>
+      <div className="p-3 space-y-2.5">
+        {t.lease && t.lease.status === "Active" && (
+          <div className="rounded-lg border border-[#FCD34D] bg-[#FFFBEB] px-3 py-2 text-[12px] text-[#92400E]" dir="auto">
+            This truck is being paid off on a lease ({t.lease.number}{t.lease.partner ? ` · ${t.lease.partner}` : ""}): <b>{pkr(t.lease.balance)}</b> still to pay. Choose <b>Qist received</b> for cash he brings — it counts toward the lease and shows in Partners. Kiraya, kharcha and Shakhsi bardasht show in its truck ledger and in the lease's trip qist. ·
+            لیز پر چلنے والا ٹرک — اس کی نقد قسط «قسط وصول» چنیں، شراکت دار میں بھی نظر آئے گی
+          </div>
+        )}
+        {t.sharedWithPartner && !(t.lease && t.lease.status === "Active") && (
+          <div className="rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 py-2 text-[12px] text-[#3730A3]" dir="auto">
+            This truck has a partnership: its income and expenses written here show in <b>Partner P&amp;L</b>'s open cycle. Money taken for home is written in Partner P&amp;L itself. · اس ٹرک کی شراکت ہے — آمدن اور خرچہ Partner P&amp;L میں نظر آئیں گے
+          </div>
+        )}
+        {t.ledgerId ? (
+          <KhataBuckets t={bucketTotals(t.byCategory)} />
+        ) : (
+          <div className="text-[12px] text-[#6B7280]">This truck has no khata of its own yet — one opens with this entry · پہلا اندراج کھاتہ کھول دے گا</div>
+        )}
+        {t.recent?.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11.5px]">
+              <thead>
+                <tr className="text-[#6B7280]">
+                  <th className="text-left font-medium py-1 pr-2">Last entries</th>
+                  <th className="text-left font-medium py-1 pr-2">Kind</th>
+                  <th className="text-right font-medium py-1 pr-2">In</th>
+                  <th className="text-right font-medium py-1">Out</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.recent.map((r: any) => (
+                  <tr key={r.id} className="border-t border-[#F1F4F9]">
+                    <td className="py-1 pr-2 max-w-[260px] truncate" dir="auto" title={r.description || ""}>
+                      <span className="text-[#9CA3AF] tabular-nums">{r.day ? r.day.split("-").reverse().join(".") : "—"}</span> {r.description || "—"}
+                    </td>
+                    <td className="py-1 pr-2 whitespace-nowrap text-[#4B5563]">{catLabel(r.category || "Other")}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums text-[#166534]">{r.received ? r.received.toLocaleString() : ""}</td>
+                    <td className="py-1 text-right tabular-nums text-[#B91C1C]">{r.paid ? r.paid.toLocaleString() : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {t.otherKhatas?.length > 0 && (
+          <div className="text-[11px] text-[#6B7280]" dir="auto">
+            Older khata sheets of this truck (imported): {t.otherKhatas.map((o: any) => `${o.sheet || o.title} (${pkr(o.balance)})`).join(", ")}. This entry goes to the khata above.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------------------------
+// shared bits of the entry forms
+
+const dmyDate = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`;
+
+/** The picked truck's khata at a glance (balance, totals, lease / partnership), fetched when a truck is chosen. */
+function useTruckInfo(truckId: number | null) {
+  const [truck, setTruck] = useState<any>(null);
+  const [truckErr, setTruckErr] = useState("");
+  useEffect(() => {
+    setTruck(null);
+    setTruckErr("");
+    if (!truckId) return;
+    let live = true;
+    enterpriseFetch(`/api/cash-book/truck/${truckId}`)
+      .then((r) => live && setTruck(r))
+      .catch((e) => live && setTruckErr(e.message));
+    return () => {
+      live = false;
+    };
+  }, [truckId]);
+  return { truck, truckErr };
+}
+
+/** What the money is, for a truck entry: from its category and which way it goes. */
+function kvOf(value: any): KhataKindValue {
+  return {
+    kind: kindOf(value.linkCategory || "Other", value.direction === "In" ? 1 : 0, value.direction === "Out" ? 1 : 0),
+    category: value.linkCategory || "Other",
+    direction: value.direction === "In" ? "In" : "Out",
+  };
+}
+
+/** The entry turned to In or Out; on a truck, a kind that does not fit the new way goes back to "Other". */
+function withDirection(value: any, d: "In" | "Out"): any {
+  if (d === value.direction) return value;
+  const truckId = value.linkType === "truck" && value.linkTargetId;
+  if (!truckId) return { ...value, direction: d };
+  const kv = kvOf(value);
+  const k: KhataKind = kv.kind;
+  const fits = k === "shakhsi" || k === "safi" || k === "capital" || (d === "In" ? INCOME_CATS : EXPENSE_CATS).includes(kv.category);
+  return { ...value, direction: d, linkCategory: fits ? value.linkCategory : "Other" };
+}
+
+/** $ / Toman / Afghani → PKR, the rate fetched by itself; writes the amount and a note of the conversion. */
+function FxBox({ onApply, onClose }: { onApply: (pkr: number, note: string) => void; onClose: () => void }) {
+  const lbl = "flex flex-col gap-1 text-[11.5px] font-medium text-[#4B5563]";
+  const inp = "border border-[#CBD5E1] rounded-lg px-3 py-2 text-[13px] text-[#111827] bg-white";
+  const [fx, setFx] = useState({ code: "USD", amount: "", rate: "", source: "" });
+  const pickFx = (code: string) => {
+    setFx((f) => ({ ...f, code, rate: "", source: "getting today's rate…" }));
+    enterpriseFetch(`/api/currency/live?code=${code}`)
+      .then((r) => setFx((f) => (f.code === code ? { ...f, rate: String(r.rate), source: r.source === "yours" ? "your rate for today" : r.source === "internet" ? "today's internet rate — change it if you got another" : r.warning || "last saved rate" } : f)))
+      .catch((e) => setFx((f) => ({ ...f, source: e.message })));
+  };
+  useEffect(() => pickFx("USD"), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pkr = Math.round((Number(fx.amount) || 0) * (Number(fx.rate) || 0));
+  return (
+    <div className="rounded-lg border border-[#C9D7EC] bg-white p-3 flex flex-wrap items-end gap-2">
+      <label className={lbl}>Currency
+        <select value={fx.code} onChange={(e) => pickFx(e.target.value)} className={inp}>
+          {["USD", "TMN", "IRR", "AFN", "AED", "SAR", "CNY", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </label>
+      <label className={lbl}>Amount<input inputMode="decimal" value={fx.amount} onChange={(e) => setFx({ ...fx, amount: e.target.value })} className={`${inp} w-28`} placeholder="1100" /></label>
+      <label className={lbl}>Rate (1 = PKR)<input inputMode="decimal" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value, source: "your rate" })} className={`${inp} w-28`} placeholder="…" /></label>
+      <div className="text-[13px] pb-2">= <b className="tabular-nums">PKR {pkr.toLocaleString()}</b></div>
+      <Btn size="sm" kind="primary" onClick={() => { onApply(pkr, `(${fx.code} ${Number(fx.amount).toLocaleString()} × ${Number(fx.rate).toLocaleString()})`); onClose(); }} disabled={!pkr}>Use this</Btn>
+      <button type="button" onClick={onClose} className="text-[12px] text-[#6B7280] underline pb-2">Close</button>
+      <span className="text-[11px] text-[#9CA3AF] basis-full">{fx.source}{fx.source ? " · " : ""}The description will note the conversion. All rates: Finance → Currency Rates.</span>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------------------------
+// the voucher grid: one line per entry, money received in the In box, money paid in the Out box
+
+const GRID = "md:grid-cols-[26px_minmax(0,1.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_118px_124px_124px_30px]";
+
+function VoucherGrid({ lines, setLines, linkOptions, onNavigate }: {
+  lines: any[];
+  setLines: React.Dispatch<React.SetStateAction<any[]>>;
+  linkOptions: LinkOptions;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  return (
+    <div>
+      <div className={`hidden md:grid ${GRID} gap-2 px-4 py-2 bg-[#F8FAFC] border-b border-[#E3E8EF] text-[11.5px] font-medium text-[#4B5563]`}>
+        <span>#</span>
+        <span>Person · کس کو / کس سے</span>
+        <span>Description · تفصیل</span>
+        <span>Goes to · کھاتہ</span>
+        <span>How · طریقہ</span>
+        <span className="text-right text-[#166534]">In · وصول</span>
+        <span className="text-right text-[#B91C1C]">Out · ادائیگی</span>
+        <span />
+      </div>
+      {lines.map((ln, i) => (
+        <React.Fragment key={i}>
+          <VoucherRow
+            index={i}
+            line={ln}
+            onChange={(patch) => setLines((ls) => ls.map((x, j) => (j === i ? (typeof patch === "function" ? patch(x) : { ...x, ...patch }) : x)))}
+            onRemove={lines.length > 1 ? () => setLines((ls) => ls.filter((_, j) => j !== i)) : undefined}
+            allLines={lines}
+            linkOptions={linkOptions}
+            onNavigate={onNavigate}
+          />
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** Receipts chosen while the entry is being made: saved with it (no need to open the entry afterwards). */
+function ReceiptPicker({ files, onChange }: { files: File[]; onChange: (f: File[]) => void }) {
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const u = files.map((f) => (String(f.type).startsWith("image/") ? URL.createObjectURL(f) : ""));
+    setUrls(u);
+    return () => u.forEach((x) => x && URL.revokeObjectURL(x));
+  }, [files]);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1 text-[12px] font-medium text-[#374151] hover:bg-[#F4F6FA]" title="Photo of the slip, a PDF… — it is saved together with this entry · رسید کی تصویر، اندراج کے ساتھ ہی محفوظ ہو گی">
+        <Paperclip className="w-3.5 h-3.5" /> {files.length ? "Add another · اور" : "Attach receipt · رسید لگائیں"}
+        <input
+          type="file"
+          multiple
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+          className="hidden"
+          onChange={(e) => {
+            const add = Array.from((e.target.files || []) as FileList) as File[];
+            if (add.length) onChange([...files, ...add]);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {files.map((f, i) => (
+        <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-[#CBD5E1] bg-white py-0.5 pl-1 pr-2">
+          {urls[i] ? <img src={urls[i]} alt="" className="h-6 w-8 rounded object-cover" /> : <FileText className="h-4 w-4 text-[#6B7280]" />}
+          <span className="max-w-[150px] truncate text-[11px] text-[#374151]">{f.name}</span>
+          <button type="button" onClick={() => onChange(files.filter((_, j) => j !== i))} className="text-[13px] leading-none text-[#B91C1C]" title="Remove · ہٹائیں">×</button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** cheque number + bank + picture of one voucher line, with a live "this cheque is already in the Cash Book" check */
+function ChequeFields({ line, onChange, lines, index }: { line: any; onChange: (patch: any) => void; lines: any[]; index: number }) {
+  const [dups, setDups] = useState<any[]>([]);
+  const [preview, setPreview] = useState<string | null>(null);
+  const key = chequeKeyOf(line.chequeNo);
+  useEffect(() => {
+    if (!key) { setDups([]); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      enterpriseFetch(`/api/cash-book/cheque-check?no=${encodeURIComponent(line.chequeNo)}&bank=${encodeURIComponent(line.chequeBank || "")}&direction=${line.direction === "In" ? "In" : "Out"}`)
+        .then((r) => { if (alive) setDups(r?.duplicates || []); })
+        .catch(() => { if (alive) setDups([]); });
+    }, 450);
+    return () => { alive = false; clearTimeout(t); };
+  }, [key, line.chequeBank, line.direction]);
+  useEffect(() => {
+    if (!line.chequeFile || !String(line.chequeFile.type || "").startsWith("image/")) { setPreview(null); return; }
+    const u = URL.createObjectURL(line.chequeFile);
+    setPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [line.chequeFile]);
+  // the picture is read (number + bank) as soon as it is chosen; what the clerk already typed by hand is kept
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const readPicture = async (file: File) => {
+    setReading(true);
+    setReadNote(null);
+    try {
+      const blob = await shrinkPicture(file);
+      const fd = new FormData();
+      fd.append("file", blob, file.name.replace(/\.[^.]+$/, "") + (blob.type === "image/jpeg" ? ".jpg" : file.name.slice(file.name.lastIndexOf("."))));
+      const r = await uploadFile("/api/cash-book/cheque-read", fd);
+      if (r?.ai === false) { setReadNote({ ok: false, text: r.message }); return; }
+      if (!r?.chequeNo && !r?.bank) {
+        setReadNote({ ok: false, text: r?.error ? `The cheque could not be read (${r.error}) — write the number · نمبر خود لکھیں` : "The number could not be read from this picture — write it, or take a clearer photo · نمبر نہیں پڑھا گیا" });
+        return;
+      }
+      onChange((x: any) => ({
+        ...x,
+        chequeNo: r.chequeNo && (!String(x.chequeNo || "").trim() || x.chequeAuto) ? r.chequeNo : x.chequeNo,
+        chequeAuto: r.chequeNo && (!String(x.chequeNo || "").trim() || x.chequeAuto) ? true : x.chequeAuto,
+        chequeBank: r.bank && (!String(x.chequeBank || "").trim() || x.chequeBankAuto) ? r.bank : x.chequeBank,
+        chequeBankAuto: r.bank && (!String(x.chequeBank || "").trim() || x.chequeBankAuto) ? true : x.chequeBankAuto,
+      }));
+      const bits = [r.chequeNo ? `no. ${r.chequeNo}` : null, r.bank || null, r.amount ? `PKR ${Number(r.amount).toLocaleString()}` : null].filter(Boolean).join(" · ");
+      const amt = Number(line.amount) || 0;
+      const diff = r.amount && amt && Number(r.amount) !== amt ? ` ⚠ the picture shows PKR ${Number(r.amount).toLocaleString()} but you wrote PKR ${amt.toLocaleString()}` : "";
+      setReadNote({ ok: !diff, text: `Read from the picture: ${bits} — please check · تصویر سے پڑھا، تسلی کر لیں${diff}` });
+    } catch (e: any) {
+      setReadNote({ ok: false, text: `The cheque could not be read (${e.message}) — write the number · نمبر خود لکھیں` });
+    } finally {
+      setReading(false);
+    }
+  };
+  const sameHere = key
+    ? lines.filter((x, j) => j !== index && x.method === "Cheque" && x.direction === line.direction && chequeKeyOf(x.chequeNo) === key && (!x.chequeBank || !line.chequeBank || String(x.chequeBank).toLowerCase() === String(line.chequeBank).toLowerCase())).length
+    : 0;
+  const inp = "border border-[#CBD5E1] rounded-lg px-2.5 py-1.5 text-[13px] text-[#111827] bg-white w-full min-w-0";
+  const bad = dups.length > 0 || sameHere > 0;
+  return (
+    <div className={`mt-2 rounded-lg border px-3 py-2 md:ml-[34px] ${bad ? "border-[#FCA5A5] bg-[#FEF2F2]" : "border-[#A5F3FC] bg-[#F0FDFF]"}`}>
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-start">
+        <label className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Cheque no. * · چیک نمبر
+          <input
+            value={line.chequeNo || ""}
+            onChange={(e) => onChange({ chequeNo: e.target.value, chequeAuto: false })}
+            className={`${inp} font-semibold tabular-nums ${!key ? "border-[#F59E0B]" : ""}`}
+            placeholder="e.g. 004512"
+            inputMode="text"
+            autoComplete="off"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Bank · بینک
+          <input list="cb-banks" value={line.chequeBank || ""} onChange={(e) => onChange({ chequeBank: e.target.value, chequeBankAuto: false })} className={inp} placeholder="optional" autoComplete="off" />
+          <datalist id="cb-banks">{BANKS.map((b) => <option key={b} value={b} />)}</datalist>
+        </label>
+        <div className="flex flex-col gap-1 text-[11.5px] font-medium text-[#155E75]">
+          Cheque picture · چیک کی تصویر
+          <div className="flex items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1.5 text-[12px] text-[#374151] hover:bg-[#F4F6FA]">
+              {line.chequeFile ? "Change" : "Take / choose"}
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0] || null; onChange({ chequeFile: f }); if (f) readPicture(f); e.target.value = ""; }} />
+            </label>
+            {preview ? <img src={preview} alt="cheque" className="h-9 w-14 rounded border border-[#CBD5E1] object-cover" /> : line.chequeFile ? <span className="text-[11px] text-[#374151] truncate">{line.chequeFile.name}</span> : <span className="text-[11px] font-normal text-[#6B7280]">saved with the entry</span>}
+            {line.chequeFile && <button type="button" onClick={() => onChange({ chequeFile: null })} className="text-[11px] text-[#B91C1C] hover:underline">remove</button>}
+          </div>
+        </div>
+      </div>
+      {(reading || readNote) && (
+        <div className={`mt-1.5 text-[12px] ${reading ? "text-[#155E75]" : readNote?.ok ? "text-[#166534]" : "text-[#92400E]"}`} dir="auto">
+          {reading ? "Reading the cheque… · چیک پڑھ رہا ہے…" : readNote?.text}
+        </div>
+      )}
+      {bad && (
+        <div className="mt-1.5 text-[12px] font-semibold text-[#B91C1C]" dir="auto">
+          ⚠ Cheque {line.chequeNo} is already in the Cash Book
+          {dups.length > 0 && ` — ${dups.map((x) => `${dmyD(x.date)} · PKR ${Number(x.amount).toLocaleString()}${x.person ? ` · ${x.person}` : ""}`).join(", ")}`}
+          {sameHere > 0 && " — and on another line of this voucher"}. Same cheque? · یہ چیک پہلے درج ہے
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VoucherRow({ index, line, onChange, onRemove, linkOptions, onNavigate, allLines }: {
+  index: number;
+  line: any;
+  allLines: any[];
+  onChange: (patch: any) => void;
+  onRemove?: () => void;
+  linkOptions: LinkOptions;
+  onNavigate?: (wb: string, sheet: string, focus?: { ledgerId?: number; partyId?: number; entryId?: number }) => void;
+}) {
+  const [more, setMore] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
+  const isIn = line.direction === "In";
+  const truckId = line.linkType === "truck" && line.linkTargetId ? Number(line.linkTargetId) : null;
+  const { truck, truckErr } = useTruckInfo(truckId);
+  const kv = kvOf(line);
+  const inp = "border border-[#CBD5E1] rounded-lg px-2.5 py-1.5 text-[13px] text-[#111827] bg-white w-full min-w-0";
+  const amt = "border rounded-lg px-2.5 py-1.5 text-[13px] font-semibold tabular-nums text-right bg-white w-full min-w-0";
+  const hasDetail = !!line.linkType || more;
+  return (
+    <div className={`px-4 py-2.5 border-t border-[#F1F4F9] border-l-[3px] ${isIn ? "border-l-[#22C55E]" : "border-l-[#F87171]"}`}>
+      <div className={`grid grid-cols-1 ${GRID} gap-2 items-start`}>
+        <span className="hidden md:block pt-2 text-[12px] text-[#9CA3AF] tabular-nums">{index + 1}</span>
+        <input dir="auto" value={line.person} onChange={(e) => onChange({ person: e.target.value })} className={inp} placeholder="Person · کس کو / کس سے" />
+        <input dir="auto" value={line.description} onChange={(e) => onChange({ description: e.target.value })} className={inp} placeholder="Description · تفصیل" />
+        <select
+          value={line.linkType}
+          onChange={(e) => onChange({ linkType: e.target.value, linkTargetId: "", linkCategory: "" })}
+          className={inp}
+          title="Where else this entry is written · اور کہاں لکھنا ہے"
+        >
+          <option value="">Cash Book only · صرف کیش بک</option>
+          <option value="truck">Truck Ledger · ٹرک</option>
+          <option value="party">Party Ledger · پارٹی</option>
+          <option value="personal">Personal · ذاتی</option>
+          <option value="zakat">Zakat · زکوٰۃ</option>
+        </select>
+        <select value={line.method || "Cash"} onChange={(e) => onChange({ method: e.target.value })} className={inp} aria-label="How it was paid or received" title="How it was paid / received · ادائیگی کا طریقہ">
+          {METHOD_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <div className="grid grid-cols-2 gap-2 md:contents">
+          <input
+            inputMode="numeric"
+            value={isIn ? line.amount : ""}
+            onChange={(e) => onChange((x: any) => ({ ...withDirection(x, "In"), amount: e.target.value.replace(/[^\d]/g, "") }))}
+            className={`${amt} ${isIn && line.amount ? "border-[#86EFAC] text-[#166534]" : "border-[#CBD5E1] text-[#166534]"}`}
+            placeholder="In · وصول"
+            aria-label="Money in"
+          />
+          <input
+            inputMode="numeric"
+            value={!isIn ? line.amount : ""}
+            onChange={(e) => onChange((x: any) => ({ ...withDirection(x, "Out"), amount: e.target.value.replace(/[^\d]/g, "") }))}
+            className={`${amt} ${!isIn && line.amount ? "border-[#FCA5A5] text-[#B91C1C]" : "border-[#CBD5E1] text-[#B91C1C]"}`}
+            placeholder="Out · ادائیگی"
+            aria-label="Money out"
+          />
+        </div>
+        {onRemove ? (
+          <button type="button" onClick={onRemove} title="Remove this line" className="pt-2 text-[#9CA3AF] hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+        ) : (
+          <span />
+        )}
+      </div>
+
+      {line.method === "Cheque" && <ChequeFields line={line} onChange={onChange} lines={allLines} index={index} />}
+
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-[11.5px] md:pl-[34px]">
+        <button type="button" onClick={() => setMore((v) => !v)} className="text-[#24539B] hover:underline">{more ? "− Less" : "+ Note / $→PKR · نوٹ / ڈالر"}</button>
+        <ReceiptPicker files={line.files || []} onChange={(files) => onChange({ files })} />
+      </div>
+
+      {hasDetail && (
+        <div className="mt-2 space-y-2 md:pl-[34px]">
+          {more && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <input dir="auto" value={line.notes} onChange={(e) => onChange({ notes: e.target.value })} className={`${inp} max-w-md`} placeholder="Notes · نوٹ" />
+                <button type="button" onClick={() => setFxOpen((v) => !v)} className="text-[12px] text-[#24539B] hover:underline" title="Dollar / Toman / Afghani → PKR">$ → PKR</button>
+              </div>
+              {fxOpen && (
+                <FxBox
+                  onClose={() => setFxOpen(false)}
+                  onApply={(pkr, note) => onChange((x: any) => ({ ...x, amount: String(pkr), description: `${String(x.description || "").replace(/\s*\([A-Z]{3} [\d,.]+ × [\d,.]+\)$/, "")} ${note}`.trim() }))}
+                />
+              )}
+            </div>
+          )}
+
+          {line.linkType === "truck" && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <select value={line.linkTargetId} onChange={(e) => onChange({ linkTargetId: e.target.value, linkCategory: "" })} className={`${inp} max-w-[260px]`} aria-label="Which truck">
+                  <option value="">{linkOptions.loading ? "Loading the trucks…" : linkOptions.trucks.length ? "— which truck · کونسا ٹرک —" : "— no trucks —"}</option>
+                  {linkOptions.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration}</option>)}
+                </select>
+                {linkOptions.error && (
+                  <span className="text-[11.5px] text-[#B91C1C]" dir="auto">
+                    The truck list could not be loaded: {linkOptions.error}{" "}
+                    <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+                  </span>
+                )}
+                {!linkOptions.error && !linkOptions.loading && linkOptions.trucks.length === 0 && (
+                  <span className="text-[11.5px] text-[#92400E]" dir="auto">No trucks are saved yet — add them in Fleet → Vehicles</span>
+                )}
+              </div>
+              {truckId && (
+                <>
+                  {truckErr ? (
+                    <div className="text-[12px] text-[#B91C1C]">{truckErr}</div>
+                  ) : !truck ? (
+                    <div className="text-[12px] text-[#6B7280] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Opening the truck's khata…</div>
+                  ) : (
+                    <TruckSnapshot t={truck} onOpen={onNavigate && truck.ledgerId ? () => onNavigate("khata", "truck_ledgers", { ledgerId: truck.ledgerId }) : undefined} />
+                  )}
+                  <div className="rounded-lg border border-[#E3E8EF] bg-[#FBFCFE] p-3">
+                    <KhataKindPicker
+                      value={kv}
+                      onChange={(n) => onChange({ linkCategory: n.category, direction: n.direction })}
+                      isPartnership={!!truck?.sharedWithPartner}
+                      showQist={truck?.lease?.status === "Active"}
+                      onOpenPartnerPnl={onNavigate && truck?.ledgerId ? () => onNavigate("finance", "partner_pnl", { ledgerId: truck.ledgerId }) : undefined}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {line.linkType === "party" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={line.linkTargetId} onChange={(e) => onChange({ linkTargetId: e.target.value })} className={`${inp} max-w-[300px]`} aria-label="Which party">
+                <option value="">{linkOptions.loading ? "Loading the parties…" : linkOptions.parties.length ? "— which party · کونسی پارٹی —" : "— no parties —"}</option>
+                {linkOptions.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              {linkOptions.error && (
+                <span className="text-[11.5px] text-[#B91C1C]" dir="auto">
+                  The party list could not be loaded: {linkOptions.error}{" "}
+                  <button type="button" onClick={linkOptions.reload} className="underline font-semibold">Try again · دوبارہ</button>
+                </span>
+              )}
+            </div>
+          )}
+
+          {line.linkType === "personal" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <PersonalCategoryPicker value={line.linkCategory} onChange={(v) => onChange({ linkCategory: v })} linkOptions={linkOptions} className={`${inp} max-w-[300px]`} />
+              <span className="text-[11.5px] text-[#6B7280]" dir="auto">One entry is written in that Personal ledger — the person above stays the payee. · ایک اندراج اسی کھاتے میں لکھا جائے گا</span>
+            </div>
+          )}
+          {line.linkType === "zakat" && (
+            <div className="text-[11.5px] text-[#6B7280]" dir="auto">Also written in Zakat (always money given) · زکوٰۃ میں بھی لکھا جائے گا</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Personal & Household category an entry goes to — the user's own list (standard and ones they made). */
+function PersonalCategoryPicker({ value, onChange, linkOptions, className }: { value: string; onChange: (v: string) => void; linkOptions: LinkOptions; className: string }) {
+  const cats = linkOptions.personalCategories || [];
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={className} aria-label="Personal category">
+      <option value="">{linkOptions.loading ? "Loading…" : "— which category · کونسی مد —"}</option>
+      {cats.map((c) => (
+        <option key={c.name} value={c.name}>{c.name}{c.nameUr ? ` · ${c.nameUr}` : ""}</option>
+      ))}
+    </select>
+  );
+}

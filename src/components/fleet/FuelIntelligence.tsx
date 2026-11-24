@@ -408,8 +408,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Total Fuel Consumed</span>
-                    <p className="text-2xl font-mono font-black text-white">
+                    <span className="text-[12px] text-[#6B7280] font-medium block mb-1">Total Fuel Consumed</span>
+                    <p className="text-2xl tabular-nums font-semibold text-white">
                       {Number(analytics?.summary?.totalLitres || 0).toLocaleString()} L
                     </p>
                   </div>
@@ -420,8 +420,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Total Refuel Capital Outlay</span>
-                    <p className="text-2xl font-mono font-black text-amber-500">
+                    <span className="text-[12px] text-[#6B7280] font-medium block mb-1">Total Refuel Capital Outlay</span>
+                    <p className="text-2xl tabular-nums font-semibold text-amber-500">
                       PKR {Number(analytics?.summary?.totalCost || 0).toLocaleString()}
                     </p>
                   </div>
@@ -432,8 +432,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Average Rate / Litre</span>
-                    <p className="text-2xl font-mono font-black text-slate-200">
+                    <span className="text-[12px] text-[#6B7280] font-medium block mb-1">Average Rate / Litre</span>
+                    <p className="text-2xl tabular-nums font-semibold text-slate-200">
                       PKR {Math.round(analytics?.summary?.avgRate || 272)}
                     </p>
                   </div>
@@ -444,8 +444,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Active Security Deviations</span>
-                    <p className={`text-2xl font-mono font-black ${analytics?.summary?.activeTheftCount > 0 ? "text-rose-500 animate-pulse" : "text-emerald-400"}`}>
+                    <span className="text-[12px] text-[#6B7280] font-medium block mb-1">Active Security Deviations</span>
+                    <p className={`text-2xl tabular-nums font-semibold ${analytics?.summary?.activeTheftCount > 0 ? "text-rose-500 animate-pulse" : "text-emerald-400"}`}>
                       {analytics?.summary?.activeTheftCount} Alerts
                     </p>
                   </div>
@@ -464,13 +464,13 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={analytics.trends}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <CartesianGrid stroke="#EEF1F5" vertical={false} />
                         <XAxis dataKey="day" stroke="#64748b" fontSize={11} />
                         <YAxis stroke="#64748b" fontSize={11} />
                         <Tooltip contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155" }} />
                         <Legend />
-                        <Bar name="Consumption (L)" dataKey="totalLitres" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Bar name="Spent (PKR)" dataKey="totalSpent" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Bar name="Consumption (L)" dataKey="totalLitres" fill="#2C5CAE" radius={[4, 4, 0, 0]} />
+                        <Bar name="Spent (PKR)" dataKey="totalSpent" fill="#9CA3AF" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -485,10 +485,10 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                         <div key={idx} className="flex items-center justify-between text-xs p-2 bg-slate-950/40 border border-slate-900 rounded-lg">
                           <div className="flex items-center gap-2">
                             <Truck className="w-3.5 h-3.5 text-blue-400" />
-                            <span className="font-mono font-bold text-slate-200">{v.vehicleNumber}</span>
+                            <span className="tabular-nums font-bold text-slate-200">{v.vehicleNumber}</span>
                           </div>
                           <div className="text-right">
-                            <span className="text-white font-mono font-black">{Math.round(v.totalLitres)} L</span>
+                            <span className="text-white tabular-nums font-semibold">{Math.round(v.totalLitres)} L</span>
                             <p className="text-[10px] text-slate-500">PKR {Number(v.totalSpent).toLocaleString()}</p>
                           </div>
                         </div>
@@ -501,7 +501,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
                   <div className="mt-4 pt-4 border-t border-slate-900 flex justify-between items-center text-[11px] text-slate-500">
                     <span>Total Logs Analyzed:</span>
-                    <span className="font-mono text-slate-300 font-bold">{analytics?.summary?.txnTransactionsCount || 0} purchases</span>
+                    <span className="tabular-nums text-slate-300 font-bold">{analytics?.summary?.txnTransactionsCount || 0} purchases</span>
                   </div>
                 </div>
               </div>
@@ -523,8 +523,8 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                   {forecasts.map((f: any, idx: number) => (
                     <div key={idx} className="bg-slate-950/60 border border-slate-900 px-4 py-2.5 rounded-lg text-right">
                       <span className="text-[9px] text-slate-500 font-bold uppercase">{f.targetType} Requirement</span>
-                      <p className="text-sm font-black font-mono text-blue-400">{Math.round(parseFloat(f.predictedRequirementLitres || "0"))} L</p>
-                      <p className="text-[10px] text-slate-500 font-mono">Next: {new Date(f.nextRefillDate).toLocaleDateString()}</p>
+                      <p className="text-sm font-semibold tabular-nums text-blue-400">{Math.round(parseFloat(f.predictedRequirementLitres || "0"))} L</p>
+                      <p className="text-[10px] text-slate-500 tabular-nums">Next: {new Date(f.nextRefillDate).toLocaleDateString()}</p>
                     </div>
                   ))}
                 </div>
@@ -555,7 +555,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
               {/* Transactions list */}
               <div className="bg-slate-900/30 border border-slate-900 rounded-xl overflow-hidden">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/40 text-slate-500 font-mono uppercase tracking-wider border-b border-slate-900">
+                  <thead className="bg-slate-950/40 text-slate-500 tabular-nums border-b border-slate-900">
                     <tr>
                       <th className="p-4">Txn Number & Date</th>
                       <th className="p-4">Vehicle & Driver</th>
@@ -566,7 +566,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                       <th className="p-4">Payment</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-900 font-mono">
+                  <tbody className="divide-y divide-slate-900 tabular-nums">
                     {transactions.map((t) => (
                       <tr key={t.txn.id} className="hover:bg-slate-900/20 text-slate-300">
                         <td className="p-4">
@@ -583,9 +583,9 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           <div className="text-slate-200">{t.vendorName || "Retail Station"}</div>
                           <div className="text-[10px] text-slate-500 mt-0.5">Card: {t.cardNumber || "N/A"}</div>
                         </td>
-                        <td className="p-4 text-right font-black text-white">{t.txn.litres} L</td>
+                        <td className="p-4 text-right font-semibold text-white">{t.txn.litres} L</td>
                         <td className="p-4 text-right text-slate-400">PKR {t.txn.rate}</td>
-                        <td className="p-4 text-right font-black text-amber-500">PKR {t.txn.total.toLocaleString()}</td>
+                        <td className="p-4 text-right font-semibold text-amber-500">PKR {t.txn.total.toLocaleString()}</td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             t.txn.paymentType === "Cash" ? "bg-emerald-500/10 text-emerald-400" :
@@ -646,7 +646,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-white">{tk.tank.tankName}</h4>
-                        <span className="text-[10px] text-slate-500 font-mono block mt-0.5">YARD: {tk.branchName || "Main Yard"}</span>
+                        <span className="text-[10px] text-slate-500 tabular-nums block mt-0.5">YARD: {tk.branchName || "Main Yard"}</span>
                       </div>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         tk.tank.leakStatus === "No Leak" ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400 animate-pulse"
@@ -656,7 +656,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                     </div>
 
                     <div className="space-y-2">
-                      <div className="flex justify-between text-xs font-mono">
+                      <div className="flex justify-between text-xs tabular-nums">
                         <span className="text-slate-400">Current Stock</span>
                         <span className="text-white font-bold">{tk.tank.currentStock} / {tk.tank.capacity} L</span>
                       </div>
@@ -670,7 +670,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           style={{ width: `${tk.tank.tankLevelPercent}%` }}
                         />
                       </div>
-                      <p className="text-right font-mono text-[10px] text-slate-500">{tk.tank.tankLevelPercent}% Capacity</p>
+                      <p className="text-right tabular-nums text-[10px] text-slate-500">{tk.tank.tankLevelPercent}% Capacity</p>
                     </div>
 
                     <div className="pt-2 border-t border-slate-900 flex justify-between text-[11px] text-slate-500">
@@ -688,10 +688,10 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
               {/* Issue slips ledger */}
               <div className="space-y-3">
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Internal Fuel Issue Slips</h3>
+                <h3 className="text-xs font-bold text-white">Internal Fuel Issue Slips</h3>
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950/40 text-slate-500 font-mono uppercase border-b border-slate-900">
+                    <thead className="bg-slate-950/40 text-slate-500 tabular-nums uppercase border-b border-slate-900">
                       <tr>
                         <th className="p-4">Slip Code & Date</th>
                         <th className="p-4">Target Vehicle</th>
@@ -702,7 +702,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                         <th className="p-4">Dispatcher</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-900 font-mono">
+                    <tbody className="divide-y divide-slate-900 tabular-nums">
                       {issueSlips.map((s) => (
                         <tr key={s.slip.id} className="hover:bg-slate-900/20 text-slate-300">
                           <td className="p-4">
@@ -712,7 +712,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           <td className="p-4 text-blue-400 font-bold">{s.vehicleNumber}</td>
                           <td className="p-4 text-slate-400">{s.driverName}</td>
                           <td className="p-4 text-slate-400">{s.tankName}</td>
-                          <td className="p-4 font-black text-white">{s.slip.litres} L</td>
+                          <td className="p-4 font-semibold text-white">{s.slip.litres} L</td>
                           <td className="p-4">
                             <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-slate-300">
                               {s.slip.purpose}
@@ -747,12 +747,12 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
               <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-semibold text-white">Mileage & Fuel Consumption Performance</h3>
-                  <span className="text-[10px] text-slate-500 font-mono">Benchmarked target baseline: 4.5 KM/L</span>
+                  <span className="text-[10px] text-slate-500 tabular-nums">Benchmarked target baseline: 4.5 KM/L</span>
                 </div>
 
                 <div className="overflow-hidden border border-slate-900 rounded-lg">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950/40 text-slate-500 font-mono uppercase tracking-wider border-b border-slate-900">
+                    <thead className="bg-slate-950/40 text-slate-500 tabular-nums border-b border-slate-900">
                       <tr>
                         <th className="p-4">Vehicle Asset</th>
                         <th className="p-4 text-right">Total Litres Refuelled</th>
@@ -762,7 +762,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                         <th className="p-4">Status Recommendation</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-900 font-mono">
+                    <tbody className="divide-y divide-slate-900 tabular-nums">
                       {mileageList.map((m, idx) => (
                         <tr key={idx} className="hover:bg-slate-900/20 text-slate-300">
                           <td className="p-4">
@@ -772,7 +772,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                             </div>
                           </td>
                           <td className="p-4 text-right">{Math.round(m.totalLitres)} L</td>
-                          <td className="p-4 text-right text-white font-black">{m.averageKmPerL != null ? `${m.averageKmPerL} KM/L` : "—"}</td>
+                          <td className="p-4 text-right text-white font-semibold">{m.averageKmPerL != null ? `${m.averageKmPerL} KM/L` : "—"}</td>
                           <td className="p-4 text-right text-amber-500 font-bold">{m.fuelCostPerKm != null ? `PKR ${m.fuelCostPerKm} / KM` : "—"}</td>
                           <td className="p-4 text-right">
                             {m.variancePercent != null ? (
@@ -808,7 +808,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
               {/* AI Predictions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 space-y-4">
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">Estimated Refill Forecasting (AI Engine)</h3>
+                  <h3 className="text-xs font-bold text-white">Estimated Refill Forecasting (AI Engine)</h3>
                   <div className="space-y-3">
                     {forecasts.map((f, idx) => (
                       <div key={idx} className="p-3 bg-slate-950/40 border border-slate-900 rounded-lg flex items-center justify-between text-xs">
@@ -817,7 +817,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           <p className="text-[10px] text-slate-500">Predicted refill date: {new Date(f.nextRefillDate).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black font-mono text-blue-400">{Math.round(parseFloat(f.predictedRequirementLitres))} Litres</p>
+                          <p className="text-sm font-semibold tabular-nums text-blue-400">{Math.round(parseFloat(f.predictedRequirementLitres))} Litres</p>
                           <span className="text-[10px] text-slate-500">Accuracy Score: {Math.round(parseFloat(f.accuracyScore) * 100)}%</span>
                         </div>
                       </div>
@@ -827,7 +827,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
 
                 <div className="bg-slate-900/30 border border-slate-900 rounded-xl p-5 flex flex-col justify-between">
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Benchmarking & Standard Factors</h3>
+                    <h3 className="text-xs font-bold text-white">Benchmarking & Standard Factors</h3>
                     <p className="text-xs text-slate-400 leading-relaxed">
                       Logistics operations require continuous benchmarking to secure target gross margins. The platform combines:
                     </p>
@@ -838,7 +838,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                       <li>Internal yard refill calibration logs</li>
                     </ul>
                   </div>
-                  <div className="pt-4 border-t border-slate-900 flex justify-between items-center text-[11px] text-slate-500 font-mono">
+                  <div className="pt-4 border-t border-slate-900 flex justify-between items-center text-[11px] text-slate-500 tabular-nums">
                     <span>Active Telemetry Engine:</span>
                     <span className="text-emerald-400 font-bold">ONLINE</span>
                   </div>
@@ -879,7 +879,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                       </div>
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-white text-xs uppercase tracking-wide font-mono">
+                          <span className="font-bold text-white text-xs uppercase tracking-wide tabular-nums">
                             {alt.alert.alertType}
                           </span>
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
@@ -890,7 +890,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           </span>
                         </div>
                         <p className="text-xs text-slate-300 leading-relaxed">{alt.alert.description}</p>
-                        <p className="text-[10px] text-slate-500 font-mono">
+                        <p className="text-[10px] text-slate-500 tabular-nums">
                           VEHICLE: <span className="text-blue-400 font-bold">{alt.vehicleNumber || "N/A"}</span> • 
                           DRIVER: <span>{alt.driverName || "N/A"}</span> • 
                           TIME: <span>{new Date(alt.alert.createdAt).toLocaleString()}</span>
@@ -907,7 +907,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                           Acknowledge & Clear Flag
                         </button>
                       ) : (
-                        <span className="flex items-center gap-1 text-xs text-emerald-400 font-bold font-mono">
+                        <span className="flex items-center gap-1 text-xs text-emerald-400 font-bold tabular-nums">
                           <Check className="w-4 h-4" />
                           <span>RESOLVED</span>
                         </span>
@@ -942,11 +942,11 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                       <div key={v.id} className="p-4 bg-slate-950/40 border border-slate-900 rounded-lg flex justify-between items-center text-xs">
                         <div>
                           <p className="font-bold text-slate-200">{v.vendorName}</p>
-                          <p className="text-[10px] text-slate-500 mt-1 font-mono">Payment Terms: {v.paymentTerms} • Status: {v.status}</p>
+                          <p className="text-[10px] text-slate-500 mt-1 tabular-nums">Payment Terms: {v.paymentTerms} • Status: {v.status}</p>
                         </div>
                         <div className="text-right">
                           <span className="text-[10px] text-slate-500">Outstanding Payable</span>
-                          <p className="text-sm font-black font-mono text-amber-500">PKR {Number(v.outstandingBalance || 0).toLocaleString()}</p>
+                          <p className="text-sm font-semibold tabular-nums text-amber-500">PKR {Number(v.outstandingBalance || 0).toLocaleString()}</p>
                         </div>
                       </div>
                     ))}
@@ -963,13 +963,13 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                     {cards.map((c) => (
                       <div key={c.card.id} className="p-4 bg-slate-950/40 border border-slate-900 rounded-lg flex justify-between items-center text-xs">
                         <div>
-                          <p className="font-bold font-mono text-slate-200">#{c.card.cardNumber}</p>
+                          <p className="font-bold tabular-nums text-slate-200">#{c.card.cardNumber}</p>
                           <p className="text-[10px] text-slate-500 mt-1">Vehicle: {c.vehicleNumber || "Common Pool"}</p>
                         </div>
                         <div className="text-right">
                           <span className="text-[10px] text-slate-500">Limits</span>
-                          <p className="text-xs font-mono text-slate-300">Daily: PKR {c.card.dailyLimit.toLocaleString()}</p>
-                          <p className="text-xs font-mono text-slate-300">Monthly: PKR {c.card.monthlyLimit.toLocaleString()}</p>
+                          <p className="text-xs tabular-nums text-slate-300">Daily: PKR {c.card.dailyLimit.toLocaleString()}</p>
+                          <p className="text-xs tabular-nums text-slate-300">Monthly: PKR {c.card.monthlyLimit.toLocaleString()}</p>
                         </div>
                       </div>
                     ))}
@@ -992,13 +992,13 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-xl p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm">Record Refuelling Transaction</h3>
               <button 
                 onClick={() => setShowAddTxn(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1252,13 +1252,13 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm">Issue Internal Fuel Slip</h3>
               <button 
                 onClick={() => setShowAddSlip(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1366,13 +1366,13 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm">Setup Storage Tank Depot</h3>
               <button 
                 onClick={() => setShowAddTank(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1441,14 +1441,14 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm text-emerald-500">Register New Fuel Card</h3>
               <button 
                 type="button"
                 onClick={() => setShowCreateCardModal(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1462,7 +1462,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                   value={newCardForm.cardNumber}
                   onChange={(e) => setNewCardForm({ ...newCardForm, cardNumber: e.target.value })}
                   placeholder="e.g. CARD-5544-22"
-                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2 focus:outline-none font-mono text-slate-200"
+                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2 focus:outline-none tabular-nums text-slate-200"
                   required
                 />
               </div>
@@ -1550,14 +1550,14 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm text-emerald-500">Create Fuel Vendor Contract</h3>
               <button 
                 type="button"
                 onClick={() => setShowCreateVendorModal(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1647,14 +1647,14 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4"
+            className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-6 space-y-4"
           >
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="font-bold text-white text-sm text-emerald-500">Add Fuel Station / Depot</h3>
               <button 
                 type="button"
                 onClick={() => setShowCreateStationModal(false)}
-                className="text-slate-500 hover:text-slate-300 font-mono text-xs"
+                className="text-slate-500 hover:text-slate-300 tabular-nums text-xs"
               >
                 CLOSE [X]
               </button>
@@ -1715,7 +1715,7 @@ export default function FuelIntelligence({ showFeedback }: FuelIntelligenceProps
                   value={newStationForm.gpsLocation}
                   onChange={(e) => setNewStationForm({ ...newStationForm, gpsLocation: e.target.value })}
                   placeholder="31.5204, 74.3587"
-                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2 focus:outline-none font-mono text-slate-200"
+                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2 focus:outline-none tabular-nums text-slate-200"
                 />
               </div>
 

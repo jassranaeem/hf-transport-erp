@@ -1,20 +1,21 @@
 /**
  * WorkbookShell — the Excel-style frame for the whole ERP.
  *
- *  ┌───────────────────────────────────────────────┐
- *  │ HF Transport · Workbook / Sheet · API · user   │
- *  ├──────┬────────────────────────────────────────┤
- *  │ rail │  active sheet (grid / screen / view)    │
- *  ├──────┴────────────────────────────────────────┤
- *  │  ▸ Sheet1  Sheet2  Sheet3 …  (bottom tabs)     │
- *  └───────────────────────────────────────────────┘
+ *  ┌──────────┬────────────────────────────────────┐
+ *  │ HFK      │ Module › Page        ⟳  🔔  ● user  │
+ *  │ ▾ Fleet  ├────────────────────────────────────┤
+ *  │   Trips  │                                    │
+ *  │   …      │   the page                         │
+ *  │ ▸ Ledgers│                                    │
+ *  └──────────┴────────────────────────────────────┘
  *
- * Left rail = workbooks. Bottom tabs = the sheets in the active workbook.
+ * A Zoho-style sidebar: each module (workbook) opens its pages (sheets); it folds to icons, and on
+ * a phone it slides in from the menu button.
  * Nothing was removed: every legacy tab is a sheet here (grid, mounted screen,
  * or an embedded EnterpriseDashboard tab body).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, LogOut, Menu, Bell, X, RefreshCw } from "lucide-react";
+import { LogOut, Menu, Bell, X, RefreshCw, ChevronDown, Search } from "lucide-react";
 import { DbUser } from "../../types.ts";
 import { enterpriseFetch } from "../../../client/api.ts";
 import { hasPermission, Resource } from "../../lib/rbac.ts";
@@ -31,6 +32,14 @@ import TripFuelHistory from "../fleet/TripFuelHistory.tsx";
 import PartnerPnL from "../fleet/PartnerPnL.tsx";
 import PersonalExpenses from "../fleet/PersonalExpenses.tsx";
 import Zakat from "../fleet/Zakat.tsx";
+import CashBook from "../fleet/CashBook.tsx";
+import BooksCheck from "../fleet/BooksCheck.tsx";
+import Books from "../fleet/Books.tsx";
+import Banks from "../fleet/Banks.tsx";
+import Statements from "../fleet/Statements.tsx";
+import Tax from "../fleet/Tax.tsx";
+import AccountingHome from "../fleet/AccountingHome.tsx";
+import AIAccountant from "../fleet/AIAccountant.tsx";
 import NewInvoice from "../fleet/NewInvoice.tsx";
 import InvoicesList from "../fleet/InvoicesList.tsx";
 import QuotationsList from "../fleet/QuotationsList.tsx";
@@ -38,6 +47,7 @@ import CompanyProfile from "../fleet/CompanyProfile.tsx";
 
 import SmartDispatch from "../fleet/SmartDispatch.tsx";
 import LiveTrackingMap from "../fleet/LiveTrackingMap.tsx";
+import GpsTracking from "../fleet/GpsTracking.tsx";
 import DataPortal from "../fleet/DataPortal.tsx";
 import TruckLedgers from "../fleet/TruckLedgers.tsx";
 import Parties from "../fleet/Parties.tsx";
@@ -46,7 +56,9 @@ import DuesAlerts from "../fleet/DuesAlerts.tsx";
 import ReceiptSearch from "../fleet/ReceiptSearch.tsx";
 import KhataOverview from "../fleet/KhataOverview.tsx";
 import FinanceOverview from "../fleet/FinanceOverview.tsx";
+import BillsPaymentsExpenses from "../fleet/BillsPaymentsExpenses.tsx";
 import FleetSearch from "../fleet/FleetSearch.tsx";
+import FleetDesk from "../fleet/FleetDesk.tsx";
 import FleetAssetValue from "../fleet/FleetAssetValue.tsx";
 import SystemReset from "../fleet/SystemReset.tsx";
 import FinanceDashboard from "../fleet/FinanceDashboard.tsx";
@@ -57,6 +69,18 @@ import CustomerPortal from "../fleet/CustomerPortal.tsx";
 import VendorPortal from "../fleet/VendorPortal.tsx";
 import ExecutiveBI from "../fleet/ExecutiveBI.tsx";
 import AIAssistant from "../fleet/AIAssistant.tsx";
+import GlobalSearch from "../business/GlobalSearch.tsx";
+import HomeDashboard from "../business/HomeDashboard.tsx";
+import Reminders from "../business/Reminders.tsx";
+import CreditNotes from "../business/CreditNotes.tsx";
+import CurrencyRates from "../business/CurrencyRates.tsx";
+import Approvals from "../business/Approvals.tsx";
+import Recurring from "../business/Recurring.tsx";
+import Depreciation from "../business/Depreciation.tsx";
+import StockItems from "../business/StockItems.tsx";
+import PurchaseOrders from "../business/PurchaseOrders.tsx";
+import EmailSettings from "../business/EmailSettings.tsx";
+import CustomFieldsSettings from "../business/CustomFieldsSettings.tsx";
 
 interface Props {
   dbUser: DbUser;
@@ -70,6 +94,7 @@ interface Props {
 }
 
 const LS_KEY = "hf_workbook_nav_v1";
+type Focus = { ledgerId?: number; partyId?: number; entryId?: number; date?: string; tripId?: number; invoiceId?: number; q?: string };
 
 export default function WorkbookShell({
   dbUser,
@@ -120,15 +145,20 @@ export default function WorkbookShell({
 
   const [nav, setNav] = useState(readInitial);
   // deep-link focus: which ledger / party a sheet should open on
-  const readFocus = (): { ledgerId?: number; partyId?: number } | null => {
+  const readFocus = (): Focus | null => {
     const u = new URLSearchParams(window.location.search);
     const l = Number(u.get("focusLedger"));
     const p = Number(u.get("focusParty"));
-    if (l) return { ledgerId: l };
-    if (p) return { partyId: p };
+    const e = Number(u.get("focusEntry")) || undefined;
+    const d = u.get("focusDate");
+    const t = Number(u.get("focusTrip"));
+    if (t) return { tripId: t };
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d };
+    if (l) return { ledgerId: l, entryId: e };
+    if (p) return { partyId: p, entryId: e };
     return null;
   };
-  const [focus, setFocus] = useState<{ ledgerId?: number; partyId?: number } | null>(readFocus);
+  const [focus, setFocus] = useState<Focus | null>(readFocus);
   const [railOpen, setRailOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -138,6 +168,21 @@ export default function WorkbookShell({
     setTimeout(() => setSpinning(false), 600);
   };
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName || "") || (e.target as HTMLElement)?.isContentEditable;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "/" && !typing) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   const [alertCount, setAlertCount] = useState<{ total: number; critical: number; high: number } | null>(null);
 
   // poll the alert feed for the header badge
@@ -166,8 +211,14 @@ export default function WorkbookShell({
     url.searchParams.set("sheet", nav.sheet);
     url.searchParams.delete("focusLedger");
     url.searchParams.delete("focusParty");
+    url.searchParams.delete("focusEntry");
+    url.searchParams.delete("focusDate");
+    url.searchParams.delete("focusTrip");
+    if (focus?.tripId) url.searchParams.set("focusTrip", String(focus.tripId));
     if (focus?.ledgerId) url.searchParams.set("focusLedger", String(focus.ledgerId));
     if (focus?.partyId) url.searchParams.set("focusParty", String(focus.partyId));
+    if (focus?.entryId) url.searchParams.set("focusEntry", String(focus.entryId));
+    if (focus?.date) url.searchParams.set("focusDate", focus.date);
     window.history.replaceState(null, "", url.toString());
   }, [nav, focus]);
 
@@ -176,7 +227,7 @@ export default function WorkbookShell({
   const activeSheet: SheetDef | undefined =
     activeWb?.sheets.find((s) => s.id === nav.sheet) ?? activeWb?.sheets[0];
 
-  const go = (wbId: string, sheetId?: string, focusObj?: { ledgerId?: number; partyId?: number } | null) => {
+  const go = (wbId: string, sheetId?: string, focusObj?: Focus | null) => {
     const wb = visibleWorkbooks.find((w) => w.id === wbId);
     if (!wb) return;
     setNav({ wb: wbId, sheet: sheetId && wb.sheets.some((s) => s.id === sheetId) ? sheetId : wb.sheets[0].id });
@@ -190,12 +241,36 @@ export default function WorkbookShell({
         return <SmartDispatch showFeedback={showFeedback} />;
       case "LiveTrackingMap":
         return <LiveTrackingMap showFeedback={showFeedback} role={role} />;
+      case "GpsTracking":
+        return <GpsTracking showFeedback={showFeedback} role={role} />;
       case "DataPortal":
         return <DataPortal showFeedback={showFeedback} />;
+      case "HomeDashboard":
+        return <HomeDashboard dbUser={dbUser} showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "Reminders":
+        return <Reminders showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "CreditNotes":
+        return <CreditNotes showFeedback={showFeedback} />;
+      case "CurrencyRates":
+        return <CurrencyRates showFeedback={showFeedback} />;
+      case "Approvals":
+        return <Approvals showFeedback={showFeedback} />;
+      case "Recurring":
+        return <Recurring showFeedback={showFeedback} />;
+      case "Depreciation":
+        return <Depreciation showFeedback={showFeedback} />;
+      case "StockItems":
+        return <StockItems showFeedback={showFeedback} />;
+      case "PurchaseOrders":
+        return <PurchaseOrders showFeedback={showFeedback} />;
+      case "EmailSettings":
+        return <EmailSettings showFeedback={showFeedback} />;
+      case "CustomFieldsSettings":
+        return <CustomFieldsSettings showFeedback={showFeedback} />;
       case "TruckLedgers":
-        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} />;
+        return <TruckLedgers showFeedback={showFeedback} focusLedgerId={focus?.ledgerId} focusEntryId={focus?.entryId} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "Parties":
-        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} />;
+        return <Parties showFeedback={showFeedback} focusPartyId={focus?.partyId} focusEntryId={focus?.entryId}  onNavigate={(w, s, f) => go(w, s, f)} />;
       case "DuesAlerts":
         return <DuesAlerts showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
       case "ReceiptSearch":
@@ -205,6 +280,8 @@ export default function WorkbookShell({
             onOpen={(f) => (f.partyId ? go("khata", "parties", { partyId: f.partyId }) : go("khata", "truck_ledgers", { ledgerId: f.ledgerId }))}
           />
         );
+      case "FleetDesk":
+        return <FleetDesk showFeedback={showFeedback} focusTripId={focus?.tripId} />;
       case "FleetSearch":
         return <FleetSearch showFeedback={showFeedback} onOpenLedger={(ledgerId) => go("khata", "truck_ledgers", { ledgerId })} />;
       case "FleetAssetValue":
@@ -215,10 +292,12 @@ export default function WorkbookShell({
         return <FinanceDashboard dbUser={dbUser} showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "FinanceOverview":
         return <FinanceOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
+      case "BillsPaymentsExpenses":
+        return <BillsPaymentsExpenses showFeedback={showFeedback} />;
       case "KhataOverview":
         return <KhataOverview showFeedback={showFeedback} onNavigate={(w, s) => go(w, s)} />;
       case "Partners":
-        return <Partners showFeedback={showFeedback} />;
+        return <Partners showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} />;
       case "HRMSDashboard":
         return <HRMSDashboard dbUser={dbUser} showFeedback={showFeedback} />;
       case "FuelIntelligence":
@@ -248,15 +327,31 @@ export default function WorkbookShell({
       case "TripFuelHistory":
         return <TripFuelHistory showFeedback={showFeedback} />;
       case "PartnerPnL":
-        return <PartnerPnL showFeedback={showFeedback} onOpenParty={(id) => go("khata", "parties", { partyId: id })} />;
+        return <PartnerPnL showFeedback={showFeedback} onNavigate={(w, sh, f) => go(w, sh, f)} focusLedgerId={focus?.ledgerId} />;
       case "PersonalExpenses":
         return <PersonalExpenses showFeedback={showFeedback} />;
       case "Zakat":
         return <Zakat showFeedback={showFeedback} />;
+      case "CashBook":
+        return <CashBook showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} focusDate={focus?.date} />;
+      case "Books":
+        return <Books showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "Banks":
+        return <Banks showFeedback={showFeedback} />;
+      case "Statements":
+        return <Statements showFeedback={showFeedback} />;
+      case "Tax":
+        return <Tax showFeedback={showFeedback} />;
+      case "AIAccountant":
+        return <AIAccountant showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "AccountingHome":
+        return <AccountingHome showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
+      case "BooksCheck":
+        return <BooksCheck showFeedback={showFeedback} onNavigate={(w, s, f) => go(w, s, f)} />;
       case "NewInvoice":
         return <NewInvoice showFeedback={showFeedback} />;
       case "InvoicesList":
-        return <InvoicesList showFeedback={showFeedback} />;
+        return <InvoicesList showFeedback={showFeedback} focusInvoiceId={focus?.invoiceId} focusQuery={focus?.q} />;
       case "QuotationsList":
         return <QuotationsList showFeedback={showFeedback} />;
       case "CompanyProfile":
@@ -269,7 +364,7 @@ export default function WorkbookShell({
   const renderSheet = (sheet: SheetDef) => {
     if (sheet.kind === "entity") {
       return (
-        <div className="h-full p-3" key={`ent-${sheet.entityKey}-${refreshKey}`}>
+        <div className="h-full p-4 md:p-6" key={`ent-${sheet.entityKey}-${refreshKey}`}>
           <EntitySheet
             entityKey={sheet.entityKey!}
             title={sheet.label}
@@ -303,147 +398,191 @@ export default function WorkbookShell({
     );
   };
 
-  return (
-    <div className="h-screen w-full flex flex-col bg-[#F8FBF9] overflow-hidden print:h-auto print:overflow-visible print:block">
-      {/* top bar */}
-      <header className="h-12 shrink-0 border-b border-[#E5E7EB] bg-white px-3 flex items-center gap-3 print:hidden">
-        <button
-          onClick={() => setRailOpen((o) => !o)}
-          className="p-1.5 rounded-md hover:bg-[#F4F6FA] text-[#4B5563]"
-          title="Toggle workbooks"
-        >
-          <Menu className="w-4 h-4" />
-        </button>
-        <div className="flex items-center gap-2 min-w-0">
-          <img src="/hfk-logo.png" alt="HFK Enterprises" className="h-6 w-[46px] min-w-[46px] shrink-0 object-contain" />
-          <span className="text-[13px] font-extrabold tracking-tight uppercase text-[#24539B] hidden sm:inline">HFK Enterprises</span>
-          <span className="text-[#9CA3AF]">/</span>
-          <span className="text-[12px] font-semibold">{activeWb?.label}</span>
-          <span className="text-[#9CA3AF]">/</span>
-          <span className="text-[12px] text-[#4B5563] truncate">{activeSheet?.label}</span>
+  // ---- navigation: a sidebar of modules, each opening its pages (Zoho-style) -------------
+  const [mobileNav, setMobileNav] = useState(false);
+  const [openWbs, setOpenWbs] = useState<Set<string>>(() => new Set(nav.wb ? [nav.wb] : []));
+  useEffect(() => {
+    if (activeWb) setOpenWbs((s) => (s.has(activeWb.id) ? s : new Set([...s, activeWb.id])));
+  }, [activeWb?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the English part: drop only the Urdu " · …" parts (an English label may itself contain " · ")
+  const en = (label: string) => label.split(" · ").filter((p) => !/[؀-ۿ]/.test(p)).join(" · ") || label;
+  const pickSheet = (wbId: string, sheetId: string) => {
+    setNav({ wb: wbId, sheet: sheetId });
+    setFocus(null);
+    setMobileNav(false);
+  };
+  const toggleWb = (wb: WorkbookDef) => {
+    if (!railOpen) {
+      setRailOpen(true);
+      setOpenWbs(new Set([wb.id]));
+      if (wb.id !== activeWb?.id) pickSheet(wb.id, wb.sheets[0].id);
+      return;
+    }
+    setOpenWbs((s) => {
+      const n = new Set(s);
+      n.has(wb.id) ? n.delete(wb.id) : n.add(wb.id);
+      return n;
+    });
+    if (wb.id !== activeWb?.id) pickSheet(wb.id, wb.sheets[0].id);
+  };
+
+  const sidebar = (collapsed: boolean) => (
+    <div className="h-full flex flex-col bg-[#13294B] text-white">
+      <div className={`h-14 shrink-0 flex items-center gap-2.5 border-b border-white/10 ${collapsed ? "justify-center px-2" : "px-4"}`}>
+        <div className="w-8 h-8 shrink-0 rounded-lg bg-white flex items-center justify-center overflow-hidden">
+          <img src="/hfk-logo.png" alt="HFK" className="w-7 h-7 object-contain" />
         </div>
-        <div className="flex-1" />
-        <button
-          onClick={hardRefresh}
-          title="Refresh this sheet · تازہ کریں"
-          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold border bg-white border-[#E5E7EB] text-[#4B5563] hover:bg-[#F4F6FA]"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} /> Refresh
-        </button>
-        <button
-          onClick={() => setAlertsOpen(true)}
-          title="Alerts"
-          className={`relative flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold border ${
-            alertCount && alertCount.total > 0
-              ? "bg-[#DC2626] border-[#B91C1C] text-white"
-              : "bg-white border-[#E5E7EB] text-[#4B5563]"
-          }`}
-        >
-          <Bell className="w-3.5 h-3.5" style={alertCount && alertCount.total > 0 ? { color: "#fff", stroke: "#fff" } : undefined} />
-          {alertCount ? alertCount.total : 0}
-          {alertCount && alertCount.critical > 0 && (
-            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#991B1B] animate-pulse" />
-          )}
-        </button>
-        <button
-          onClick={fetchHealth}
-          className={`flex items-center gap-1.5 border rounded-full px-2.5 py-1 font-mono text-[10px] ${
-            apiHealth ? "bg-[#DCFCE7] border-[#16A34A]" : "bg-[#FEE2E2] border-[#DC2626]"
-          }`}
-        >
-          <Activity className={`w-3 h-3 ${apiHealthLoading ? "animate-spin" : ""}`} />
-          {apiHealth ? "ONLINE" : "OFFLINE"}
-        </button>
-        <div className="flex items-center gap-2 pl-1">
-          <div className="w-7 h-7 rounded-full bg-[#E9EEF5] border border-[#BFD3EC] flex items-center justify-center font-mono text-[10px] font-bold uppercase">
+        {!collapsed && (
+          <div className="min-w-0 leading-tight">
+            <div className="text-[13px] font-bold tracking-wide text-white truncate">HFK Enterprises</div>
+            <div className="text-[10px] text-white/60 truncate">Transport ERP · Quetta</div>
+          </div>
+        )}
+      </div>
+      <nav className="flex-1 overflow-y-auto py-2 sidebar-scroll">
+        {visibleWorkbooks.map((wb) => {
+          const Icon = wb.icon;
+          const isActive = wb.id === activeWb?.id;
+          const isOpen = !collapsed && openWbs.has(wb.id);
+          return (
+            <div key={wb.id} className="px-2">
+              <button
+                onClick={() => toggleWb(wb)}
+                title={collapsed ? wb.label : undefined}
+                className={`w-full flex items-center gap-2.5 rounded-lg ${collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2"} text-[13px] font-medium ${
+                  isActive ? "bg-white/12 text-white" : "text-white/75 hover:bg-white/8 hover:text-white"
+                }`}
+                style={isActive ? { backgroundColor: "rgba(255,255,255,.12)" } : undefined}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0" />
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 text-left truncate">{wb.label}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 opacity-60 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                  </>
+                )}
+              </button>
+              {isOpen && (
+                <div className="mt-0.5 mb-1.5 ml-[22px] border-l border-white/15 pl-2 space-y-px">
+                  {wb.sheets.map((s) => {
+                    const on = isActive && s.id === activeSheet?.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => pickSheet(wb.id, s.id)}
+                        title={s.label}
+                        className={`w-full text-left rounded-md px-2.5 py-1.5 text-[12.5px] truncate ${on ? "bg-white text-[#13294B] font-semibold" : "text-white/70 hover:text-white hover:bg-white/8"}`}
+                        style={on ? { color: "#13294B" } : undefined}
+                      >
+                        {en(s.label)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </nav>
+      {!collapsed && (
+        <div className="shrink-0 border-t border-white/10 px-4 py-3 flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold uppercase text-white">
             {dbUser.name ? dbUser.name.slice(0, 2) : "OP"}
           </div>
-          <div className="hidden sm:block leading-tight">
-            <div className="text-[11px] font-semibold truncate max-w-[140px]">{dbUser.name || "Operator"}</div>
-            <div className="text-[9px] font-mono text-[#4B5563] capitalize">{dbUser.role}</div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="text-[12px] font-semibold text-white truncate">{dbUser.name || "Operator"}</div>
+            <div className="text-[10px] text-white/60 capitalize truncate">{dbUser.role}</div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="p-1.5 rounded-md hover:bg-[#FEE2E2] text-[#B91C1C]"
-            title="Sign out"
-          >
+          <button onClick={handleLogout} title="Sign out" className="p-1.5 rounded-md text-white/70 hover:text-white hover:bg-white/10">
             <LogOut className="w-4 h-4" />
           </button>
         </div>
-      </header>
+      )}
+    </div>
+  );
 
-      <div className="flex-1 min-h-0 flex print:block print:h-auto">
-        {/* workbook rail */}
-        {railOpen && (
-          <nav className="w-[132px] shrink-0 border-r border-[#E5E7EB] bg-white overflow-y-auto py-2 print:hidden">
-            {visibleWorkbooks.map((wb) => {
-              const Icon = wb.icon;
-              const on = wb.id === activeWb?.id;
-              return (
-                <button
-                  key={wb.id}
-                  onClick={() => go(wb.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-[12px] font-semibold border-l-2 ${
-                    on
-                      ? "border-[#24539B] bg-[#E9EEF5]"
-                      : "border-transparent text-[#4B5563] hover:bg-[#F4F6FA]"
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{wb.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
+  return (
+    <div className="h-screen w-full flex bg-[#F4F6FA] overflow-hidden print:h-auto print:overflow-visible print:block">
+      {/* sidebar — desktop */}
+      <aside className={`hidden md:block shrink-0 transition-[width] duration-150 print:hidden ${railOpen ? "w-60" : "w-16"}`} style={{ backgroundColor: "#13294B", borderRight: 0 }}>
+        {sidebar(!railOpen)}
+      </aside>
+      {/* sidebar — phone */}
+      {mobileNav && (
+        <div className="md:hidden fixed inset-0 z-50 flex print:hidden">
+          <div className="w-72 max-w-[85vw] h-full shadow-2xl">{sidebar(false)}</div>
+          <div className="flex-1 bg-black/30" onClick={() => setMobileNav(false)} />
+        </div>
+      )}
 
-        {/* sheet content */}
-        <main className="flex-1 min-w-0 min-h-0 bg-[#F8FBF9] overflow-hidden print:h-auto print:overflow-visible print:block">
-          {activeSheet ? (
-            renderSheet(activeSheet)
-          ) : (
-            <div className="p-6 text-sm text-[#6B7280]">No sheet available for your role.</div>
-          )}
+      <div className="flex-1 min-w-0 flex flex-col print:block">
+        {/* top bar */}
+        <header className="h-14 shrink-0 border-b border-[#E3E8EF] bg-white px-3 md:px-5 flex items-center gap-3 print:hidden">
+          <button
+            onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setRailOpen((o) => !o))}
+            className="p-2 -ml-1 rounded-lg hover:bg-[#F1F4F9] text-[#4B5563]"
+            title="Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] text-[#6B7280] truncate">{activeWb?.label}</div>
+            <div className="text-[15px] font-semibold text-[#111827] truncate leading-tight" dir="auto">{activeSheet?.label}</div>
+          </div>
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="hidden md:flex items-center gap-2 w-64 lg:w-80 rounded-lg border border-[#E3E8EF] bg-[#F8FAFC] px-3 py-1.5 text-[13px] text-[#9CA3AF] hover:border-[#C9D7EC]"
+            title="Search everything (Ctrl+K)"
+          >
+            <Search className="w-4 h-4" /> <span className="flex-1 text-left">Search… · تلاش</span>
+            <kbd className="text-[10px] border border-[#E3E8EF] rounded px-1 bg-white">Ctrl K</kbd>
+          </button>
+          <button onClick={() => setSearchOpen(true)} title="Search" className="md:hidden p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <Search className="w-[18px] h-[18px]" />
+          </button>
+          <button onClick={hardRefresh} title="Refresh this page · تازہ کریں" className="p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <RefreshCw className={`w-[18px] h-[18px] ${spinning ? "animate-spin" : ""}`} />
+          </button>
+          <button onClick={() => setAlertsOpen(true)} title="Alerts" className="relative p-2 rounded-lg text-[#4B5563] hover:bg-[#F1F4F9]">
+            <Bell className="w-[18px] h-[18px]" />
+            {alertCount && alertCount.total > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#D70006] text-white text-[10px] font-bold flex items-center justify-center">
+                {alertCount.total > 99 ? "99+" : alertCount.total}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={fetchHealth}
+            title={apiHealth ? "Connected to the server" : "Not connected — click to retry"}
+            className={`hidden sm:flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium border ${apiHealth ? "border-[#CFE3D6] bg-[#F1F8F4] text-[#166534]" : "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]"}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${apiHealth ? "bg-[#16A34A]" : "bg-[#D70006]"} ${apiHealthLoading ? "animate-pulse" : ""}`} style={{ backgroundColor: apiHealth ? "#16A34A" : "#D70006" }} />
+            {apiHealth ? "Online" : "Offline"}
+          </button>
+          <div className="w-8 h-8 rounded-full bg-[#EAF0F8] border border-[#C9D7EC] flex items-center justify-center text-[11px] font-bold uppercase text-[#24539B] md:hidden">
+            {dbUser.name ? dbUser.name.slice(0, 2) : "OP"}
+          </div>
+        </header>
+
+        {/* the page */}
+        <main className="flex-1 min-w-0 min-h-0 bg-[#F4F6FA] overflow-hidden print:h-auto print:overflow-visible print:block">
+          {activeSheet ? renderSheet(activeSheet) : <div className="p-6 text-sm text-[#6B7280]">No page available for your role.</div>}
         </main>
       </div>
 
-      {/* bottom sheet tabs (Excel style) */}
-      {activeWb && (
-        <div className="h-9 shrink-0 border-t border-[#E5E7EB] bg-[#F3F7F4] flex items-stretch overflow-x-auto scrollbar-none print:hidden">
-          {activeWb.sheets.map((s) => {
-            const on = s.id === activeSheet?.id;
-            return (
-              <button
-                key={s.id}
-                onClick={() => { setNav((n) => ({ ...n, sheet: s.id })); setFocus(null); }}
-                className={`px-3 text-[11px] font-medium whitespace-nowrap border-r border-[#E5E7EB] -mt-px ${
-                  on
-                    ? "bg-white border-t-2 border-t-[#24539B] font-semibold"
-                    : "bg-[#EEF1F6] text-[#4B5563] hover:bg-[#F4F6FA]"
-                }`}
-              >
-                {s.label}
-                {s.kind === "entity" && <span className="ml-1 text-[#24539B]">▦</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} onPick={(h) => go(h.wb, h.sheet, h.focus || null)} />
 
       {/* alerts drawer */}
       {alertsOpen && (
         <div className="fixed inset-0 z-[60] flex" onMouseDown={() => setAlertsOpen(false)}>
           <div className="flex-1 bg-black/20" />
-          <div
-            className="w-[460px] max-w-[94vw] bg-white h-full shadow-2xl border-l border-[#E5E7EB] flex flex-col"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 h-12 border-b border-[#E5E7EB] bg-[#DC2626]">
-              <span className="font-bold text-white flex items-center gap-2">
-                <Bell className="w-4 h-4" style={{ color: "#fff", stroke: "#fff" }} /> Alerts
+          <div className="w-[460px] max-w-[94vw] bg-white h-full shadow-2xl border-l border-[#E3E8EF] flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 h-14 border-b border-[#E3E8EF]">
+              <span className="font-semibold text-[#111827] flex items-center gap-2">
+                <Bell className="w-4 h-4 text-[#D70006]" /> Alerts · الرٹس
               </span>
-              <button onClick={() => setAlertsOpen(false)}>
-                <X className="w-4 h-4" style={{ color: "#fff", stroke: "#fff" }} />
+              <button onClick={() => setAlertsOpen(false)} className="p-1.5 rounded-lg hover:bg-[#F1F4F9] text-[#4B5563]">
+                <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-hidden p-3">

@@ -5,6 +5,8 @@
  * so the session survives reloads, and sent as `Authorization: Bearer <token>`.
  */
 
+import { myBuild } from "../src/lib/updateWatch.ts";
+
 const TOKEN_KEY = "hf_erp_session";
 
 let overrideTokenFn: (() => Promise<string | null>) | null = null;
@@ -192,6 +194,38 @@ export function entitiesCatalog(): Promise<{ entities: any[] }> {
   return enterpriseFetch(`/api/entities`);
 }
 
+/** The server is asleep or restarting: Render answers with its own HTML page (502/503/504), not the app. */
+export const SERVER_WAKING =
+  "The server is starting up (it sleeps when nobody uses it, and restarts after an update). Wait a minute and try again · سرور شروع ہو رہا ہے، ایک منٹ بعد دوبارہ کوشش کریں";
+
+/** Whether a response came from the app (JSON) or from the host in front of it (an HTML error page). */
+export function isAppJson(res: Response) {
+  return (res.headers.get("Content-Type") || "").includes("application/json");
+}
+
+/**
+ * POST to a sign-in endpoint. While the server wakes up or restarts, the host answers with an HTML
+ * page instead of the app — reading that as JSON showed "Unexpected token '<', "<!DOCTYPE "…". Those
+ * answers are waited out (a few tries, a few seconds apart); a real answer is returned as it is.
+ */
+export async function postAuth(path: string, body: unknown, onWaiting?: (attempt: number) => void): Promise<{ ok: boolean; data: any }> {
+  const tries = 6;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    let res: Response | null = null;
+    try {
+      res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch {
+      res = null; // no connection, or the host dropped it mid-restart
+    }
+    if (res && isAppJson(res)) return { ok: res.ok, data: await res.json() };
+    if (attempt < tries) {
+      onWaiting?.(attempt);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+  throw new Error(SERVER_WAKING);
+}
+
 export async function enterpriseFetch(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
 
@@ -205,6 +239,10 @@ export async function enterpriseFetch(path: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
+  // which build of the app is asking: the server tells an older one (Alerts → "new version available")
+  const build = myBuild();
+  if (build) headers.set("x-app-build", build);
+
   const response = await fetch(path, {
     ...options,
     headers,
@@ -212,6 +250,7 @@ export async function enterpriseFetch(path: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     let errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
+    if ([502, 503, 504].includes(response.status) && !isAppJson(response)) throw new Error(SERVER_WAKING);
     try {
       const errorJson = await response.json();
       if (errorJson.error) {
@@ -231,5 +270,11 @@ export async function enterpriseFetch(path: string, options: RequestInit = {}) {
     throw new Error(errorMessage);
   }
 
+  // a page instead of data: the host answered for an app that is not up (yet)
+  if (!isAppJson(response)) {
+    const text = await response.text();
+    if (/^\s*</.test(text)) throw new Error(SERVER_WAKING);
+    return JSON.parse(text);
+  }
   return response.json();
 }

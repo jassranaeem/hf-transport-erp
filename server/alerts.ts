@@ -11,11 +11,15 @@
  * expiring vehicle / driver documents. Every alert carries a stable `key` so it
  * can be acknowledged, and `detail` / `links` so the UI can explain and jump.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { Router, Response } from "express";
 import { and, eq, sql, desc, asc, inArray, isNotNull, ne } from "drizzle-orm";
 import { requireAuth, requireApproved, AuthRequest } from "../src/middleware/auth.ts";
 import { db, schema } from "../src/db/index.ts";
 import { logAudit } from "../src/db/audit.ts";
+import { gpsDistanceKm } from "./gps_distance.ts";
+import { linkedRecords } from "./attachments.ts";
 
 const router = Router();
 router.use(requireAuth, requireApproved);
@@ -29,7 +33,7 @@ interface Alert {
   title: string;
   message: string;
   detail?: any;
-  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number } }[];
+  links?: { label: string; wb: string; sheet: string; focus?: { ledgerId?: number; partyId?: number; date?: string } }[];
   count?: number;
   createdAt: string;
 }
@@ -66,7 +70,18 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
     .where(inArray(schema.attachments.id, allIds));
   const byId = new Map(rows.map((r) => [r.id, r]));
 
-  return groups.map((g) => {
+  // the same receipt on the records of ONE payment (a Cash Book entry and the rows it wrote, or the lines
+  // of one voucher — an In and an Out sharing a slip) is one receipt shown in several places, not a double entry
+  const real = await Promise.all(
+    groups.map(async (g) => {
+      const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
+      if (items.length < 2) return true;
+      const fam = await linkedRecords(items[0].entityType, items[0].entityId).catch(() => []);
+      const keys = new Set([`${items[0].entityType}:${items[0].entityId}`, ...fam.map((f) => `${f.entityType}:${f.entityId}`)]);
+      return !items.every((a) => keys.has(`${a.entityType}:${a.entityId}`));
+    }),
+  );
+  return groups.filter((_, i) => real[i]).map((g) => {
     const items = (g.ids || []).map((id) => byId.get(id)).filter(Boolean) as (typeof rows)[number][];
     const first = items[0];
     return {
@@ -100,6 +115,100 @@ async function duplicateReceiptAlerts(): Promise<Alert[]> {
  * cheque / invoice no.) recorded more than once = someone submitting the same
  * slip twice. Fires even when the attached photo bytes differ.
  */
+/**
+ * Which build is live: the hashed script named in the served index.html (production only).
+ * A page tells which build it runs in the x-app-build header; a page that sends none is older than this notice.
+ */
+let buildCache: { mtime: number; id: string | null } | null = null;
+function liveBuild(): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  try {
+    const p = path.join(process.cwd(), "dist", "index.html");
+    const st = fs.statSync(p);
+    if (buildCache && buildCache.mtime === st.mtimeMs) return buildCache.id;
+    const m = fs.readFileSync(p, "utf8").match(/<script[^>]+type="module"[^>]+src="([^"]*\/assets\/[^"]+)"/);
+    buildCache = { mtime: st.mtimeMs, id: m ? m[1] : null };
+    return buildCache.id;
+  } catch {
+    return null;
+  }
+}
+
+/** "A new version is out" for an app still on an older build. Not clearable: it goes when the app is updated. */
+function appUpdateAlerts(req: AuthRequest): Alert[] {
+  const live = liveBuild();
+  if (!live) return [];
+  const mine = String(req.headers["x-app-build"] || "");
+  if (mine === live) return [];
+  return [
+    {
+      key: `app_update:${live}`,
+      type: "app_update",
+      severity: "high",
+      module: "System",
+      title: "New version available — update now · نیا ورژن آ گیا ہے، اپڈیٹ کریں",
+      message:
+        "This app is running an older version, so some fixes are missing. Update: close the app completely and open it again — or press Ctrl+Shift+R. On a phone: close the app and open it again. · آپ کی ایپ پرانے ورژن پر ہے۔ ایپ مکمل بند کر کے دوبارہ کھولیں، یا Ctrl+Shift+R دبائیں۔ فون پر: ایپ بند کر کے دوبارہ کھولیں۔",
+      createdAt: new Date().toString(),
+      detail: { liveBuild: live, yourBuild: mine || null },
+    },
+  ];
+}
+
+/** The same cheque number in the Daily Cash Book more than once (same direction; two banks may share a number). */
+async function duplicateChequeAlerts(): Promise<Alert[]> {
+  const rows = (
+    (await db.execute(sql`select id, direction, amount, person, cheque_no, cheque_bank, to_char(entry_date, 'YYYY-MM-DD') as day,
+        ltrim(regexp_replace(upper(coalesce(cheque_no, '')), '[^A-Z0-9]', '', 'g'), '0') k
+      from cash_transactions where not is_deleted and method = 'Cheque' and coalesce(trim(cheque_no), '') <> '' order by id`)) as any
+  ).rows as any[];
+  const groups = new Map<string, any[]>();
+  for (const r of rows) {
+    if (!r.k) continue;
+    const gk = `${r.direction}|${r.k}`;
+    groups.set(gk, [...(groups.get(gk) || []), r]);
+  }
+  const bank = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const out: Alert[] = [];
+  for (const [gk, items] of groups) {
+    if (items.length < 2) continue;
+    // entries that could be the same cheque: no bank written on one of them, or the same bank
+    const parent = items.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++) {
+        const a = bank(items[i].cheque_bank);
+        const b = bank(items[j].cheque_bank);
+        if (!a || !b || a === b) parent[find(i)] = find(j);
+      }
+    const comps = new Map<number, any[]>();
+    items.forEach((r, i) => comps.set(find(i), [...(comps.get(find(i)) || []), r]));
+    for (const comp of comps.values()) {
+      if (comp.length < 2) continue;
+      const first = comp[0];
+      const ids = comp.map((c) => Number(c.id));
+      const days = [...new Set(comp.map((c) => String(c.day)))];
+      out.push({
+        key: `duplicate_cheque:${gk}:${ids.join(",")}`,
+        type: "duplicate_cheque",
+        severity: "high",
+        module: "Cash Book",
+        title: `Cheque ${first.cheque_no} entered ${comp.length}× (${first.direction === "In" ? "received" : "paid"})`,
+        message: `The same cheque number is in the Daily Cash Book ${comp.length} times — ${comp.map((c) => `${c.day} PKR ${Number(c.amount).toLocaleString()}`).join(", ")}. A cheque is cashed once: one of these may be a double entry. · ایک ہی چیک نمبر ${comp.length} بار درج ہے۔`,
+        count: comp.length,
+        createdAt: new Date().toString(),
+        detail: {
+          direction: first.direction,
+          chequeNo: first.cheque_no,
+          entries: comp.map((c) => ({ id: Number(c.id), date: String(c.day), amount: Number(c.amount), person: c.person, bank: c.cheque_bank })),
+        },
+        links: days.map((d) => ({ label: `Open the Cash Book · ${d}`, wb: "finance", sheet: "cash_book", focus: { date: d } })),
+      });
+    }
+  }
+  return out;
+}
+
 async function duplicateEntryAlerts(): Promise<Alert[]> {
   const out: Alert[] = [];
 
@@ -240,7 +349,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
   }
   const N = (v: any) => (v == null ? 0 : parseFloat(String(v)) || 0);
 
-  for (const [, list] of byVeh) {
+  for (const [vehicleId, list] of byVeh) {
     for (let i = 0; i < list.length; i++) {
       const f = list[i];
       if (!txnIds.includes(f.id)) continue;
@@ -248,7 +357,19 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
       const rate = N(f.rate) || (f.total && litres ? f.total / litres : 0);
       const valuePKR = f.total || Math.round(litres * rate);
       const next = list[i + 1];
-      const legKm = next && next.odometer != null && f.odometer != null ? next.odometer - f.odometer : null;
+      // odometer is a required field on every fuel row, so a truck no one has entered a real
+      // reading for stores 0 there — that's "unknown", not "hasn't moved". Treating it as a real
+      // reading made every such fill look like "0 km since the last one, so all of it is over-draw".
+      let legKm: number | null = next && next.odometer && f.odometer ? next.odometer - f.odometer : null;
+      let legSource: "odometer" | "gps" | null = legKm != null ? "odometer" : null;
+      if (legKm == null && next) {
+        // no usable odometer on this leg — fall back to the truck's own GPS trail between the two fills
+        const gps = await gpsDistanceKm(vehicleId, new Date(f.date), new Date(next.date));
+        if (gps != null) {
+          legKm = gps;
+          legSource = "gps";
+        }
+      }
       let expectedLitres: number | null = null;
       let overdrawLitres: number | null = null;
       let overdrawPct: number | null = null;
@@ -266,6 +387,7 @@ async function fuelLegCalcs(txnIds: number[]): Promise<Map<number, any>> {
         odometerAtFill: f.odometer,
         nextOdometer: next?.odometer ?? null,
         legKm,
+        legSource,
         benchmarkKmpl: BENCHMARK_KMPL,
         expectedLitres,
         overdrawLitres,
@@ -512,15 +634,16 @@ async function docExpiryAlerts(): Promise<Alert[]> {
 // ------------------------------------------------------------------- routes
 router.get("/", async (req: AuthRequest, res: Response) => {
   try {
-    const [dupes, dupEntries, theft, review, dues, docs] = await Promise.all([
+    const [dupes, dupCheques, dupEntries, theft, review, dues, docs] = await Promise.all([
       duplicateReceiptAlerts().catch((e) => (console.error("[alerts] dupes", e), [])),
+      duplicateChequeAlerts().catch((e) => (console.error("[alerts] dupCheques", e), [])),
       duplicateEntryAlerts().catch((e) => (console.error("[alerts] dupEntries", e), [])),
       fuelTheftAlerts().catch((e) => (console.error("[alerts] theft", e), [])),
       ledgerReviewAlerts().catch((e) => (console.error("[alerts] review", e), [])),
       dueAlerts().catch((e) => (console.error("[alerts] dues", e), [])),
       docExpiryAlerts().catch((e) => (console.error("[alerts] docs", e), [])),
     ]);
-    let alerts: Alert[] = [...dupes, ...dupEntries, ...theft, ...review, ...dues, ...docs];
+    let alerts: Alert[] = [...dupes, ...dupCheques, ...dupEntries, ...theft, ...review, ...dues, ...docs];
 
     const acks = await db.select().from(schema.alertAcks);
     const ackBy = new Map(acks.map((a) => [a.alertKey, a]));
@@ -530,6 +653,9 @@ router.get("/", async (req: AuthRequest, res: Response) => {
       .filter((a) => includeAcked || !a.ack);
 
     alerts.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || (b.createdAt > a.createdAt ? 1 : -1));
+    // the update notice is always first, and never hidden by an acknowledgement (those are shared by everyone):
+    // it ends with the update
+    alerts.unshift(...appUpdateAlerts(req));
 
     const counts = { total: alerts.length, critical: 0, high: 0, medium: 0, low: 0 };
     const byType: Record<string, number> = {};
